@@ -1,3 +1,5 @@
+// app/dashboard/members/page.tsx
+// Server component — provides SSR initial data, then client takes over with realtime
 import { adminDb } from "@/lib/firebaseServer";
 import { User, Staff } from "@/types/firestore";
 import MembersClient from "./MembersClient";
@@ -8,25 +10,26 @@ async function getData() {
     adminDb.collection("staff").get(),
     adminDb.collection("stores").get(),
   ]);
-
-  const users = usersSnap.docs.map(d => ({ uid: d.id, ...d.data() } as User & { uid: string }));
-  const staff = staffSnap.docs.map(d => ({ uid: d.id, ...d.data() } as Staff & { uid: string }));
-  const storeIds = storesSnap.docs.map(d => d.id);
-
-  return { users, staff, storeIds };
+  return {
+    users:    usersSnap.docs.map(d => ({ uid: d.id, ...d.data() } as User  & { uid: string })),
+    staff:    staffSnap.docs.map(d => ({ uid: d.id, ...d.data() } as Staff & { uid: string })),
+    storeIds: storesSnap.docs.map(d => d.id),
+  };
 }
 
 export default async function UsersStaffPage() {
-  let users: (User & { uid: string })[] = [];
-  let staff: (Staff & { uid: string })[] = [];
+  let users:    (User  & { uid: string })[] = [];
+  let staff:    (Staff & { uid: string })[] = [];
   let storeIds: string[] = [];
 
   try {
     const d = await getData();
-    users = d.users;
-    staff = d.staff;
+    users    = d.users;
+    staff    = d.staff;
     storeIds = d.storeIds;
-  } catch { /* not configured */ }
+  } catch {
+    // Firebase not configured — client will hydrate from onSnapshot
+  }
 
   return (
     <MembersClient
