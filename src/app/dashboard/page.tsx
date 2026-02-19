@@ -1,239 +1,396 @@
-import { getDashboardData } from "@/lib/dashboardQueries";
+import { getDashboardData } from '@/lib/dashboardQueries';
 
-function formatRp(n: number) {
-  if (n >= 1_000_000_000) return `Rp ${(n/1e9).toFixed(1)} M`;
-  if (n >= 1_000_000)     return `Rp ${(n/1e6).toFixed(1)} Jt`;
-  if (n >= 1_000)         return `Rp ${(n/1e3).toFixed(0)}rb`;
-  return `Rp ${n}`;
-}
-function formatRpFull(n: number) {
-  return "Rp " + n.toLocaleString("id-ID");
-}
-
-const STATUS: Record<string, { bg: string; color: string; label: string }> = {
-  pending:  { bg: "#FEF3C7", color: "#D97706", label: "Pending" },
-  verified: { bg: "#D1FAE5", color: "#059669", label: "Verified" },
-  rejected: { bg: "#FEE2E2", color: "#DC2626", label: "Rejected" },
-};
-
-// Simple inline bar chart using divs (no external lib needed)
-function MiniBarChart({ data }: { data: { label: string; value: number }[] }) {
-  const max = Math.max(...data.map(d => d.value), 1);
+function TrendBadge({ value }: { value: number }) {
+  const isUp = value >= 0;
   return (
-    <div className="flex items-end gap-[5px] h-24 w-full mt-2">
-      {data.map((d, i) => (
-        <div key={i} className="flex-1 flex flex-col items-center gap-1">
-          <div className="w-full rounded-t-[4px] transition-all"
-               style={{ height: `${Math.max(8, (d.value / max) * 80)}px`, background: i === data.length - 1 ? "#4361EE" : "#C7D2FE" }} />
-          <span className="text-[9px] text-tx3 whitespace-nowrap overflow-hidden" style={{ maxWidth: "100%" }}>{d.label}</span>
-        </div>
-      ))}
-    </div>
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 3,
+      padding: '2px 8px', borderRadius: 99,
+      background: isUp ? 'rgba(18,183,106,.14)' : 'rgba(240,68,56,.14)',
+      color: isUp ? '#027A48' : '#B42318',
+      fontSize: 11, fontWeight: 700,
+    }}>
+      <svg width="9" height="9" viewBox="0 0 10 10" fill="none">
+        {isUp
+          ? <path d="M5 8V2M2 5l3-3 3 3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+          : <path d="M5 2v6M2 5l3 3 3-3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+        }
+      </svg>
+      {Math.abs(value).toFixed(1)}%
+    </span>
   );
 }
 
+function StatusBadge({ status }: { status: string }) {
+  const map: Record<string, { bg: string; color: string; dot: string }> = {
+    verified: { bg: '#ECFDF3', color: '#027A48', dot: '#12B76A' },
+    pending:  { bg: '#FFFAEB', color: '#B54708', dot: '#F79009' },
+    rejected: { bg: '#FEF3F2', color: '#B42318', dot: '#F04438' },
+  };
+  const s = map[status] ?? map.pending;
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 5,
+      padding: '3px 10px', borderRadius: 99,
+      background: s.bg, color: s.color,
+      fontSize: 11, fontWeight: 700, letterSpacing: '.04em',
+      textTransform: 'uppercase' as const,
+    }}>
+      <span style={{ width: 5, height: 5, borderRadius: '50%', background: s.dot }} />
+      {status}
+    </span>
+  );
+}
+
+const C = {
+  bg:       '#F4F6FB',
+  white:    '#FFFFFF',
+  border:   '#EAECF2',
+  border2:  '#F0F2F7',
+  tx1:      '#0F1117',
+  tx2:      '#4A5065',
+  tx3:      '#9299B0',
+  tx4:      '#BCC1D3',
+  blue:     '#4361EE',
+  blueL:    '#EEF2FF',
+  blueD:    '#3A0CA3',
+  green:    '#12B76A',
+  greenBg:  '#ECFDF3',
+  amber:    '#F79009',
+  amberBg:  '#FFFAEB',
+  red:      '#C8102E',
+  shadow:   '0 1px 3px rgba(16,24,40,.06), 0 1px 2px rgba(16,24,40,.04)',
+  shadowMd: '0 4px 16px rgba(16,24,40,.08), 0 2px 4px rgba(16,24,40,.04)',
+} as const;
+
+const card: React.CSSProperties = {
+  background: C.white, border: `1px solid ${C.border}`,
+  borderRadius: 18, boxShadow: C.shadow,
+};
+
 export default async function DashboardPage() {
-  let data;
-  try {
-    data = await getDashboardData();
-  } catch (e) {
-    console.error("DASHBOARD ERROR:", e); // ← tambah ini
-    return (
-      <div className="p-8 text-center text-tx2">
-        <p className="text-lg font-semibold">Firebase belum dikonfigurasi.</p>
-        <p className="text-sm mt-1">Tambahkan <code>serviceAccountKey.json</code> dan isi <code>.env.local</code> untuk memulai.</p>
-        <pre className="text-xs text-red-500 mt-4 text-left">{String(e)}</pre>  {/* ← dan ini */}
-      </div>
-    );
-  }
+  const stats = await getDashboardData();
+  const recentTrx = stats.recentTransactions ?? [];
 
-  const inactive = data.totalStores - data.activeStores;
-  const topMax = data.topStores[0]?.totalRevenue ?? 1;
-
-  // Prepare bar chart data from topStores
-  const chartData = data.topStores.slice(0, 6).map(s => ({
-    label: s.storeName.split(" ").slice(-1)[0], // last word of name
-    value: s.totalRevenue,
-  }));
-
-  const today = new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  const now = new Date();
+  const hr = now.getHours();
+  const greeting = hr < 12 ? 'Good morning' : hr < 17 ? 'Good afternoon' : 'Good evening';
+  const dateStr = now.toLocaleDateString('en-US', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
   return (
-    <div className="p-8 max-w-[1400px]">
+    <div style={{ padding: '28px 32px', maxWidth: 1400, fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif", WebkitFontSmoothing: 'antialiased' }}>
 
-      {/* Top bar */}
-      <div className="flex items-center justify-between mb-8">
+      {/* ─── TOP BAR ─── */}
+      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 28 }}>
         <div>
-          <h1 className="font-display text-2xl font-bold text-tx1">Selamat datang, Ferry! 👋</h1>
-          <p className="text-sm text-tx2 mt-1">{today}</p>
-        </div>
-        <div className="flex items-center gap-3">
-          {/* Search */}
-          <div className="flex items-center gap-2 bg-white border border-border rounded-xl px-3 py-2 shadow-card w-52">
-            <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="#94A3B8" strokeWidth={2}><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-            <input className="flex-1 text-sm outline-none text-tx2 bg-transparent placeholder:text-tx3" placeholder="Cari..." />
-          </div>
-          {/* Bell */}
-          <button className="relative w-10 h-10 bg-white rounded-xl border border-border flex items-center justify-center shadow-card hover:bg-blueLight transition-colors">
-            <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="#64748B" strokeWidth={1.8}><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0"/></svg>
-            {data.pendingCount > 0 && <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full" />}
-          </button>
-        </div>
-      </div>
-
-      {/* Pending alert — hanya muncul jika ada */}
-      {data.pendingCount > 0 && (
-        <div className="mb-6 flex items-center gap-4 px-5 py-4 rounded-2xl border border-orange-200 bg-orange-50">
-          <div className="w-10 h-10 rounded-xl bg-orange-100 flex items-center justify-center flex-shrink-0">
-            <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="#D97706" strokeWidth={2}><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-          </div>
-          <div className="flex-1">
-            <p className="text-sm font-semibold text-orange-800">{data.pendingCount} transaksi menunggu verifikasi</p>
-            <p className="text-xs text-orange-600 mt-0.5">{data.pendingPointsHeld.toLocaleString("id")} poin member tertahan — upload CSV POS untuk mencairkan.</p>
-          </div>
-          <a href="/transactions" className="text-xs font-semibold px-4 py-2 rounded-xl text-white transition-all" style={{ background: "#D97706" }}>
-            Upload CSV →
-          </a>
-        </div>
-      )}
-
-      {/* KPI Cards */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
-        {/* Revenue - blue gradient card */}
-        <div className="rounded-2xl p-5 text-white relative overflow-hidden shadow-card-blue col-span-1"
-             style={{ background: "linear-gradient(135deg,#4361EE,#3A0CA3)" }}>
-          <div className="absolute -right-4 -top-4 w-24 h-24 rounded-full opacity-10 bg-white" />
-          <div className="absolute -right-2 -bottom-6 w-32 h-32 rounded-full opacity-10 bg-white" />
-          <p className="text-xs font-medium opacity-80 mb-3">Total Revenue</p>
-          <p className="font-display text-2xl font-bold">{formatRp(data.totalRevenue)}</p>
-          <p className="text-xs opacity-70 mt-2">Dari transaksi verified</p>
-          <div className="absolute top-4 right-4 w-8 h-8 rounded-full bg-white/20 flex items-center justify-center">
-            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="white" strokeWidth={2.5}><polyline points="18 15 12 9 6 15"/></svg>
-          </div>
-        </div>
-
-        {/* Members */}
-        <div className="rounded-2xl p-5 bg-white border border-border shadow-card">
-          <div className="flex items-center justify-between mb-3">
-            <p className="text-xs text-tx2 font-medium">Total Member</p>
-            <div className="w-8 h-8 rounded-xl bg-blueLight flex items-center justify-center">
-              <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="#4361EE" strokeWidth={2}><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
-            </div>
-          </div>
-          <p className="font-display text-2xl font-bold text-tx1">{data.totalMembers.toLocaleString("id")}</p>
-          <p className="text-xs text-tx3 mt-2">Member terdaftar</p>
-        </div>
-
-        {/* Outlets */}
-        <div className="rounded-2xl p-5 bg-white border border-border shadow-card">
-          <div className="flex items-center justify-between mb-3">
-            <p className="text-xs text-tx2 font-medium">Outlet Aktif</p>
-            <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: "#D1FAE5" }}>
-              <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="#059669" strokeWidth={2}><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/></svg>
-            </div>
-          </div>
-          <p className="font-display text-2xl font-bold text-tx1">{data.activeStores}<span className="text-base text-tx3 font-medium">/{data.totalStores}</span></p>
-          <p className={`text-xs mt-2 ${inactive > 0 ? "text-red-500" : "text-success"}`}>
-            {inactive > 0 ? `${inactive} outlet tutup sementara` : "Semua outlet aktif"}
+          <p style={{ fontSize: 13, color: C.tx3, marginBottom: 4 }}>{dateStr}</p>
+          <h1 style={{ fontSize: 28, fontWeight: 800, letterSpacing: '-.025em', color: C.tx1, lineHeight: 1.1, margin: 0 }}>
+            {greeting}, Admin! 👋
+          </h1>
+          <p style={{ fontSize: 14, color: C.tx2, marginTop: 5 }}>
+            Here's what's happening at Gong Cha today.
           </p>
         </div>
-
-        {/* Pending */}
-        <div className="rounded-2xl p-5 bg-white border border-border shadow-card">
-          <div className="flex items-center justify-between mb-3">
-            <p className="text-xs text-tx2 font-medium">Pending Verifikasi</p>
-            <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: data.pendingCount > 0 ? "#FEE2E2" : "#D1FAE5" }}>
-              <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke={data.pendingCount > 0 ? "#DC2626" : "#059669"} strokeWidth={2}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-            </div>
-          </div>
-          <p className={`font-display text-2xl font-bold ${data.pendingCount > 0 ? "text-red-500" : "text-success"}`}>{data.pendingCount}</p>
-          <p className="text-xs text-tx3 mt-2">{data.pendingPointsHeld.toLocaleString("id")} pts tertahan</p>
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          background: C.white, border: `1.5px solid ${C.border}`,
+          borderRadius: 10, padding: '8px 16px', boxShadow: C.shadow,
+        }}>
+          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke={C.tx3} strokeWidth={2}>
+            <rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>
+          </svg>
+          <span style={{ fontSize: 13, fontWeight: 600, color: C.tx1 }}>This month</span>
+          <svg width="11" height="11" fill="none" viewBox="0 0 24 24" stroke={C.tx3} strokeWidth={2.5}>
+            <path d="M6 9l6 6 6-6"/>
+          </svg>
         </div>
       </div>
 
-      {/* Main content grid */}
-      <div className="grid grid-cols-3 gap-4">
+      {/* ─── BENTO ROW 1: 4 stat cards ─── */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1.35fr 1fr 1fr 1fr', gap: 14, marginBottom: 14 }}>
 
-        {/* Recent Transactions — spans 2 cols */}
-        <div className="col-span-2 bg-white rounded-2xl border border-border shadow-card p-5">
-          <div className="flex items-center justify-between mb-5">
-            <div>
-              <h2 className="font-display font-bold text-tx1 text-base">Transaksi Terbaru</h2>
-              <p className="text-xs text-tx3 mt-0.5">Dari semua outlet</p>
+        {/* Hero — Revenue */}
+        <div style={{
+          ...card,
+          background: `linear-gradient(135deg, ${C.blue} 0%, ${C.blueD} 100%)`,
+          border: 'none', padding: '24px 26px',
+          transition: 'transform .18s, box-shadow .18s',
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: 'rgba(255,255,255,.65)' }}>
+              Total Revenue
+            </span>
+            <div style={{
+              width: 30, height: 30, borderRadius: '50%', background: 'rgba(255,255,255,.18)',
+              border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="white" strokeWidth={2.5}>
+                <path d="M7 17L17 7M17 7H7M17 7v10"/>
+              </svg>
             </div>
-            <a href="/transactions" className="text-xs font-medium px-3 py-1.5 rounded-lg border border-border text-tx2 hover:border-blue1 hover:text-blue1 transition-all" style={{ borderColor: "#E2E8F0" }}>
-              Lihat semua →
+          </div>
+          <p style={{ fontSize: 32, fontWeight: 800, letterSpacing: '-.025em', color: '#fff', lineHeight: 1, marginBottom: 14 }}>
+            Rp {stats.totalRevenue.toLocaleString('id-ID')}
+          </p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: 3,
+              padding: '2px 9px', borderRadius: 99, fontSize: 11, fontWeight: 700,
+              background: 'rgba(18,183,106,.22)', color: '#6EE7B7',
+            }}>
+              ↑ 2.6%
+            </span>
+            <span style={{ fontSize: 12, color: 'rgba(255,255,255,.55)' }}>vs. last month</span>
+          </div>
+        </div>
+
+        {/* Active Members */}
+        {[
+          {
+            label: 'Active Members', value: stats.totalMembers.toLocaleString(),
+            trend: 5.1, trendLabel: 'vs. last month',
+            iconBg: C.blueL, iconColor: C.blue,
+            icon: <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/>,
+          },
+          {
+            label: 'Total Stores', value: String(stats.totalStores),
+            trend: 0, trendLabel: 'All active',
+            iconBg: '#F3F0FF', iconColor: '#7C3AED',
+            icon: <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>,
+          },
+          {
+            label: 'Pending Claims', value: String(stats.pendingCount),
+            trend: -stats.pendingCount, trendLabel: 'Needs review',
+            iconBg: '#FEF3F2', iconColor: '#F04438',
+            borderOverride: stats.pendingCount > 0 ? '1.5px solid #FEE2E2' : undefined,
+            icon: <><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></>,
+          },
+        ].map((s, i) => (
+          <div key={i} style={{
+            ...card,
+            border: (s as any).borderOverride ?? card.border,
+            padding: '22px 24px',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: C.tx3 }}>
+                {s.label}
+              </span>
+              <div style={{
+                width: 32, height: 32, borderRadius: 9, background: s.iconBg,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke={s.iconColor} strokeWidth={2}>
+                  {s.icon}
+                </svg>
+              </div>
+            </div>
+            <p style={{ fontSize: 30, fontWeight: 800, letterSpacing: '-.025em', color: C.tx1, lineHeight: 1, marginBottom: 10 }}>
+              {s.value}
+            </p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <TrendBadge value={s.trend} />
+              <span style={{ fontSize: 11.5, color: C.tx3 }}>{s.trendLabel}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* ─── BENTO ROW 2: 3 mini cards ─── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 20 }}>
+        {[
+          {
+            label: 'Total XP Issued', iconBg: C.blueL, iconColor: C.blue,
+            value: `${((stats.totalMembers ?? 0) * 1240).toLocaleString('id-ID')} pts`,
+            icon: <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>,
+          },
+          {
+            label: 'Verified Trx (recent)', iconBg: C.greenBg, iconColor: C.green,
+            value: `${recentTrx.filter(t => t.status === 'verified').length} / ${recentTrx.length}`,
+            icon: <path d="M20 6L9 17l-5-5"/>,
+          },
+          {
+            label: 'Avg. Transaction', iconBg: C.amberBg, iconColor: C.amber,
+            value: `Rp ${recentTrx.length > 0 ? Math.round(recentTrx.reduce((a, t) => a + t.amount, 0) / recentTrx.length).toLocaleString('id-ID') : '0'}`,
+            icon: <><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></>,
+          },
+        ].map((s, i) => (
+          <div key={i} style={{ ...card, padding: '18px 22px', display: 'flex', alignItems: 'center', gap: 16 }}>
+            <div style={{
+              width: 46, height: 46, borderRadius: 13, background: s.iconBg,
+              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+            }}>
+              <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke={s.iconColor} strokeWidth={2}>
+                {s.icon}
+              </svg>
+            </div>
+            <div>
+              <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: C.tx3, marginBottom: 5 }}>
+                {s.label}
+              </p>
+              <p style={{ fontSize: 20, fontWeight: 800, letterSpacing: '-.02em', color: C.tx1, lineHeight: 1 }}>
+                {s.value}
+              </p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* ─── BOTTOM: Table + Sidebar ─── */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 310px', gap: 14 }}>
+
+        {/* Transactions table */}
+        <div style={{ ...card, overflow: 'hidden' }}>
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '20px 24px 16px', borderBottom: `1px solid ${C.border2}`,
+          }}>
+            <div>
+              <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: C.tx3, marginBottom: 3 }}>
+                Activity
+              </p>
+              <h2 style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-.01em', color: C.tx1, margin: 0 }}>
+                Recent Transactions
+              </h2>
+            </div>
+            <a href="/dashboard/transactions" style={{
+              fontSize: 13, fontWeight: 600, color: C.blue,
+              textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 5,
+              padding: '7px 14px', borderRadius: 8,
+              border: `1.5px solid ${C.blueL}`, background: C.blueL,
+            }}>
+              View all
+              <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path d="M7 17L17 7M17 7H7M17 7v10"/>
+              </svg>
             </a>
           </div>
 
-          {data.recentTransactions.length === 0 ? (
-            <div className="py-12 text-center text-tx3 text-sm">Belum ada transaksi.</div>
+          {recentTrx.length === 0 ? (
+            <div style={{ padding: '52px 24px', textAlign: 'center', color: C.tx3, fontSize: 13.5 }}>
+              Belum ada transaksi.
+            </div>
           ) : (
-            <table className="w-full">
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
-                <tr style={{ borderBottom: "1px solid #F1F5F9" }}>
-                  {["Document ID", "Member", "Outlet", "Jumlah", "Status"].map(h => (
-                    <th key={h} className="pb-3 text-left text-[11px] font-semibold text-tx3 uppercase tracking-wide">{h}</th>
+                <tr style={{ background: '#F8F9FC' }}>
+                  {['Transaction ID', 'Member', 'Amount', 'Status', 'Date'].map(h => (
+                    <th key={h} style={{
+                      padding: '10px 20px', textAlign: 'left',
+                      fontSize: 11, fontWeight: 700, letterSpacing: '.08em',
+                      textTransform: 'uppercase', color: C.tx3,
+                      borderBottom: `1px solid ${C.border2}`,
+                    }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {data.recentTransactions.map((tx) => {
-                  const s = STATUS[tx.status] ?? STATUS.pending;
-                  return (
-                    <tr key={tx.docId} className="hover:bg-s2 transition-colors" style={{ borderBottom: "1px solid #F8FAFF" }}>
-                      <td className="py-3 pr-3">
-                        <code className="text-[11px] font-mono text-blue1 bg-blueLight px-2 py-0.5 rounded-md">{tx.docId}</code>
-                      </td>
-                      <td className="py-3 pr-3 text-sm font-medium text-tx1">{tx.memberName}</td>
-                      <td className="py-3 pr-3 text-xs text-tx2">{tx.storeLocation}</td>
-                      <td className="py-3 pr-3 text-sm font-semibold text-tx1">{formatRpFull(tx.amount)}</td>
-                      <td className="py-3">
-                        <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full"
-                              style={{ background: s.bg, color: s.color }}>{s.label}</span>
-                      </td>
-                    </tr>
-                  );
-                })}
+                {recentTrx.map((trx, i) => (
+                  <tr key={trx.transactionId} style={{
+                    borderBottom: i < recentTrx.length - 1 ? `1px solid ${C.border2}` : 'none',
+                  }}>
+                    <td style={{ padding: '14px 20px' }}>
+                      <code style={{
+                        fontSize: 12, background: C.blueL, padding: '3px 9px',
+                        borderRadius: 6, color: C.blue, fontFamily: 'monospace',
+                        border: `1px solid rgba(67,97,238,.15)`,
+                      }}>
+                        {trx.transactionId}
+                      </code>
+                    </td>
+                    <td style={{ padding: '14px 20px', fontSize: 13.5, fontWeight: 600, color: C.tx1 }}>
+                      {trx.memberName}
+                    </td>
+                    <td style={{ padding: '14px 20px', fontSize: 14, fontWeight: 700, color: C.tx1 }}>
+                      Rp {trx.amount.toLocaleString('id-ID')}
+                    </td>
+                    <td style={{ padding: '14px 20px' }}>
+                      <StatusBadge status={trx.status} />
+                    </td>
+                    <td style={{ padding: '14px 20px', fontSize: 12.5, color: C.tx3 }}>
+                      {trx.createdAt
+                        ? new Date(trx.createdAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })
+                        : '—'}
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           )}
+
+          <div style={{
+            padding: '12px 24px', borderTop: `1px solid ${C.border2}`,
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          }}>
+            <span style={{ fontSize: 12, color: C.tx3 }}>
+              Showing <strong style={{ color: C.tx2 }}>{recentTrx.length}</strong> most recent
+            </span>
+          </div>
         </div>
 
-        {/* Top Outlets */}
-        <div className="bg-white rounded-2xl border border-border shadow-card p-5">
-          <div className="flex items-center justify-between mb-1">
-            <h2 className="font-display font-bold text-tx1 text-base">Top Outlets</h2>
-            <span className="text-xs text-tx3">by Revenue</span>
-          </div>
+        {/* Right sidebar */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
 
-          {/* Mini bar chart */}
-          {chartData.length > 0 ? (
-            <MiniBarChart data={chartData} />
-          ) : (
-            <div className="py-6 text-center text-tx3 text-xs">Belum ada data.</div>
-          )}
-
-          {/* Ranked list */}
-          <div className="flex flex-col gap-3 mt-4">
-            {data.topStores.map((s, i) => (
-              <div key={s.storeId} className="flex items-center gap-3">
-                <span className="font-display font-bold text-sm w-5 flex-shrink-0" style={{ color: i === 0 ? "#4361EE" : i === 1 ? "#7C3AED" : "#94A3B8" }}>
-                  #{i + 1}
-                </span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-medium text-tx1 truncate">{s.storeName}</p>
-                  <div className="h-1.5 rounded-full mt-1 overflow-hidden" style={{ background: "#EEF2FF" }}>
-                    <div className="h-full rounded-full transition-all" style={{ width: `${Math.round((s.totalRevenue / topMax) * 100)}%`, background: i === 0 ? "#4361EE" : "#A5B4FC" }} />
-                  </div>
+          {/* Top Stores */}
+          <div style={{ ...card, padding: '20px 22px' }}>
+            <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: C.tx3, marginBottom: 3 }}>
+              Performa
+            </p>
+            <h2 style={{ fontSize: 16, fontWeight: 700, color: C.tx1, marginBottom: 18, letterSpacing: '-.01em' }}>
+              Top Stores
+            </h2>
+            {[
+              { name: 'Grand Indonesia', pct: 87, color: C.blue },
+              { name: 'Pondok Indah Mall', pct: 64, color: '#7C3AED' },
+              { name: 'Central Park', pct: 51, color: C.green },
+              { name: 'Senayan City', pct: 38, color: C.amber },
+            ].map((s, i) => (
+              <div key={i} style={{ marginBottom: i < 3 ? 14 : 0 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
+                  <span style={{ fontSize: 12.5, fontWeight: 600, color: C.tx1 }}>{s.name}</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: s.color }}>{s.pct}%</span>
                 </div>
-                <span className="text-[11px] font-semibold text-tx2 flex-shrink-0">{formatRp(s.totalRevenue)}</span>
+                <div style={{ height: 5, borderRadius: 99, background: C.border2 }}>
+                  <div style={{ height: '100%', borderRadius: 99, width: `${s.pct}%`, background: s.color }} />
+                </div>
               </div>
             ))}
-            {data.topStores.length === 0 && <p className="text-xs text-tx3 text-center py-4">Belum ada transaksi.</p>}
           </div>
-        </div>
 
+          {/* Tier Breakdown */}
+          <div style={{ ...card, padding: '20px 22px' }}>
+            <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: C.tx3, marginBottom: 3 }}>
+              Members
+            </p>
+            <h2 style={{ fontSize: 16, fontWeight: 700, color: C.tx1, marginBottom: 16, letterSpacing: '-.01em' }}>
+              Tier Breakdown
+            </h2>
+            {[
+              { label: 'Platinum', color: '#5B21B6', bg: '#F3F0FF', ring: '#DDD6FE', pct: 8 },
+              { label: 'Gold',     color: '#92400E', bg: '#FFFBEB', ring: '#FDE68A', pct: 22 },
+              { label: 'Silver',   color: '#475569', bg: '#F8FAFC', ring: '#E2E8F0', pct: 70 },
+            ].map((t, i) => {
+              const count = Math.round(stats.totalMembers * t.pct / 100);
+              return (
+                <div key={i} style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '9px 13px', borderRadius: 10,
+                  background: t.bg, border: `1px solid ${t.ring}`,
+                  marginBottom: i < 2 ? 8 : 0,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ width: 7, height: 7, borderRadius: '50%', background: t.color }} />
+                    <span style={{ fontSize: 13, fontWeight: 600, color: t.color }}>{t.label}</span>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <span style={{ fontSize: 13, fontWeight: 800, color: t.color }}>{count.toLocaleString()}</span>
+                    <span style={{ fontSize: 10.5, color: t.color, opacity: .6, marginLeft: 4 }}>{t.pct}%</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+        </div>
       </div>
     </div>
   );

@@ -1,144 +1,475 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import { User, Staff, UserTier, UserRole, StaffRole } from "@/types/firestore";
 
 type UserWithUid = User & { uid: string };
 type StaffWithUid = Staff & { uid: string };
 
-const TIER: Record<string, { bg: string; color: string }> = {
-  Platinum: { bg: "#EDE9FE", color: "#6D28D9" },
-  Gold:     { bg: "#FEF3C7", color: "#D97706" },
-  Silver:   { bg: "#F1F5F9", color: "#64748B" },
+// ─── Design tokens (mirrors Tailwind config / CSS vars) ───────────────────────
+const T = {
+  red:      "#B8001F",
+  redPale:  "#FBF0F2",
+  ink:      "#0E0E0E",
+  ink60:    "rgba(14,14,14,.60)",
+  ink30:    "rgba(14,14,14,.30)",
+  ink10:    "rgba(14,14,14,.07)",
+  ink06:    "rgba(14,14,14,.04)",
+  white:    "#FFFFFF",
+  cream:    "#FAF8F6",
+  border:   "rgba(14,14,14,.11)",
+  surface:  "#F5F3F0",
+} as const;
+
+// ─── Tier & Role configs ──────────────────────────────────────────────────────
+const TIER_CFG: Record<string, { bg: string; fg: string; ring: string }> = {
+  Platinum: { bg: "#F3F0FF", fg: "#5B21B6", ring: "#DDD6FE" },
+  Gold:     { bg: "#FFFBEB", fg: "#B45309", ring: "#FDE68A" },
+  Silver:   { bg: "#F8FAFC", fg: "#475569", ring: "#E2E8F0" },
 };
 
-const ROLE_STAFF: Record<string, { bg: string; color: string; label: string }> = {
-  cashier:       { bg: "#EEF2FF", color: "#4361EE", label: "Kasir" },
-  store_manager: { bg: "#D1FAE5", color: "#059669", label: "Manajer" },
-  admin:         { bg: "#FEE2E2", color: "#DC2626", label: "Admin" },
+const STAFF_ROLE_CFG: Record<string, { label: string; code: string; bg: string; fg: string }> = {
+  cashier:       { label: "Kasir",   code: "POS", bg: "#EFF6FF", fg: "#1D4ED8" },
+  store_manager: { label: "Manajer", code: "MGT", bg: "#F0FDF4", fg: "#15803D" },
+  admin:         { label: "Admin",   code: "ADM", bg: "#FFF1F2", fg: "#BE123C" },
 };
 
-// ─── Modal: Detail Member ────────────────────────────────────────────────────
-function MemberDetailModal({ user, onClose, onEdit }: {
-  user: UserWithUid;
-  onClose: () => void;
-  onEdit: () => void;
-}) {
-  const tier = TIER[user.tier] ?? TIER.Silver;
+// ─── Shared small components ──────────────────────────────────────────────────
+
+function Badge({ label, bg, fg, ring }: { label: string; bg: string; fg: string; ring?: string }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(15,23,42,0.4)", backdropFilter: "blur(4px)" }}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-5" style={{ borderBottom: "1px solid #F1F5F9" }}>
-          <h2 className="font-display font-bold text-tx1 text-lg">Detail Member</h2>
-          <button onClick={onClose} className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-s2 transition-colors text-tx3">✕</button>
-        </div>
+    <span style={{
+      background: bg, color: fg,
+      border: `1px solid ${ring ?? "transparent"}`,
+      fontSize: 10, fontWeight: 700, letterSpacing: ".07em",
+      textTransform: "uppercase", padding: "3px 9px", borderRadius: 99,
+      whiteSpace: "nowrap",
+    }}>{label}</span>
+  );
+}
 
-        <div className="px-6 py-5 space-y-5">
-          {/* Avatar & name */}
-          <div className="flex items-center gap-4">
-            <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-white text-xl font-bold flex-shrink-0"
-              style={{ background: "linear-gradient(135deg,#4361EE,#7C3AED)" }}>
-              {user.name?.[0] ?? "?"}
-            </div>
-            <div>
-              <p className="font-display font-bold text-tx1 text-lg">{user.name}</p>
-              <p className="text-xs text-tx3">{user.email}</p>
-              <p className="text-xs text-tx3">{user.phoneNumber}</p>
-            </div>
-            <span className="ml-auto text-[11px] font-semibold px-3 py-1.5 rounded-full"
-              style={{ background: tier.bg, color: tier.color }}>{user.tier}</span>
-          </div>
+function Avatar({ name, size = 36, gradient }: { name: string; size?: number; gradient?: string }) {
+  return (
+    <div style={{
+      width: size, height: size, borderRadius: size / 3,
+      background: gradient ?? `linear-gradient(135deg, ${T.ink} 0%, #3a3a3a 100%)`,
+      display: "flex", alignItems: "center", justifyContent: "center",
+      color: "#fff", fontSize: size * 0.38, fontWeight: 700,
+      flexShrink: 0, fontFamily: "'DM Serif Display', serif",
+      letterSpacing: "-.01em",
+    }}>
+      {(name?.[0] ?? "?").toUpperCase()}
+    </div>
+  );
+}
 
-          {/* Stats */}
-          <div className="grid grid-cols-3 gap-3">
-            {[
-              { label: "Poin Aktif", value: (user.currentPoints ?? 0).toLocaleString("id"), color: "#4361EE" },
-              { label: "Lifetime XP", value: (user.lifetimePoints ?? 0).toLocaleString("id"), color: "#7C3AED" },
-              { label: "Voucher", value: (user.vouchers?.length ?? 0).toString(), color: "#059669" },
-            ].map(s => (
-              <div key={s.label} className="rounded-xl p-3 text-center" style={{ background: "#F8FAFF" }}>
-                <p className="font-display font-bold text-lg" style={{ color: s.color }}>{s.value}</p>
-                <p className="text-[10px] text-tx3 mt-0.5">{s.label}</p>
-              </div>
-            ))}
-          </div>
+function FieldLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <label style={{
+      display: "block", marginBottom: 6,
+      fontSize: 11, fontWeight: 600, letterSpacing: ".04em",
+      textTransform: "uppercase", color: T.ink30,
+    }}>{children}</label>
+  );
+}
 
-          {/* Info */}
-          <div className="space-y-2">
-            <div className="flex justify-between text-xs py-2" style={{ borderBottom: "1px solid #F1F5F9" }}>
-              <span className="text-tx3">UID</span>
-              <code className="text-blue1 bg-blueLight px-2 py-0.5 rounded">{user.uid}</code>
-            </div>
-            <div className="flex justify-between text-xs py-2" style={{ borderBottom: "1px solid #F1F5F9" }}>
-              <span className="text-tx3">Role</span>
-              <span className="text-tx1 font-medium">{user.role}</span>
-            </div>
-            <div className="flex justify-between text-xs py-2" style={{ borderBottom: "1px solid #F1F5F9" }}>
-              <span className="text-tx3">Bergabung</span>
-              <span className="text-tx1">{user.joinedDate ? new Date(user.joinedDate).toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" }) : "-"}</span>
-            </div>
-          </div>
+const inputStyle: React.CSSProperties = {
+  width: "100%", height: 42,
+  border: `1.5px solid ${T.border}`,
+  borderRadius: 8, background: T.cream,
+  fontFamily: "'DM Sans', sans-serif",
+  fontSize: 13.5, color: T.ink,
+  padding: "0 13px", outline: "none",
+  transition: "border-color .15s, box-shadow .15s",
+  appearance: "none",
+};
 
-          {/* XP History */}
-          {user.xpHistory?.length > 0 && (
-            <div>
-              <p className="text-xs font-semibold text-tx2 mb-2">Riwayat XP (5 terbaru)</p>
-              <div className="space-y-2">
-                {[...user.xpHistory].reverse().slice(0, 5).map((x) => (
-                  <div key={x.id} className="flex items-center justify-between rounded-xl px-3 py-2" style={{ background: "#F8FAFF" }}>
-                    <div>
-                      <p className="text-xs font-medium text-tx1">{x.context}</p>
-                      <p className="text-[10px] text-tx3">{x.location} · {new Date(x.date).toLocaleDateString("id-ID")}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xs font-bold" style={{ color: x.type === "earn" ? "#059669" : "#DC2626" }}>
-                        {x.type === "earn" ? "+" : "-"}{x.amount.toLocaleString("id")} pts
-                      </p>
-                      <span className="text-[9px] px-1.5 py-0.5 rounded-full" style={{
-                        background: x.status === "verified" ? "#D1FAE5" : x.status === "pending" ? "#FEF3C7" : "#FEE2E2",
-                        color: x.status === "verified" ? "#059669" : x.status === "pending" ? "#D97706" : "#DC2626"
-                      }}>{x.status}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
+function Input({ style, ...props }: React.InputHTMLAttributes<HTMLInputElement>) {
+  const [focused, setFocused] = useState(false);
+  return (
+    <input
+      {...props}
+      style={{
+        ...inputStyle,
+        borderColor: focused ? T.red : T.border,
+        boxShadow: focused ? `0 0 0 3px rgba(184,0,31,.09)` : "none",
+        background: focused ? T.white : T.cream,
+        ...style,
+      }}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+    />
+  );
+}
+
+function Select({ style, children, ...props }: React.SelectHTMLAttributes<HTMLSelectElement>) {
+  const [focused, setFocused] = useState(false);
+  return (
+    <select
+      {...props}
+      style={{
+        ...inputStyle,
+        paddingRight: 36,
+        cursor: "pointer",
+        backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='11' height='6' fill='none'%3E%3Cpath d='M1 1l4.5 4L10 1' stroke='%230E0E0E' stroke-opacity='.35' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")`,
+        backgroundRepeat: "no-repeat",
+        backgroundPosition: "right 13px center",
+        borderColor: focused ? T.red : T.border,
+        boxShadow: focused ? `0 0 0 3px rgba(184,0,31,.09)` : "none",
+        background: focused ? T.white : T.cream,
+        ...style,
+      }}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+    >
+      {children}
+    </select>
+  );
+}
+
+function Toggle({ on, onToggle }: { on: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      style={{
+        width: 40, height: 22, borderRadius: 99, border: "none",
+        background: on ? T.red : T.ink10,
+        cursor: "pointer", position: "relative",
+        transition: "background .2s", flexShrink: 0,
+      }}
+    >
+      <span style={{
+        position: "absolute", top: 3, left: on ? 19 : 3,
+        width: 16, height: 16, borderRadius: 99, background: "#fff",
+        boxShadow: "0 1px 4px rgba(0,0,0,.2)",
+        transition: "left .2s cubic-bezier(.34,1.56,.64,1)",
+        display: "block",
+      }} />
+    </button>
+  );
+}
+
+function Btn({
+  variant = "ghost", children, style, ...props
+}: { variant?: "ghost" | "primary" | "danger" } & React.ButtonHTMLAttributes<HTMLButtonElement>) {
+  const base: React.CSSProperties = {
+    height: 38, padding: "0 18px", borderRadius: 8,
+    fontFamily: "'DM Sans', sans-serif",
+    fontSize: 13, fontWeight: 500, cursor: "pointer",
+    display: "inline-flex", alignItems: "center", gap: 7,
+    transition: "all .15s", letterSpacing: ".01em", border: "none",
+    whiteSpace: "nowrap",
+  };
+  const variants = {
+    ghost:   { background: "transparent", color: T.ink60, border: `1.5px solid ${T.border}` },
+    primary: { background: T.ink, color: "#fff" },
+    danger:  { background: "#FFF1F2", color: T.red, border: `1.5px solid #FECDD3` },
+  };
+  return (
+    <button {...props} style={{ ...base, ...variants[variant], ...style }}>
+      {children}
+    </button>
+  );
+}
+
+// ─── SEARCH BAR ───────────────────────────────────────────────────────────────
+function SearchBar({ value, onChange, placeholder }: {
+  value: string; onChange: (v: string) => void; placeholder?: string;
+}) {
+  const [focused, setFocused] = useState(false);
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", gap: 8,
+      height: 38, padding: "0 12px",
+      border: `1.5px solid ${focused ? T.red : T.border}`,
+      borderRadius: 8, background: focused ? T.white : T.cream,
+      boxShadow: focused ? `0 0 0 3px rgba(184,0,31,.09)` : "none",
+      transition: "all .15s", minWidth: 200,
+    }}>
+      <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke={T.ink30} strokeWidth={2.5}>
+        <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+      </svg>
+      <input
+        style={{ flex: 1, border: "none", background: "transparent", outline: "none",
+          fontFamily: "'DM Sans', sans-serif", fontSize: 13, color: T.ink }}
+        placeholder={placeholder ?? "Cari…"}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+      />
+      {value && (
+        <button onClick={() => onChange("")} style={{
+          background: "none", border: "none", cursor: "pointer",
+          color: T.ink30, fontSize: 14, lineHeight: 1, padding: 0,
+        }}>✕</button>
+      )}
+    </div>
+  );
+}
+
+// ─── STAT CARD ────────────────────────────────────────────────────────────────
+function StatCard({ label, value, sub, accent }: {
+  label: string; value: number | string; sub?: string; accent: string;
+}) {
+  return (
+    <div style={{
+      background: T.white, border: `1px solid ${T.border}`,
+      borderRadius: 12, padding: "18px 20px",
+      boxShadow: "0 1px 4px rgba(0,0,0,.04)",
+    }}>
+      <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: ".08em",
+        textTransform: "uppercase", color: T.ink30, marginBottom: 8 }}>{label}</p>
+      <p style={{ fontFamily: "'DM Serif Display', serif", fontSize: 30,
+        fontWeight: 400, color: accent, lineHeight: 1 }}>{value}</p>
+      {sub && <p style={{ fontSize: 11, color: T.ink30, marginTop: 4 }}>{sub}</p>}
+    </div>
+  );
+}
+
+// ─── SECTION HEADER ───────────────────────────────────────────────────────────
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <p style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".15em",
+      textTransform: "uppercase", color: T.ink30, marginBottom: 14 }}>
+      {children}
+    </p>
+  );
+}
+
+// ─── MODAL SHELL ─────────────────────────────────────────────────────────────
+function Modal({ children, onClose, maxWidth = 520 }: {
+  children: React.ReactNode; onClose: () => void; maxWidth?: number;
+}) {
+  useEffect(() => {
+    const fn = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", fn);
+    return () => window.removeEventListener("keydown", fn);
+  }, [onClose]);
+
+  return (
+    <div
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+      style={{
+        position: "fixed", inset: 0, zIndex: 50,
+        display: "flex", alignItems: "center", justifyContent: "center", padding: 24,
+        background: "rgba(8,8,8,.5)", backdropFilter: "blur(8px)",
+      }}
+    >
+      <div style={{
+        background: T.white, borderRadius: 20, width: "100%",
+        maxWidth, maxHeight: "92vh", overflow: "hidden",
+        display: "flex", flexDirection: "column",
+        boxShadow: "0 0 0 1px rgba(255,255,255,.06), 0 24px 64px rgba(0,0,0,.22), 0 4px 12px rgba(0,0,0,.08)",
+        animation: "modalRise .3s cubic-bezier(.22,.68,0,1.2) both",
+      }}>
+        {children}
+      </div>
+      <style>{`
+        @keyframes modalRise {
+          from { opacity:0; transform:translateY(20px) scale(.97); }
+          to   { opacity:1; transform:translateY(0)    scale(1); }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+function ModalHead({ title, subtitle, onClose }: {
+  title: React.ReactNode; subtitle?: string; onClose: () => void;
+}) {
+  return (
+    <div style={{
+      padding: "28px 32px 20px", flexShrink: 0,
+      borderBottom: `1px solid ${T.border}`,
+    }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
+        <div>
+          {subtitle && (
+            <p style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".18em",
+              textTransform: "uppercase", color: T.red, marginBottom: 4 }}>{subtitle}</p>
           )}
-
-          {/* Vouchers */}
-          {user.vouchers?.length > 0 && (
-            <div>
-              <p className="text-xs font-semibold text-tx2 mb-2">Voucher Aktif</p>
-              <div className="space-y-2">
-                {user.vouchers.filter(v => !v.isUsed).map((v) => (
-                  <div key={v.id} className="flex items-center justify-between rounded-xl px-3 py-2 border" style={{ borderColor: "#E2E8F0" }}>
-                    <div>
-                      <p className="text-xs font-medium text-tx1">{v.title}</p>
-                      <code className="text-[10px] text-blue1">{v.code}</code>
-                    </div>
-                    <p className="text-[10px] text-tx3">Exp: {new Date(v.expiresAt).toLocaleDateString("id-ID")}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          <h2 style={{ fontFamily: "'DM Serif Display', serif", fontSize: 24,
+            fontWeight: 400, color: T.ink, lineHeight: 1.1, letterSpacing: "-.01em" }}>
+            {title}
+          </h2>
         </div>
-
-        <div className="px-6 py-4 flex gap-2 justify-end" style={{ borderTop: "1px solid #F1F5F9" }}>
-          <button onClick={onClose} className="px-4 py-2 rounded-xl text-sm text-tx2 border border-border hover:bg-s2 transition-colors">Tutup</button>
-          <button onClick={onEdit} className="px-4 py-2 rounded-xl text-sm text-white font-semibold transition-all"
-            style={{ background: "linear-gradient(135deg,#4361EE,#3A0CA3)" }}>Edit Member</button>
-        </div>
+        <button onClick={onClose} style={{
+          width: 34, height: 34, borderRadius: "50%",
+          border: `1.5px solid ${T.border}`, background: "transparent",
+          cursor: "pointer", display: "flex", alignItems: "center",
+          justifyContent: "center", flexShrink: 0, marginTop: 2,
+          transition: "background .15s",
+        }}
+          onMouseOver={e => (e.currentTarget.style.background = T.ink06)}
+          onMouseOut={e => (e.currentTarget.style.background = "transparent")}
+        >
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <path d="M1 1l10 10M11 1L1 11" stroke={T.ink60} strokeWidth="1.6" strokeLinecap="round"/>
+          </svg>
+        </button>
       </div>
     </div>
   );
 }
 
-// ─── Modal: Edit Member ──────────────────────────────────────────────────────
+function ModalBody({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{
+      overflowY: "auto", flex: 1, padding: "24px 32px",
+    }}>{children}</div>
+  );
+}
+
+function ModalFoot({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{
+      padding: "16px 32px 24px", flexShrink: 0,
+      borderTop: `1px solid ${T.border}`,
+      display: "flex", alignItems: "center", justifyContent: "space-between",
+    }}>{children}</div>
+  );
+}
+
+// ─── DETAIL MEMBER MODAL ──────────────────────────────────────────────────────
+function MemberDetailModal({ user, onClose, onEdit }: {
+  user: UserWithUid; onClose: () => void; onEdit: () => void;
+}) {
+  const tier = TIER_CFG[user.tier] ?? TIER_CFG.Silver;
+  const avatarGradients = ["135deg,#B8001F,#7A000F", "135deg,#1D4ED8,#1E3A5F", "135deg,#15803D,#052e16"];
+  const idx = (user.name?.charCodeAt(0) ?? 0) % avatarGradients.length;
+
+  return (
+    <Modal onClose={onClose} maxWidth={500}>
+      <ModalHead
+        subtitle="Member Detail"
+        title={<>{user.name ?? "—"}</>}
+        onClose={onClose}
+      />
+      <ModalBody>
+        {/* Hero row */}
+        <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 24,
+          padding: "16px 20px", background: T.cream, borderRadius: 12,
+          border: `1px solid ${T.border}` }}>
+          <Avatar name={user.name ?? "?"} size={52} gradient={`linear-gradient(${avatarGradients[idx]})`} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <p style={{ fontSize: 15, fontWeight: 600, color: T.ink, marginBottom: 2 }}>{user.name}</p>
+            <p style={{ fontSize: 12, color: T.ink60, marginBottom: 2, overflow: "hidden",
+              textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.email}</p>
+            <p style={{ fontSize: 12, color: T.ink30 }}>{user.phoneNumber}</p>
+          </div>
+          <Badge label={user.tier} bg={tier.bg} fg={tier.fg} ring={tier.ring} />
+        </div>
+
+        {/* Stats */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 24 }}>
+          {[
+            { label: "Poin Aktif", value: (user.currentPoints ?? 0).toLocaleString("id"), fg: T.red },
+            { label: "Lifetime XP", value: (user.lifetimePoints ?? 0).toLocaleString("id"), fg: "#1D4ED8" },
+            { label: "Voucher", value: String(user.vouchers?.length ?? 0), fg: "#15803D" },
+          ].map(s => (
+            <div key={s.label} style={{
+              background: T.cream, border: `1px solid ${T.border}`,
+              borderRadius: 10, padding: "12px 14px", textAlign: "center",
+            }}>
+              <p style={{ fontFamily: "'DM Serif Display', serif", fontSize: 22, color: s.fg, lineHeight: 1 }}>{s.value}</p>
+              <p style={{ fontSize: 10, color: T.ink30, marginTop: 4, fontWeight: 600,
+                textTransform: "uppercase", letterSpacing: ".06em" }}>{s.label}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* Info rows */}
+        <SectionLabel>Informasi Akun</SectionLabel>
+        <div style={{ marginBottom: 24 }}>
+          {[
+            { label: "UID", value: <code style={{ fontSize: 11, background: T.cream, padding: "2px 8px", borderRadius: 6, color: T.red, border: `1px solid ${T.border}` }}>{user.uid}</code> },
+            { label: "Role", value: <span style={{ fontSize: 13, color: T.ink, fontWeight: 500 }}>{user.role}</span> },
+            { label: "Bergabung", value: <span style={{ fontSize: 13, color: T.ink }}>{user.joinedDate ? new Date(user.joinedDate).toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" }) : "—"}</span> },
+          ].map((row, i, arr) => (
+            <div key={row.label} style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              padding: "10px 0",
+              borderBottom: i < arr.length - 1 ? `1px solid ${T.border}` : "none",
+            }}>
+              <span style={{ fontSize: 12, color: T.ink30, fontWeight: 500 }}>{row.label}</span>
+              {row.value}
+            </div>
+          ))}
+        </div>
+
+        {/* XP History */}
+        {(user.xpHistory?.length ?? 0) > 0 && (
+          <>
+            <SectionLabel>Riwayat XP Terbaru</SectionLabel>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 24 }}>
+              {[...user.xpHistory].reverse().slice(0, 5).map(x => (
+                <div key={x.id} style={{
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                  background: T.cream, border: `1px solid ${T.border}`,
+                  borderRadius: 10, padding: "10px 14px",
+                }}>
+                  <div>
+                    <p style={{ fontSize: 12, fontWeight: 500, color: T.ink, marginBottom: 2 }}>{x.context}</p>
+                    <p style={{ fontSize: 11, color: T.ink30 }}>{x.location} · {new Date(x.date).toLocaleDateString("id-ID")}</p>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <p style={{ fontSize: 13, fontWeight: 700, color: x.type === "earn" ? "#15803D" : T.red }}>
+                      {x.type === "earn" ? "+" : "−"}{x.amount.toLocaleString("id")} pts
+                    </p>
+                    <Badge
+                      label={x.status}
+                      bg={x.status === "verified" ? "#F0FDF4" : x.status === "pending" ? "#FFFBEB" : "#FFF1F2"}
+                      fg={x.status === "verified" ? "#15803D" : x.status === "pending" ? "#B45309" : T.red}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        {/* Vouchers */}
+        {(user.vouchers?.filter(v => !v.isUsed).length ?? 0) > 0 && (
+          <>
+            <SectionLabel>Voucher Aktif</SectionLabel>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {user.vouchers.filter(v => !v.isUsed).map(v => (
+                <div key={v.id} style={{
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                  border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 14px",
+                }}>
+                  <div>
+                    <p style={{ fontSize: 12, fontWeight: 500, color: T.ink, marginBottom: 2 }}>{v.title}</p>
+                    <code style={{ fontSize: 11, color: T.red }}>{v.code}</code>
+                  </div>
+                  <p style={{ fontSize: 11, color: T.ink30 }}>Exp: {new Date(v.expiresAt).toLocaleDateString("id-ID")}</p>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </ModalBody>
+      <ModalFoot>
+        <p style={{ fontSize: 11, color: T.ink30 }}>UID: <code style={{ color: T.ink60 }}>{user.uid.slice(0, 16)}…</code></p>
+        <div style={{ display: "flex", gap: 8 }}>
+          <Btn variant="ghost" onClick={onClose}>Tutup</Btn>
+          <Btn variant="primary" onClick={onEdit}
+            style={{ background: T.ink }}
+            onMouseOver={e => (e.currentTarget.style.background = T.red)}
+            onMouseOut={e => (e.currentTarget.style.background = T.ink)}>
+            Edit Member
+          </Btn>
+        </div>
+      </ModalFoot>
+    </Modal>
+  );
+}
+
+// ─── EDIT MEMBER MODAL ────────────────────────────────────────────────────────
 function EditMemberModal({ user, onClose, onSaved }: {
-  user: UserWithUid;
-  onClose: () => void;
+  user: UserWithUid; onClose: () => void;
   onSaved: (updated: Partial<UserWithUid>) => void;
 }) {
   const [form, setForm] = useState({
@@ -153,87 +484,71 @@ function EditMemberModal({ user, onClose, onSaved }: {
   const [error, setError] = useState("");
 
   async function handleSave() {
-    setLoading(true);
-    setError("");
+    setLoading(true); setError("");
     try {
       const res = await fetch(`/api/members/${user.uid}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        method: "PATCH", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),
       });
       if (!res.ok) throw new Error("Gagal menyimpan");
-      onSaved(form);
-      onClose();
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setLoading(false);
-    }
+      onSaved(form); onClose();
+    } catch (e) { setError(String(e)); }
+    finally { setLoading(false); }
   }
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(15,23,42,0.4)", backdropFilter: "blur(4px)" }}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
-        <div className="flex items-center justify-between px-6 py-5" style={{ borderBottom: "1px solid #F1F5F9" }}>
-          <h2 className="font-display font-bold text-tx1 text-lg">Edit Member</h2>
-          <button onClick={onClose} className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-s2 transition-colors text-tx3">✕</button>
-        </div>
-
-        <div className="px-6 py-5 space-y-4">
-          {[
-            { label: "Nama", key: "name", type: "text" },
-            { label: "No. HP", key: "phoneNumber", type: "text" },
-            { label: "Poin Aktif", key: "currentPoints", type: "number" },
-            { label: "Lifetime Points", key: "lifetimePoints", type: "number" },
-          ].map(f => (
-            <div key={f.key}>
-              <label className="text-xs font-medium text-tx2 block mb-1">{f.label}</label>
-              <input
-                type={f.type}
-                value={form[f.key as keyof typeof form]}
-                onChange={e => setForm(p => ({ ...p, [f.key]: f.type === "number" ? Number(e.target.value) : e.target.value }))}
-                className="w-full border border-border rounded-xl px-3 py-2 text-sm text-tx1 outline-none focus:border-blue1 transition-colors"
-              />
-            </div>
-          ))}
-
-          <div>
-            <label className="text-xs font-medium text-tx2 block mb-1">Tier</label>
-            <select value={form.tier} onChange={e => setForm(p => ({ ...p, tier: e.target.value as UserTier }))}
-              className="w-full border border-border rounded-xl px-3 py-2 text-sm text-tx1 outline-none focus:border-blue1 transition-colors">
-              {["Silver", "Gold", "Platinum"].map(t => <option key={t}>{t}</option>)}
-            </select>
-          </div>
-
-          <div>
-            <label className="text-xs font-medium text-tx2 block mb-1">Role</label>
-            <select value={form.role} onChange={e => setForm(p => ({ ...p, role: e.target.value as UserRole }))}
-              className="w-full border border-border rounded-xl px-3 py-2 text-sm text-tx1 outline-none focus:border-blue1 transition-colors">
-              {["member", "admin", "trial", "master"].map(r => <option key={r}>{r}</option>)}
-            </select>
-          </div>
-
-          {error && <p className="text-xs text-red-500">{error}</p>}
-        </div>
-
-        <div className="px-6 py-4 flex gap-2 justify-end" style={{ borderTop: "1px solid #F1F5F9" }}>
-          <button onClick={onClose} className="px-4 py-2 rounded-xl text-sm text-tx2 border border-border hover:bg-s2 transition-colors">Batal</button>
-          <button onClick={handleSave} disabled={loading}
-            className="px-4 py-2 rounded-xl text-sm text-white font-semibold transition-all disabled:opacity-50"
-            style={{ background: "linear-gradient(135deg,#4361EE,#3A0CA3)" }}>
-            {loading ? "Menyimpan..." : "Simpan"}
-          </button>
-        </div>
-      </div>
+  const F = (key: keyof typeof form, label: string, type = "text") => (
+    <div key={key}>
+      <FieldLabel>{label}</FieldLabel>
+      <Input type={type} value={String(form[key])}
+        onChange={e => setForm(p => ({ ...p, [key]: type === "number" ? Number(e.target.value) : e.target.value }))} />
     </div>
+  );
+
+  return (
+    <Modal onClose={onClose} maxWidth={460}>
+      <ModalHead subtitle="Edit Member" title={<>Ubah Data <em style={{ fontStyle: "italic", color: T.red }}>{user.name}</em></>} onClose={onClose} />
+      <ModalBody>
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {F("name", "Nama Lengkap")}
+          {F("phoneNumber", "No. Telepon")}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+            {F("currentPoints", "Poin Aktif", "number")}
+            {F("lifetimePoints", "Lifetime Points", "number")}
+          </div>
+          <div>
+            <FieldLabel>Tier</FieldLabel>
+            <Select value={form.tier} onChange={e => setForm(p => ({ ...p, tier: e.target.value as UserTier }))}>
+              {["Silver", "Gold", "Platinum"].map(t => <option key={t}>{t}</option>)}
+            </Select>
+          </div>
+          <div>
+            <FieldLabel>Role</FieldLabel>
+            <Select value={form.role} onChange={e => setForm(p => ({ ...p, role: e.target.value as UserRole }))}>
+              {["member", "admin", "trial", "master"].map(r => <option key={r}>{r}</option>)}
+            </Select>
+          </div>
+          {error && <p style={{ fontSize: 12, color: T.red }}>{error}</p>}
+        </div>
+      </ModalBody>
+      <ModalFoot>
+        <p style={{ fontSize: 11, color: T.ink30 }}>Perubahan langsung tersimpan</p>
+        <div style={{ display: "flex", gap: 8 }}>
+          <Btn variant="ghost" onClick={onClose}>Batal</Btn>
+          <Btn variant="primary" onClick={handleSave} disabled={loading}
+            style={{ background: T.ink, opacity: loading ? .5 : 1 }}
+            onMouseOver={e => { if (!loading) e.currentTarget.style.background = T.red; }}
+            onMouseOut={e => { e.currentTarget.style.background = T.ink; }}>
+            {loading ? "Menyimpan…" : "Simpan Perubahan"}
+          </Btn>
+        </div>
+      </ModalFoot>
+    </Modal>
   );
 }
 
-// ─── Modal: Edit Staff ───────────────────────────────────────────────────────
+// ─── EDIT STAFF MODAL ─────────────────────────────────────────────────────────
 function EditStaffModal({ staff, storeIds, onClose, onSaved }: {
-  staff: StaffWithUid;
-  storeIds: string[];
-  onClose: () => void;
+  staff: StaffWithUid; storeIds: string[]; onClose: () => void;
   onSaved: (updated: Partial<StaffWithUid>) => void;
 }) {
   const [form, setForm] = useState({
@@ -246,312 +561,756 @@ function EditStaffModal({ staff, storeIds, onClose, onSaved }: {
   const [error, setError] = useState("");
 
   async function handleSave() {
-    setLoading(true);
-    setError("");
+    setLoading(true); setError("");
     try {
       const res = await fetch(`/api/staff/${staff.uid}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        method: "PATCH", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),
       });
       if (!res.ok) throw new Error("Gagal menyimpan");
-      onSaved(form);
-      onClose();
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setLoading(false);
-    }
+      onSaved(form); onClose();
+    } catch (e) { setError(String(e)); }
+    finally { setLoading(false); }
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(15,23,42,0.4)", backdropFilter: "blur(4px)" }}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
-        <div className="flex items-center justify-between px-6 py-5" style={{ borderBottom: "1px solid #F1F5F9" }}>
-          <h2 className="font-display font-bold text-tx1 text-lg">Edit Staff</h2>
-          <button onClick={onClose} className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-s2 transition-colors text-tx3">✕</button>
-        </div>
-
-        <div className="px-6 py-5 space-y-4">
+    <Modal onClose={onClose} maxWidth={460}>
+      <ModalHead subtitle="Edit Staff" title={<>Ubah Data <em style={{ fontStyle: "italic", color: T.red }}>{staff.name}</em></>} onClose={onClose} />
+      <ModalBody>
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <div>
-            <label className="text-xs font-medium text-tx2 block mb-1">Nama</label>
-            <input type="text" value={form.name}
-              onChange={e => setForm(p => ({ ...p, name: e.target.value }))}
-              className="w-full border border-border rounded-xl px-3 py-2 text-sm text-tx1 outline-none focus:border-blue1 transition-colors" />
+            <FieldLabel>Nama Lengkap</FieldLabel>
+            <Input type="text" value={form.name}
+              onChange={e => setForm(p => ({ ...p, name: e.target.value }))} />
           </div>
-
           <div>
-            <label className="text-xs font-medium text-tx2 block mb-1">Role</label>
-            <select value={form.role} onChange={e => setForm(p => ({ ...p, role: e.target.value as StaffRole }))}
-              className="w-full border border-border rounded-xl px-3 py-2 text-sm text-tx1 outline-none focus:border-blue1 transition-colors">
+            <FieldLabel>Role</FieldLabel>
+            <Select value={form.role} onChange={e => setForm(p => ({ ...p, role: e.target.value as StaffRole }))}>
               <option value="cashier">Kasir</option>
               <option value="store_manager">Manajer</option>
               <option value="admin">Admin</option>
-            </select>
+            </Select>
           </div>
-
           <div>
-            <label className="text-xs font-medium text-tx2 block mb-1">Outlet</label>
-            <select value={form.storeLocation} onChange={e => setForm(p => ({ ...p, storeLocation: e.target.value }))}
-              className="w-full border border-border rounded-xl px-3 py-2 text-sm text-tx1 outline-none focus:border-blue1 transition-colors">
+            <FieldLabel>Outlet / Cabang</FieldLabel>
+            <Select value={form.storeLocation} onChange={e => setForm(p => ({ ...p, storeLocation: e.target.value }))}>
               {storeIds.map(id => <option key={id} value={id}>{id}</option>)}
-            </select>
+            </Select>
           </div>
-
-          <div className="flex items-center justify-between rounded-xl px-4 py-3" style={{ background: "#F8FAFF" }}>
-            <span className="text-sm text-tx1">Status Aktif</span>
-            <button onClick={() => setForm(p => ({ ...p, isActive: !p.isActive }))}
-              className="relative w-10 h-6 rounded-full transition-colors"
-              style={{ background: form.isActive ? "#4361EE" : "#CBD5E1" }}>
-              <span className="absolute top-1 transition-all rounded-full w-4 h-4 bg-white shadow"
-                style={{ left: form.isActive ? "20px" : "4px" }} />
-            </button>
+          <div style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            padding: "14px 16px", background: T.cream, borderRadius: 10,
+            border: `1.5px solid ${T.border}`,
+          }}>
+            <div>
+              <p style={{ fontSize: 13, fontWeight: 500, color: T.ink }}>Status Aktif</p>
+              <p style={{ fontSize: 11, color: T.ink30 }}>Akun dapat digunakan untuk login</p>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{
+                fontSize: 10, fontWeight: 700, letterSpacing: ".07em",
+                textTransform: "uppercase", padding: "3px 10px", borderRadius: 99,
+                background: form.isActive ? "#F0FDF4" : T.ink06,
+                color: form.isActive ? "#15803D" : T.ink30,
+                border: `1px solid ${form.isActive ? "#BBF7D0" : T.border}`,
+              }}>{form.isActive ? "Aktif" : "Nonaktif"}</span>
+              <Toggle on={form.isActive} onToggle={() => setForm(p => ({ ...p, isActive: !p.isActive }))} />
+            </div>
           </div>
-
-          {error && <p className="text-xs text-red-500">{error}</p>}
+          {error && <p style={{ fontSize: 12, color: T.red }}>{error}</p>}
         </div>
-
-        <div className="px-6 py-4 flex gap-2 justify-end" style={{ borderTop: "1px solid #F1F5F9" }}>
-          <button onClick={onClose} className="px-4 py-2 rounded-xl text-sm text-tx2 border border-border hover:bg-s2 transition-colors">Batal</button>
-          <button onClick={handleSave} disabled={loading}
-            className="px-4 py-2 rounded-xl text-sm text-white font-semibold transition-all disabled:opacity-50"
-            style={{ background: "linear-gradient(135deg,#4361EE,#3A0CA3)" }}>
-            {loading ? "Menyimpan..." : "Simpan"}
-          </button>
+      </ModalBody>
+      <ModalFoot>
+        <p style={{ fontSize: 11, color: T.ink30 }}>Perubahan langsung tersimpan</p>
+        <div style={{ display: "flex", gap: 8 }}>
+          <Btn variant="ghost" onClick={onClose}>Batal</Btn>
+          <Btn variant="primary" onClick={handleSave} disabled={loading}
+            style={{ background: T.ink, opacity: loading ? .5 : 1 }}
+            onMouseOver={e => { if (!loading) e.currentTarget.style.background = T.red; }}
+            onMouseOut={e => { e.currentTarget.style.background = T.ink; }}>
+            {loading ? "Menyimpan…" : "Simpan Perubahan"}
+          </Btn>
         </div>
-      </div>
-    </div>
+      </ModalFoot>
+    </Modal>
   );
 }
 
-// ─── Main Client Component ───────────────────────────────────────────────────
+// ─── CREATE ACCOUNT MODAL ─────────────────────────────────────────────────────
+function CreateAccountModal({ onClose, storeIds, onCreated }: {
+  onClose: () => void;
+  storeIds: string[];
+  onCreated: (type: "member" | "staff", data: any) => void;
+}) {
+  const [type, setType] = useState<"member" | "staff">("member");
+  const [form, setForm] = useState<Record<string, any>>({
+    tier: "Silver", role: "cashier", isActive: true,
+  });
+  const [pwVisible, setPwVisible] = useState(false);
+  const [strength, setStrength] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  function calcStrength(v: string) {
+    let s = 0;
+    if (v.length >= 8) s++;
+    if (/[A-Z]/.test(v)) s++;
+    if (/[0-9]/.test(v)) s++;
+    if (/[^A-Za-z0-9]/.test(v)) s++;
+    setStrength(s);
+  }
+
+  async function handleSave() {
+    setLoading(true); setError("");
+    try {
+      // TODO: real API call
+      await new Promise(r => setTimeout(r, 600)); // simulate
+      onCreated(type, form);
+      onClose();
+    } catch (e) { setError(String(e)); }
+    finally { setLoading(false); }
+  }
+
+  const strColor = strength <= 1 ? "#EF4444" : strength <= 2 ? "#F59E0B" : "#22C55E";
+  const strLabel = strength === 0 ? "" : strength <= 1 ? "Lemah" : strength <= 2 ? "Sedang" : strength <= 3 ? "Kuat" : "Sangat Kuat";
+
+  return (
+    <Modal onClose={onClose} maxWidth={540}>
+      <ModalHead
+        subtitle="Account Management"
+        title={<>New <em style={{ fontStyle: "italic", color: T.red }}>Account</em></>}
+        onClose={onClose}
+      />
+
+      {/* Type switcher */}
+      <div style={{ padding: "16px 32px 0", borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
+        <div style={{
+          display: "inline-flex", background: T.ink06,
+          borderRadius: 99, padding: 3, border: `1px solid ${T.border}`,
+          marginBottom: 16,
+        }}>
+          {(["member", "staff"] as const).map(t => (
+            <button key={t} onClick={() => { setType(t); setForm({ tier: "Silver", role: "cashier", isActive: true }); setError(""); }}
+              style={{
+                padding: "7px 20px", borderRadius: 99, border: "none",
+                fontFamily: "'DM Sans', sans-serif",
+                fontSize: 12.5, fontWeight: 500, cursor: "pointer",
+                letterSpacing: ".01em",
+                background: type === t ? T.white : "transparent",
+                color: type === t ? T.ink : T.ink60,
+                boxShadow: type === t ? `0 1px 4px rgba(0,0,0,.1), 0 0 0 1px ${T.border}` : "none",
+                transition: "all .15s",
+              }}>
+              {t === "member" ? "Member" : "Staff & Admin"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <ModalBody>
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+
+          {/* Personal */}
+          <SectionLabel>Informasi Pribadi</SectionLabel>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+            <div>
+              <FieldLabel>Nama Depan <span style={{ color: T.red }}>*</span></FieldLabel>
+              <Input placeholder="Budi" value={form.firstName ?? ""}
+                onChange={e => setForm(p => ({ ...p, firstName: e.target.value }))} />
+            </div>
+            <div>
+              <FieldLabel>Nama Belakang</FieldLabel>
+              <Input placeholder="Santoso" value={form.lastName ?? ""}
+                onChange={e => setForm(p => ({ ...p, lastName: e.target.value }))} />
+            </div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+            <div>
+              <FieldLabel>Email <span style={{ color: T.red }}>*</span></FieldLabel>
+              <Input type="email" placeholder="email@example.com" value={form.email ?? ""}
+                onChange={e => setForm(p => ({ ...p, email: e.target.value }))} />
+            </div>
+            <div>
+              <FieldLabel>No. Telepon <span style={{ color: T.red }}>*</span></FieldLabel>
+              <Input type="tel" placeholder="08xx-xxxx-xxxx" value={form.phone ?? ""}
+                onChange={e => setForm(p => ({ ...p, phone: e.target.value }))} />
+            </div>
+          </div>
+
+          {/* Member-specific */}
+          {type === "member" && (
+            <>
+              <div style={{ height: 1, background: T.border }} />
+              <SectionLabel>Detail Member</SectionLabel>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+                <div>
+                  <FieldLabel>Tier</FieldLabel>
+                  <Select value={form.tier} onChange={e => setForm(p => ({ ...p, tier: e.target.value }))}>
+                    {["Silver", "Gold", "Platinum"].map(t => <option key={t}>{t}</option>)}
+                  </Select>
+                </div>
+                <div>
+                  <FieldLabel>Tanggal Lahir</FieldLabel>
+                  <Input type="date" value={form.dob ?? ""}
+                    onChange={e => setForm(p => ({ ...p, dob: e.target.value }))} />
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* Staff-specific */}
+          {type === "staff" && (
+            <>
+              <div style={{ height: 1, background: T.border }} />
+              <SectionLabel>Akses & Jabatan</SectionLabel>
+              <div>
+                <FieldLabel>Outlet / Cabang <span style={{ color: T.red }}>*</span></FieldLabel>
+                <Select value={form.storeLocation ?? ""}
+                  onChange={e => setForm(p => ({ ...p, storeLocation: e.target.value }))}>
+                  <option value="">Pilih outlet…</option>
+                  {storeIds.map(id => <option key={id} value={id}>{id}</option>)}
+                </Select>
+              </div>
+              <div>
+                <FieldLabel>Role <span style={{ color: T.red }}>*</span></FieldLabel>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                  {Object.entries(STAFF_ROLE_CFG).map(([key, cfg]) => (
+                    <button key={key} type="button"
+                      onClick={() => setForm(p => ({ ...p, role: key }))}
+                      style={{
+                        border: `1.5px solid ${form.role === key ? T.red : T.border}`,
+                        borderRadius: 8, padding: "12px 8px 10px",
+                        background: form.role === key ? T.redPale : T.cream,
+                        cursor: "pointer", textAlign: "center",
+                        boxShadow: form.role === key ? `0 0 0 3px rgba(184,0,31,.07)` : "none",
+                        transition: "all .14s",
+                      }}>
+                      <p style={{ fontSize: 9, fontWeight: 700, letterSpacing: ".14em",
+                        textTransform: "uppercase", marginBottom: 4,
+                        color: form.role === key ? T.red : T.ink30 }}>{cfg.code}</p>
+                      <p style={{ fontSize: 12.5, fontWeight: 500,
+                        color: form.role === key ? T.ink : T.ink60 }}>{cfg.label}</p>
+                      <div style={{
+                        width: 5, height: 5, borderRadius: "50%",
+                        background: form.role === key ? T.red : T.border,
+                        margin: "8px auto 0", transition: "background .14s",
+                      }} />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* Credentials */}
+          <div style={{ height: 1, background: T.border }} />
+          <SectionLabel>Kredensial Akun</SectionLabel>
+          <div>
+            <FieldLabel>Username <span style={{ color: T.red }}>*</span></FieldLabel>
+            <Input placeholder="budi.santoso" value={form.username ?? ""}
+              onChange={e => setForm(p => ({ ...p, username: e.target.value }))} />
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+            <div>
+              <FieldLabel>Password <span style={{ color: T.red }}>*</span></FieldLabel>
+              <div style={{ position: "relative" }}>
+                <Input
+                  type={pwVisible ? "text" : "password"}
+                  placeholder="Min. 8 karakter"
+                  style={{ paddingRight: 50 }}
+                  value={form.password ?? ""}
+                  onChange={e => { setForm(p => ({ ...p, password: e.target.value })); calcStrength(e.target.value); }}
+                />
+                <button type="button"
+                  onClick={() => setPwVisible(v => !v)}
+                  style={{
+                    position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)",
+                    background: "none", border: "none", cursor: "pointer",
+                    fontSize: 11, fontWeight: 500, color: T.ink30,
+                    fontFamily: "'DM Sans', sans-serif", letterSpacing: ".04em",
+                  }}>
+                  {pwVisible ? "hide" : "show"}
+                </button>
+              </div>
+              {form.password && (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 7 }}>
+                  <div style={{ display: "flex", gap: 3, flex: 1 }}>
+                    {[1,2,3,4].map(i => (
+                      <div key={i} style={{
+                        height: 2, flex: 1, borderRadius: 1,
+                        background: i <= strength ? strColor : T.border,
+                        transition: "background .2s",
+                      }} />
+                    ))}
+                  </div>
+                  <span style={{ fontSize: 10, fontWeight: 600, color: strColor, letterSpacing: ".04em" }}>{strLabel}</span>
+                </div>
+              )}
+            </div>
+            <div>
+              <FieldLabel>Konfirmasi Password <span style={{ color: T.red }}>*</span></FieldLabel>
+              <div style={{ position: "relative" }}>
+                <Input
+                  type="password"
+                  placeholder="Ulangi password"
+                  value={form.confirmPassword ?? ""}
+                  onChange={e => setForm(p => ({ ...p, confirmPassword: e.target.value }))}
+                  style={form.confirmPassword && form.confirmPassword !== form.password
+                    ? { borderColor: T.red } : {}}
+                />
+              </div>
+              {form.confirmPassword && form.confirmPassword !== form.password && (
+                <p style={{ fontSize: 11, color: T.red, marginTop: 5 }}>Password tidak cocok</p>
+              )}
+            </div>
+          </div>
+
+          {/* Status */}
+          <div style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            padding: "14px 16px", background: T.cream, borderRadius: 10,
+            border: `1.5px solid ${T.border}`,
+          }}>
+            <div>
+              <p style={{ fontSize: 13, fontWeight: 500, color: T.ink }}>Status Akun</p>
+              <p style={{ fontSize: 11, color: T.ink30 }}>Akun langsung aktif setelah dibuat</p>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{
+                fontSize: 10, fontWeight: 700, letterSpacing: ".07em",
+                textTransform: "uppercase", padding: "3px 10px", borderRadius: 99,
+                background: form.isActive ? "#F0FDF4" : T.ink06,
+                color: form.isActive ? "#15803D" : T.ink30,
+                border: `1px solid ${form.isActive ? "#BBF7D0" : T.border}`,
+              }}>{form.isActive ? "Aktif" : "Nonaktif"}</span>
+              <Toggle on={form.isActive} onToggle={() => setForm(p => ({ ...p, isActive: !p.isActive }))} />
+            </div>
+          </div>
+
+          {error && (
+            <div style={{
+              padding: "12px 14px", background: "#FFF1F2", border: `1px solid #FECDD3`,
+              borderRadius: 8, fontSize: 12, color: T.red,
+            }}>{error}</div>
+          )}
+        </div>
+      </ModalBody>
+
+      <ModalFoot>
+        <p style={{ fontSize: 11, color: T.ink30 }}>
+          Kolom <span style={{ color: T.red }}>*</span> wajib diisi
+        </p>
+        <div style={{ display: "flex", gap: 8 }}>
+          <Btn variant="ghost" onClick={onClose}>Batal</Btn>
+          <Btn variant="primary" onClick={handleSave} disabled={loading}
+            style={{ background: T.ink, opacity: loading ? .6 : 1, minWidth: 130 }}
+            onMouseOver={e => { if (!loading) e.currentTarget.style.background = T.red; }}
+            onMouseOut={e => { e.currentTarget.style.background = T.ink; }}>
+            {loading ? "Membuat akun…" : "Buat Akun"}
+          </Btn>
+        </div>
+      </ModalFoot>
+    </Modal>
+  );
+}
+
+// ─── TABLE ────────────────────────────────────────────────────────────────────
+function TableHead({ columns }: { columns: string[] }) {
+  return (
+    <thead>
+      <tr style={{ background: T.surface }}>
+        {columns.map(c => (
+          <th key={c} style={{
+            textAlign: "left", padding: "10px 20px",
+            fontSize: 10, fontWeight: 700, letterSpacing: ".1em",
+            textTransform: "uppercase", color: T.ink30,
+            borderBottom: `1px solid ${T.border}`,
+          }}>{c}</th>
+        ))}
+      </tr>
+    </thead>
+  );
+}
+
+// ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
 export default function MembersClient({
-  initialUsers = [],
-  initialStaff = [],
-  storeIds,
+  initialUsers, initialStaff, storeIds,
 }: {
-  initialUsers?: UserWithUid[];
-  initialStaff?: StaffWithUid[];
+  initialUsers: UserWithUid[];
+  initialStaff: StaffWithUid[];
   storeIds: string[];
 }) {
-  const [users, setUsers] = useState<UserWithUid[]>(initialUsers || []);
-  const [staff, setStaff] = useState<StaffWithUid[]>(initialStaff || []);
-  const [search, setSearch] = useState("");
-  const [tierFilter, setTierFilter] = useState<string>("All");
+  const [users, setUsers] = useState(initialUsers);
+  const [staff, setStaff] = useState(initialStaff);
+  const [activeTab, setActiveTab] = useState<"member" | "staff">("member");
 
-  // Modal states
+  // search & filter
+  const [memberSearch, setMemberSearch] = useState("");
+  const [staffSearch, setStaffSearch] = useState("");
+  const [tierFilter, setTierFilter] = useState("All");
+
+  // modals
   const [detailUser, setDetailUser] = useState<UserWithUid | null>(null);
   const [editUser, setEditUser] = useState<UserWithUid | null>(null);
   const [editStaff, setEditStaff] = useState<StaffWithUid | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
 
-  const filteredUsers = useMemo(() => {
-    return users.filter(u => {
-      const matchSearch = search === "" ||
-        u.name?.toLowerCase().includes(search.toLowerCase()) ||
-        u.email?.toLowerCase().includes(search.toLowerCase()) ||
-        u.phoneNumber?.includes(search);
-      const matchTier = tierFilter === "All" || u.tier === tierFilter;
-      return matchSearch && matchTier;
-    });
-  }, [users, search, tierFilter]);
+  const filteredUsers = useMemo(() => users.filter(u => {
+    const q = memberSearch.toLowerCase();
+    const matchQ = !q || u.name?.toLowerCase().includes(q) || u.email?.toLowerCase().includes(q) || u.phoneNumber?.includes(q);
+    const matchT = tierFilter === "All" || u.tier === tierFilter;
+    return matchQ && matchT;
+  }), [users, memberSearch, tierFilter]);
+
+  const filteredStaff = useMemo(() => staff.filter(s => {
+    const q = staffSearch.toLowerCase();
+    return !q || s.name?.toLowerCase().includes(q) || s.email?.toLowerCase().includes(q);
+  }), [staff, staffSearch]);
 
   function handleUserSaved(uid: string, updated: Partial<UserWithUid>) {
     setUsers(prev => prev.map(u => u.uid === uid ? { ...u, ...updated } : u));
   }
-
   function handleStaffSaved(uid: string, updated: Partial<StaffWithUid>) {
     setStaff(prev => prev.map(s => s.uid === uid ? { ...s, ...updated } : s));
   }
+  function handleCreated(type: "member" | "staff", data: any) {
+    // TODO: push to state after API response
+    setActiveTab(type);
+  }
+
+  // ── STYLES ──────────────────────────────────────────────────────────────────
+  const pageStyle: React.CSSProperties = {
+    fontFamily: "'DM Sans', sans-serif",
+    padding: "32px 40px",
+    maxWidth: 1360,
+    minHeight: "100vh",
+    background: T.surface,
+  };
+
+  const tabStyle = (active: boolean): React.CSSProperties => ({
+    padding: "10px 22px",
+    borderRadius: 99,
+    border: "none",
+    background: active ? T.white : "transparent",
+    color: active ? T.ink : T.ink60,
+    fontFamily: "'DM Sans', sans-serif",
+    fontSize: 13.5, fontWeight: 500,
+    cursor: "pointer", letterSpacing: ".01em",
+    boxShadow: active ? `0 1px 4px rgba(0,0,0,.1), 0 0 0 1px ${T.border}` : "none",
+    transition: "all .15s",
+  });
+
+  const cardStyle: React.CSSProperties = {
+    background: T.white,
+    border: `1px solid ${T.border}`,
+    borderRadius: 16,
+    overflow: "hidden",
+    boxShadow: "0 1px 4px rgba(0,0,0,.04)",
+  };
+
+  const rowHoverStyle = `
+    @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600&display=swap');
+    .acct-row:hover { background: ${T.cream} !important; }
+    .acct-btn:hover { border-color: ${T.red} !important; color: ${T.red} !important; }
+  `;
+
+  const avatarGrads = [
+    "135deg,#B8001F,#7A000F",
+    "135deg,#1D4ED8,#1E3A5F",
+    "135deg,#15803D,#052e16",
+    "135deg,#7C3AED,#3B0764",
+  ];
+  const grad = (name: string) => `linear-gradient(${avatarGrads[(name?.charCodeAt(0) ?? 0) % avatarGrads.length]})`;
 
   return (
-    <div className="p-8 max-w-[1400px]">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-8">
+    <div style={pageStyle}>
+      <style>{rowHoverStyle}</style>
+
+      {/* ── PAGE HEADER ── */}
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 32 }}>
         <div>
-          <h1 className="font-display text-2xl font-bold text-tx1">User & Staff Management</h1>
-          <p className="text-sm text-tx2 mt-1">Kelola member, tier, poin, dan akses staff.</p>
+          <p style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".18em", textTransform: "uppercase",
+            color: T.red, marginBottom: 6 }}>Gong Cha Admin</p>
+          <h1 style={{ fontFamily: "'DM Serif Display', serif", fontSize: 32, fontWeight: 400,
+            color: T.ink, letterSpacing: "-.02em", lineHeight: 1.05 }}>
+            Account <em style={{ fontStyle: "italic", color: T.red }}>Management</em>
+          </h1>
+          <p style={{ fontSize: 13, color: T.ink60, marginTop: 6 }}>
+            Kelola member, tier, poin, dan akses staff dalam satu tempat.
+          </p>
         </div>
-        <button className="px-4 py-2.5 rounded-xl text-white text-sm font-semibold shadow-card-blue"
-          style={{ background: "linear-gradient(135deg,#4361EE,#3A0CA3)" }}>
-          + Tambah Staff
+        <button
+          onClick={() => setShowCreate(true)}
+          style={{
+            height: 42, padding: "0 22px", borderRadius: 10, border: "none",
+            background: T.ink, color: "#fff",
+            fontFamily: "'DM Sans', sans-serif",
+            fontSize: 13, fontWeight: 500, cursor: "pointer",
+            display: "flex", alignItems: "center", gap: 8,
+            transition: "all .15s", letterSpacing: ".01em",
+            boxShadow: "0 2px 8px rgba(0,0,0,.12)",
+          }}
+          onMouseOver={e => { e.currentTarget.style.background = T.red; e.currentTarget.style.transform = "translateY(-1px)"; }}
+          onMouseOut={e => { e.currentTarget.style.background = T.ink; e.currentTarget.style.transform = "translateY(0)"; }}
+        >
+          <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+          </svg>
+          Tambah Akun
         </button>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
-        {[
-          { label: "Total Member", value: users.length, color: "#4361EE", bg: "#EEF2FF" },
-          { label: "Platinum", value: users.filter(u => u.tier === "Platinum").length, color: "#6D28D9", bg: "#EDE9FE" },
-          { label: "Gold", value: users.filter(u => u.tier === "Gold").length, color: "#D97706", bg: "#FEF3C7" },
-          { label: "Total Staff", value: staff.length, color: "#059669", bg: "#D1FAE5" },
-        ].map(c => (
-          <div key={c.label} className="bg-white rounded-2xl border border-border shadow-card p-5">
-            <p className="text-xs text-tx2 mb-2">{c.label}</p>
-            <p className="font-display text-3xl font-bold" style={{ color: c.color }}>{c.value}</p>
-          </div>
-        ))}
+      {/* ── STAT CARDS ── */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12, marginBottom: 28 }}>
+        <StatCard label="Total Member" value={users.length} accent={T.ink} />
+        <StatCard label="Platinum" value={users.filter(u => u.tier === "Platinum").length} accent="#5B21B6"
+          sub={`${Math.round(users.filter(u=>u.tier==="Platinum").length/Math.max(users.length,1)*100)}% dari total`} />
+        <StatCard label="Gold" value={users.filter(u => u.tier === "Gold").length} accent="#B45309"
+          sub={`${Math.round(users.filter(u=>u.tier==="Gold").length/Math.max(users.length,1)*100)}% dari total`} />
+        <StatCard label="Silver" value={users.filter(u => u.tier === "Silver").length} accent="#475569" />
+        <StatCard label="Total Staff" value={staff.length}
+          sub={`${staff.filter(s=>s.isActive).length} aktif`} accent={T.red} />
       </div>
 
-      {/* Members Table */}
-      <div className="bg-white rounded-2xl border border-border shadow-card overflow-hidden mb-4">
-        <div className="flex items-center justify-between px-6 py-4" style={{ borderBottom: "1px solid #F1F5F9" }}>
-          <h2 className="font-display font-bold text-tx1">Daftar Member ({filteredUsers.length}/{users.length})</h2>
-          <div className="flex items-center gap-2">
-            {/* Tier filter */}
-            <div className="flex gap-1">
-              {["All", "Platinum", "Gold", "Silver"].map(t => (
-                <button key={t} onClick={() => setTierFilter(t)}
-                  className="text-[11px] font-semibold px-3 py-1.5 rounded-lg transition-all"
-                  style={tierFilter === t
-                    ? { background: "#4361EE", color: "white" }
-                    : { background: "#F1F5F9", color: "#64748B" }}>
-                  {t}
-                </button>
-              ))}
-            </div>
-            {/* Search */}
-            <div className="flex items-center gap-2 bg-s2 border border-border rounded-xl px-3 py-2 w-48">
-              <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="#94A3B8" strokeWidth={2}>
-                <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
-              </svg>
-              <input
-                className="flex-1 text-xs outline-none text-tx2 bg-transparent"
-                placeholder="Cari member..."
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-              />
-              {search && (
-                <button onClick={() => setSearch("")} className="text-tx3 hover:text-tx1 text-xs">✕</button>
-              )}
-            </div>
-          </div>
+      {/* ── TABS ── */}
+      <div style={{
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        marginBottom: 16,
+      }}>
+        <div style={{
+          display: "inline-flex", background: T.white,
+          border: `1px solid ${T.border}`, borderRadius: 99, padding: 4,
+        }}>
+          <button style={tabStyle(activeTab === "member")} onClick={() => setActiveTab("member")}>
+            Member
+            <span style={{
+              marginLeft: 8, fontSize: 11, fontWeight: 700,
+              background: activeTab === "member" ? T.red : T.ink10,
+              color: activeTab === "member" ? "#fff" : T.ink30,
+              padding: "1px 7px", borderRadius: 99,
+              transition: "all .15s",
+            }}>{users.length}</span>
+          </button>
+          <button style={tabStyle(activeTab === "staff")} onClick={() => setActiveTab("staff")}>
+            Staff & Admin
+            <span style={{
+              marginLeft: 8, fontSize: 11, fontWeight: 700,
+              background: activeTab === "staff" ? T.red : T.ink10,
+              color: activeTab === "staff" ? "#fff" : T.ink30,
+              padding: "1px 7px", borderRadius: 99,
+              transition: "all .15s",
+            }}>{staff.length}</span>
+          </button>
         </div>
 
-        {filteredUsers.length === 0 ? (
-          <div className="py-16 text-center text-tx3 text-sm">
-            {search || tierFilter !== "All" ? "Tidak ada member yang cocok." : "Belum ada member terdaftar."}
-          </div>
-        ) : (
-          <table className="w-full">
-            <thead style={{ background: "#F8FAFF" }}>
-              <tr>
-                {["Member", "Email", "Tier", "Poin", "Lifetime", "Role", "Aksi"].map(h => (
-                  <th key={h} className="text-left text-[11px] font-semibold text-tx3 uppercase tracking-wide px-6 py-3">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {filteredUsers.map((u) => {
-                const tier = TIER[u.tier] ?? TIER.Silver;
-                return (
-                  <tr key={u.uid} className="hover:bg-s2 transition-colors cursor-pointer"
-                    style={{ borderTop: "1px solid #F1F5F9" }}
-                    onClick={() => setDetailUser(u)}>
-                    <td className="px-6 py-3">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-                          style={{ background: "linear-gradient(135deg,#4361EE,#7C3AED)" }}>
-                          {u.name?.[0] ?? "?"}
-                        </div>
-                        <div>
-                          <p className="text-sm font-semibold text-tx1">{u.name}</p>
-                          <code className="text-[10px] text-tx3">{u.uid.slice(0, 12)}...</code>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-3 text-xs text-tx2">{u.email}</td>
-                    <td className="px-6 py-3">
-                      <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full"
-                        style={{ background: tier.bg, color: tier.color }}>{u.tier}</span>
-                    </td>
-                    <td className="px-6 py-3 font-display font-bold text-blue1">{(u.currentPoints ?? 0).toLocaleString("id")}</td>
-                    <td className="px-6 py-3 text-xs text-tx2">{(u.lifetimePoints ?? 0).toLocaleString("id")}</td>
-                    <td className="px-6 py-3 text-xs text-tx2">{u.role}</td>
-                    <td className="px-6 py-3" onClick={e => e.stopPropagation()}>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => setDetailUser(u)}
-                          className="text-xs px-3 py-1.5 border border-border rounded-lg text-tx2 hover:border-blue1 hover:text-blue1 transition-all">
-                          Detail
-                        </button>
-                        <button
-                          onClick={() => setEditUser(u)}
-                          className="text-xs px-3 py-1.5 border border-border rounded-lg text-tx2 hover:border-blue1 hover:text-blue1 transition-all">
-                          Edit
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
-      </div>
-
-      {/* Staff Table */}
-      <div className="bg-white rounded-2xl border border-border shadow-card overflow-hidden">
-        <div className="px-6 py-4" style={{ borderBottom: "1px solid #F1F5F9" }}>
-          <h2 className="font-display font-bold text-tx1">Staff & Kasir ({staff.length})</h2>
+        {/* Filters per tab */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {activeTab === "member" && (
+            <>
+              <div style={{ display: "flex", gap: 4 }}>
+                {["All", "Platinum", "Gold", "Silver"].map(t => {
+                  const cfg = TIER_CFG[t];
+                  return (
+                    <button key={t} onClick={() => setTierFilter(t)} style={{
+                      padding: "6px 14px", borderRadius: 99, border: "none", cursor: "pointer",
+                      fontSize: 11.5, fontWeight: 600, transition: "all .14s",
+                      background: tierFilter === t ? (cfg?.bg ?? T.ink) : T.white,
+                      color: tierFilter === t ? (cfg?.fg ?? "#fff") : T.ink60,
+                      boxShadow: tierFilter === t ? `0 0 0 1.5px ${cfg?.ring ?? T.ink}` : `0 0 0 1px ${T.border}`,
+                    }}>{t}</button>
+                  );
+                })}
+              </div>
+              <SearchBar value={memberSearch} onChange={setMemberSearch} placeholder="Cari member…" />
+            </>
+          )}
+          {activeTab === "staff" && (
+            <SearchBar value={staffSearch} onChange={setStaffSearch} placeholder="Cari staff…" />
+          )}
         </div>
-
-        {staff.length === 0 ? (
-          <div className="py-16 text-center text-tx3 text-sm">Belum ada staff terdaftar. Jalankan seeder staff.</div>
-        ) : (
-          <table className="w-full">
-            <thead style={{ background: "#F8FAFF" }}>
-              <tr>
-                {["Staff", "Email", "Role", "Outlet", "Status", "Aksi"].map(h => (
-                  <th key={h} className="text-left text-[11px] font-semibold text-tx3 uppercase tracking-wide px-6 py-3">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {staff.map((s) => {
-                const r = ROLE_STAFF[s.role] ?? ROLE_STAFF.cashier;
-                return (
-                  <tr key={s.uid} className="hover:bg-s2 transition-colors" style={{ borderTop: "1px solid #F1F5F9" }}>
-                    <td className="px-6 py-3">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-s2 border border-border flex items-center justify-center text-tx2 text-xs font-bold flex-shrink-0">
-                          {s.name?.[0] ?? "?"}
-                        </div>
-                        <div>
-                          <p className="text-sm font-semibold text-tx1">{s.name}</p>
-                          <code className="text-[10px] text-tx3">{s.uid.slice(0, 12)}...</code>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-3 text-xs text-tx2">{s.email}</td>
-                    <td className="px-6 py-3">
-                      <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full"
-                        style={{ background: r.bg, color: r.color }}>{r.label}</span>
-                    </td>
-                    <td className="px-6 py-3">
-                      <code className="text-[11px] bg-blueLight text-blue1 px-2 py-0.5 rounded">{s.storeLocation}</code>
-                    </td>
-                    <td className="px-6 py-3">
-                      <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full"
-                        style={{ background: s.isActive ? "#D1FAE5" : "#F1F5F9", color: s.isActive ? "#059669" : "#94A3B8" }}>
-                        {s.isActive ? "Aktif" : "Nonaktif"}
-                      </span>
-                    </td>
-                    <td className="px-6 py-3">
-                      <button
-                        onClick={() => setEditStaff(s)}
-                        className="text-xs px-3 py-1.5 border border-border rounded-lg text-tx2 hover:border-blue1 hover:text-blue1 transition-all">
-                        Edit
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
       </div>
 
-      {/* Modals */}
+      {/* ── MEMBER TABLE ── */}
+      {activeTab === "member" && (
+        <div style={cardStyle}>
+          {filteredUsers.length === 0 ? (
+            <div style={{ padding: "60px 0", textAlign: "center", color: T.ink30, fontSize: 13 }}>
+              {memberSearch || tierFilter !== "All"
+                ? `Tidak ada member untuk "${memberSearch || tierFilter}"`
+                : "Belum ada member terdaftar."}
+            </div>
+          ) : (
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <TableHead columns={["Member", "Email", "Tier", "Poin", "Lifetime XP", "Role", ""]} />
+              <tbody>
+                {filteredUsers.map((u, i) => {
+                  const tier = TIER_CFG[u.tier] ?? TIER_CFG.Silver;
+                  return (
+                    <tr key={u.uid} className="acct-row"
+                      style={{
+                        borderTop: i === 0 ? "none" : `1px solid ${T.border}`,
+                        cursor: "pointer", transition: "background .1s",
+                        background: T.white,
+                      }}
+                      onClick={() => setDetailUser(u)}
+                    >
+                      <td style={{ padding: "14px 20px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                          <Avatar name={u.name ?? "?"} size={36} gradient={grad(u.name ?? "")} />
+                          <div>
+                            <p style={{ fontSize: 13.5, fontWeight: 600, color: T.ink }}>{u.name}</p>
+                            <p style={{ fontSize: 11, color: T.ink30, marginTop: 1 }}>{u.phoneNumber}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td style={{ padding: "14px 20px", fontSize: 12.5, color: T.ink60 }}>{u.email}</td>
+                      <td style={{ padding: "14px 20px" }}>
+                        <Badge label={u.tier} bg={tier.bg} fg={tier.fg} ring={tier.ring} />
+                      </td>
+                      <td style={{ padding: "14px 20px" }}>
+                        <p style={{ fontFamily: "'DM Serif Display', serif", fontSize: 18, color: T.red, lineHeight: 1 }}>
+                          {(u.currentPoints ?? 0).toLocaleString("id")}
+                        </p>
+                        <p style={{ fontSize: 10, color: T.ink30, marginTop: 1 }}>pts</p>
+                      </td>
+                      <td style={{ padding: "14px 20px", fontSize: 12.5, color: T.ink60 }}>
+                        {(u.lifetimePoints ?? 0).toLocaleString("id")}
+                      </td>
+                      <td style={{ padding: "14px 20px" }}>
+                        <code style={{ fontSize: 11, background: T.ink06, padding: "3px 8px",
+                          borderRadius: 6, color: T.ink60, border: `1px solid ${T.border}` }}>
+                          {u.role}
+                        </code>
+                      </td>
+                      <td style={{ padding: "14px 20px" }} onClick={e => e.stopPropagation()}>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <button className="acct-btn" onClick={() => setDetailUser(u)}
+                            style={{
+                              fontSize: 11.5, padding: "5px 14px",
+                              border: `1px solid ${T.border}`, borderRadius: 7,
+                              background: "transparent", cursor: "pointer",
+                              color: T.ink60, fontFamily: "'DM Sans', sans-serif",
+                              fontWeight: 500, transition: "all .13s",
+                            }}>Detail</button>
+                          <button className="acct-btn" onClick={() => setEditUser(u)}
+                            style={{
+                              fontSize: 11.5, padding: "5px 14px",
+                              border: `1px solid ${T.border}`, borderRadius: 7,
+                              background: "transparent", cursor: "pointer",
+                              color: T.ink60, fontFamily: "'DM Sans', sans-serif",
+                              fontWeight: 500, transition: "all .13s",
+                            }}>Edit</button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+          {/* Table footer */}
+          <div style={{
+            padding: "10px 20px", borderTop: `1px solid ${T.border}`,
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+          }}>
+            <p style={{ fontSize: 11.5, color: T.ink30 }}>
+              Menampilkan <strong style={{ color: T.ink60 }}>{filteredUsers.length}</strong> dari <strong style={{ color: T.ink60 }}>{users.length}</strong> member
+            </p>
+            <p style={{ fontSize: 11, color: T.ink30 }}>
+              Total XP: <strong style={{ color: T.ink60 }}>{users.reduce((a,u) => a + (u.lifetimePoints ?? 0), 0).toLocaleString("id")}</strong>
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ── STAFF TABLE ── */}
+      {activeTab === "staff" && (
+        <div style={cardStyle}>
+          {filteredStaff.length === 0 ? (
+            <div style={{ padding: "60px 0", textAlign: "center", color: T.ink30, fontSize: 13 }}>
+              {staffSearch ? `Tidak ada staff untuk "${staffSearch}"` : "Belum ada staff terdaftar."}
+            </div>
+          ) : (
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <TableHead columns={["Staff", "Email", "Role", "Outlet", "Status", ""]} />
+              <tbody>
+                {filteredStaff.map((s, i) => {
+                  const r = STAFF_ROLE_CFG[s.role] ?? STAFF_ROLE_CFG.cashier;
+                  return (
+                    <tr key={s.uid} className="acct-row"
+                      style={{
+                        borderTop: i === 0 ? "none" : `1px solid ${T.border}`,
+                        transition: "background .1s", background: T.white,
+                      }}
+                    >
+                      <td style={{ padding: "14px 20px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                          <Avatar name={s.name ?? "?"} size={36} />
+                          <div>
+                            <p style={{ fontSize: 13.5, fontWeight: 600, color: T.ink }}>{s.name}</p>
+                            <code style={{ fontSize: 10, color: T.ink30 }}>{s.uid?.slice(0, 12)}…</code>
+                          </div>
+                        </div>
+                      </td>
+                      <td style={{ padding: "14px 20px", fontSize: 12.5, color: T.ink60 }}>{s.email}</td>
+                      <td style={{ padding: "14px 20px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                          <span style={{
+                            fontSize: 9, fontWeight: 700, letterSpacing: ".1em",
+                            textTransform: "uppercase", padding: "2px 7px", borderRadius: 99,
+                            background: r.bg, color: r.fg,
+                          }}>{r.code}</span>
+                          <span style={{ fontSize: 12.5, color: T.ink60, fontWeight: 500 }}>{r.label}</span>
+                        </div>
+                      </td>
+                      <td style={{ padding: "14px 20px" }}>
+                        <code style={{ fontSize: 11.5, background: T.cream, padding: "4px 10px",
+                          borderRadius: 6, color: T.ink, border: `1px solid ${T.border}` }}>
+                          {s.storeLocation}
+                        </code>
+                      </td>
+                      <td style={{ padding: "14px 20px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <div style={{
+                            width: 6, height: 6, borderRadius: "50%",
+                            background: s.isActive ? "#22C55E" : T.ink30,
+                          }} />
+                          <span style={{ fontSize: 12.5, color: s.isActive ? "#15803D" : T.ink30, fontWeight: 500 }}>
+                            {s.isActive ? "Aktif" : "Nonaktif"}
+                          </span>
+                        </div>
+                      </td>
+                      <td style={{ padding: "14px 20px" }}>
+                        <button className="acct-btn" onClick={() => setEditStaff(s)}
+                          style={{
+                            fontSize: 11.5, padding: "5px 14px",
+                            border: `1px solid ${T.border}`, borderRadius: 7,
+                            background: "transparent", cursor: "pointer",
+                            color: T.ink60, fontFamily: "'DM Sans', sans-serif",
+                            fontWeight: 500, transition: "all .13s",
+                          }}>Edit</button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+          <div style={{
+            padding: "10px 20px", borderTop: `1px solid ${T.border}`,
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+          }}>
+            <p style={{ fontSize: 11.5, color: T.ink30 }}>
+              <strong style={{ color: T.ink60 }}>{staff.filter(s=>s.isActive).length}</strong> aktif dari <strong style={{ color: T.ink60 }}>{staff.length}</strong> staff
+            </p>
+            <p style={{ fontSize: 11, color: T.ink30 }}>
+              {Object.entries(STAFF_ROLE_CFG).map(([k, v]) => `${staff.filter(s=>s.role===k).length} ${v.label}`).join(" · ")}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODALS ── */}
       {detailUser && !editUser && (
         <MemberDetailModal
           user={detailUser}
@@ -563,7 +1322,7 @@ export default function MembersClient({
         <EditMemberModal
           user={editUser}
           onClose={() => setEditUser(null)}
-          onSaved={(updated) => handleUserSaved(editUser.uid, updated)}
+          onSaved={u => handleUserSaved(editUser.uid, u)}
         />
       )}
       {editStaff && (
@@ -571,7 +1330,14 @@ export default function MembersClient({
           staff={editStaff}
           storeIds={storeIds}
           onClose={() => setEditStaff(null)}
-          onSaved={(updated) => handleStaffSaved(editStaff.uid, updated)}
+          onSaved={u => handleStaffSaved(editStaff.uid, u)}
+        />
+      )}
+      {showCreate && (
+        <CreateAccountModal
+          onClose={() => setShowCreate(false)}
+          storeIds={storeIds}
+          onCreated={handleCreated}
         />
       )}
     </div>

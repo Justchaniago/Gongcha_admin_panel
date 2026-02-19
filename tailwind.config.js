@@ -3,35 +3,61 @@ module.exports = {
   content: ["./src/**/*.{js,ts,jsx,tsx,mdx}"],
   theme: {
     extend: {
-      colors: {
-        blue1:    "#4361EE",
-        blue2:    "#3A0CA3",
-        blueLight:"#EEF2FF",
-        blueMid:  "#C7D2FE",
-        bg:       "#F1F5FF",
-        surface:  "#FFFFFF",
-        s2:       "#F8FAFF",
-        border:   "#E2E8F0",
-        tx1:      "#0F172A",
-        tx2:      "#64748B",
-        tx3:      "#94A3B8",
-        success:  "#10B981",
-        warning:  "#F59E0B",
-        danger:   "#EF4444",
-        purple:   "#7C3AED",
-      },
       fontFamily: {
-        sans:    ["var(--font-inter)", "system-ui", "sans-serif"],
-        display: ["var(--font-jakarta)", "system-ui", "sans-serif"],
+        sans: ['var(--font-jakarta)', 'system-ui', 'sans-serif'],
+        display: ['var(--font-jakarta)', 'system-ui', 'sans-serif'],
+      },
+      colors: {
+        // Brand
+        'gc-red':       '#C8102E',
+        'gc-red-light': '#FFF0F2',
+        // Blue accent
+        'gc-blue':      '#4361EE',
+        'gc-blue-L':    '#EEF2FF',
+        'gc-blue-D':    '#3A0CA3',
+        // Background
+        'gc-bg':        '#F4F6FB',
+        // Border
+        'gc-border':    '#EAECF2',
+        'gc-border-2':  '#F0F2F7',
+        // Text
+        'gc-tx1':       '#0F1117',
+        'gc-tx2':       '#4A5065',
+        'gc-tx3':       '#9299B0',
+        'gc-tx4':       '#BCC1D3',
+        // Status
+        'gc-green':     '#12B76A',
+        'gc-amber':     '#F79009',
       },
       borderRadius: {
-        "2xl": "16px",
-        "3xl": "20px",
+        'gc':    '12px',
+        'gc-lg': '18px',
+        'gc-xl': '24px',
       },
       boxShadow: {
-        card:      "0 1px 3px rgba(0,0,0,0.05), 0 1px 2px rgba(0,0,0,0.04)",
-        "card-md": "0 4px 16px rgba(67,97,238,0.08), 0 1px 4px rgba(0,0,0,0.04)",
-        "card-blue":"0 8px 32px rgba(67,97,238,0.20)",
+        'gc':    '0 1px 3px rgba(16,24,40,.06), 0 1px 2px rgba(16,24,40,.04)',
+        'gc-md': '0 4px 16px rgba(16,24,40,.08), 0 2px 4px rgba(16,24,40,.04)',
+        'gc-lg': '0 12px 40px rgba(16,24,40,.12), 0 4px 8px rgba(16,24,40,.06)',
+        'gc-blue':'0 8px 24px rgba(67,97,238,.25)',
+      },
+      animation: {
+        'gc-rise': 'gcRise .28s cubic-bezier(.22,.68,0,1.15) both',
+        'gc-fade': 'gcFadeIn .2s ease',
+        'gc-slide': 'gcSlideIn .3s ease both',
+      },
+      keyframes: {
+        gcRise: {
+          from: { opacity: '0', transform: 'translateY(20px) scale(.97)' },
+          to:   { opacity: '1', transform: 'translateY(0) scale(1)' },
+        },
+        gcFadeIn: {
+          from: { opacity: '0' },
+          to:   { opacity: '1' },
+        },
+        gcSlideIn: {
+          from: { opacity: '0', transform: 'translateY(8px)' },
+          to:   { opacity: '1', transform: 'translateY(0)' },
+        },
       },
     },
   },
