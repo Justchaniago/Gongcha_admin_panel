@@ -1,0 +1,35 @@
+{
+  "name": "gongcha-admin",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "seed": "npx ts-node --project tsconfig.seed.json scripts/seed.ts",
+    "seed:stores": "npx ts-node --project tsconfig.seed.json scripts/seedStores.ts",
+    "seed:users": "npx ts-node --project tsconfig.seed.json scripts/seedUsers.ts",
+    "seed:staff": "npx ts-node --project tsconfig.seed.json scripts/seedStaff.ts",
+    "seed:rewards": "npx ts-node --project tsconfig.seed.json scripts/seedRewards.ts"
+  },
+  "dependencies": {
+    "clsx": "^2.1.1",
+    "date-fns": "^3.6.0",
+    "firebase": "^10.12.0",
+    "firebase-admin": "^12.2.0",
+    "next": "^16.1.6",
+    "react": "^18",
+    "react-dom": "^18"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "autoprefixer": "^10.4.19",
+    "dotenv": "^16.4.5",
+    "postcss": "^8.4.38",
+    "tailwindcss": "^3.4.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5"
+  }
+}
