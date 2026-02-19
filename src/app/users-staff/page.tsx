@@ -9,29 +9,31 @@ async function getData() {
     adminDb.collection("stores").get(),
   ]);
 
-  const users = usersSnap.docs.map(d => ({ uid: d.id, ...d.data() } as User & { uid: string }));
-  const staff = staffSnap.docs.map(d => ({ uid: d.id, ...d.data() } as Staff & { uid: string }));
+  const users    = usersSnap.docs.map(d => ({ uid: d.id, ...d.data() } as User  & { uid: string }));
+  const staff    = staffSnap.docs.map(d => ({ uid: d.id, ...d.data() } as Staff & { uid: string }));
   const storeIds = storesSnap.docs.map(d => d.id);
 
   return { users, staff, storeIds };
 }
 
 export default async function UsersStaffPage() {
-  let users: (User & { uid: string })[] = [];
-  let staff: (Staff & { uid: string })[] = [];
+  let users:    (User  & { uid: string })[] = [];
+  let staff:    (Staff & { uid: string })[] = [];
   let storeIds: string[] = [];
 
   try {
     const d = await getData();
-    users = d.users;
-    staff = d.staff;
+    users    = d.users;
+    staff    = d.staff;
     storeIds = d.storeIds;
-  } catch { /* not configured */ }
+  } catch {
+    /* firebase not configured */
+  }
 
   return (
     <MembersClient
-      initialUsers={Array.isArray(users) ? users : []}
-      initialStaff={Array.isArray(staff) ? staff : []}
+      initialUsers={Array.isArray(users)    ? users    : []}
+      initialStaff={Array.isArray(staff)    ? staff    : []}
       storeIds={Array.isArray(storeIds) ? storeIds : []}
     />
   );
