@@ -5,7 +5,7 @@ import {
   collection, onSnapshot, query, doc, updateDoc, orderBy,
   QuerySnapshot, DocumentData,
 } from "firebase/firestore";
-import { db } from "@/lib/firebaseClient.local"; // GUNAKAN EMULATOR SAAT DEV
+import { db } from "@/lib/firebaseClient";
 import { User, Staff, UserTier, UserRole, StaffRole } from "@/types/firestore";
 
 type UserWithUid  = User  & { uid: string };

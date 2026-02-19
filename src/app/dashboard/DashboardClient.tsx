@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
+import { useAdminAuth } from "@/components/AuthProvider";
 import {
   collection, onSnapshot, query, orderBy, limit,
   where, Timestamp,
@@ -131,10 +132,12 @@ export default function DashboardClient() {
   const [memberStatus, setMemberStatus] = useState<"connecting"|"live"|"error">("connecting");
 
   // Greeting
+  const { user } = useAdminAuth();
   const now      = new Date();
   const hr       = now.getHours();
   const greeting = hr < 12 ? "Good morning" : hr < 17 ? "Good afternoon" : "Good evening";
   const dateStr  = now.toLocaleDateString("en-US", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  const userName = user?.displayName || user?.email?.split("@")[0] || "Admin";
 
   // ── Firestore listeners ──────────────────────────────────────────────────
   useEffect(() => {
@@ -218,7 +221,7 @@ export default function DashboardClient() {
         <div>
           <p style={{ fontSize: 13, color: C.tx3, marginBottom: 4 }}>{dateStr}</p>
           <h1 style={{ fontSize: 28, fontWeight: 800, letterSpacing: "-.025em", color: C.tx1, lineHeight: 1.1, margin: 0 }}>
-            {greeting}, Admin! 👋
+            {greeting}, {userName}! 👋
           </h1>
           <p style={{ fontSize: 14, color: C.tx2, marginTop: 5, display: "flex", alignItems: "center", gap: 10 }}>
             Here's what's happening at Gong Cha today.

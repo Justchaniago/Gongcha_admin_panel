@@ -1,9 +1,9 @@
 "use client";
+import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
-import { getAuth, onAuthStateChanged, signOut } from "firebase/auth";
-import { app } from "@/lib/firebaseClient"; // pastikan app sudah di-initialize
+import LogoutButton from "@/components/LogoutButton";
+import { useAdminAuth } from "@/components/AuthProvider";
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard", badge: false },
@@ -23,67 +23,33 @@ const icons: Record<string, React.ReactNode> = {
   "/settings":   <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>,
 };
 
+
 export default function Sidebar() {
   const pathname = usePathname();
-  const [user, setUser] = useState<{ email: string; displayName?: string } | null>(null);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return; // only run in client
-    const auth = getAuth(app);
-    const unsub = onAuthStateChanged(auth, (firebaseUser) => {
-      if (firebaseUser) {
-        setUser({
-          email: firebaseUser.email || "",
-          displayName: firebaseUser.displayName || undefined,
-        });
-      } else {
-        setUser(null);
-      }
-    });
-    return () => unsub();
-  }, []);
-
-  const handleLogout = async () => {
-    const auth = getAuth(app);
-    await signOut(auth);
-    window.location.href = "/login";
-  };
+  const { user } = useAdminAuth();
 
   return (
     <aside className="fixed top-0 left-0 h-screen w-[72px] flex flex-col items-center py-6 z-50 bg-white" style={{ borderRight: "1px solid #E2E8F0" }}>
       <div className="mb-8 w-10 h-10 rounded-xl flex items-center justify-center font-display font-bold text-white text-sm" style={{ background: "linear-gradient(135deg,#4361EE,#3A0CA3)" }}>G</div>
       <nav className="flex flex-col items-center gap-1 flex-1">
-        {navItems.map((item) => {
+        {navItems.map((item, idx) => {
           const active = pathname.startsWith(item.href);
+          const isLast = idx === navItems.length - 1;
           return (
-            <Link key={item.href} href={item.href} title={item.label}
-              className="relative w-11 h-11 flex items-center justify-center rounded-xl transition-all group"
-              style={{ background: active ? "#EEF2FF" : "transparent", color: active ? "#4361EE" : "#94A3B8" }}>
-              {active && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-6 rounded-r-full bg-blue1" style={{ background: "#4361EE" }} />}
-              {icons[item.href]}
-              {item.badge && <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500 border-2 border-white" />}
-              <span className="absolute left-14 bg-tx1 text-white text-xs px-2.5 py-1.5 rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50 shadow-lg" style={{ background: "#0F172A" }}>{item.label}</span>
-            </Link>
+            <React.Fragment key={item.href}>
+              <Link href={item.href} title={item.label}
+                className="relative w-11 h-11 flex items-center justify-center rounded-xl transition-all group"
+                style={{ background: active ? "#EEF2FF" : "transparent", color: active ? "#4361EE" : "#94A3B8" }}>
+                {active && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-6 rounded-r-full bg-blue1" style={{ background: "#4361EE" }} />}
+                {icons[item.href]}
+                {item.badge && <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500 border-2 border-white" />}
+                <span className="absolute left-14 bg-tx1 text-white text-xs px-2.5 py-1.5 rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50 shadow-lg" style={{ background: "#0F172A" }}>{item.label}</span>
+              </Link>
+              {isLast && <LogoutButton />}
+            </React.Fragment>
           );
         })}
       </nav>
-      <div className="w-full flex flex-col items-center gap-2 mt-4">
-        {user ? (
-          <>
-            <div className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-semibold bg-gradient-to-br from-blue-600 to-purple-600">{user.displayName ? user.displayName[0] : user.email[0]}</div>
-            <span className="text-xs text-gray-700 font-medium text-center truncate w-full px-2">{user.displayName ? user.displayName : user.email}</span>
-            <button
-              onClick={handleLogout}
-              className="w-9 h-9 rounded-full bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 transition"
-              aria-label="Logout"
-            >
-              Logout
-            </button>
-          </>
-        ) : (
-          <span className="text-xs text-gray-400">Not logged in</span>
-        )}
-      </div>
     </aside>
   );
 }
