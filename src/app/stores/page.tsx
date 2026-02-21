@@ -1,11 +1,9 @@
-
-'use server';
+// src/app/dashboard/stores/page.tsx
 import { adminDb } from '@/lib/firebaseServer';
 import StoresClient from './StoresClient';
 import { Store } from '@/types/firestore';
 
 export default async function StoresPage() {
-  // Use Admin SDK to fetch stores (server-side only)
   const snapshot = await adminDb.collection('stores').get();
   const stores = snapshot.docs.map(doc => ({
     id: doc.id,
@@ -21,6 +19,7 @@ export default async function StoresPage() {
       fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif",
       WebkitFontSmoothing: 'antialiased',
     }}>
+
       {/* ── PAGE HEADER ── */}
       <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 28 }}>
         <div>
@@ -34,17 +33,16 @@ export default async function StoresPage() {
             Kelola informasi outlet, lokasi GPS, dan status operasional.
           </p>
         </div>
-        {/* Button rendered di client agar bisa trigger modal */}
         <StoresClient initialStores={stores} showAddTrigger />
       </div>
 
       {/* ── STAT ROW ── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 24 }}>
         {[
-          { label: 'Total Outlet',   value: stores.length,  color: '#4361EE', bg: '#EEF2FF', icon: 'store' },
-          { label: 'Aktif',          value: activeCount,    color: '#12B76A', bg: '#ECFDF3', icon: 'check' },
-          { label: 'Nonaktif',       value: inactiveCount,  color: '#F04438', bg: '#FEF3F2', icon: 'x' },
-          { label: 'Dengan GPS',     value: stores.filter(s => s.latitude && s.longitude).length, color: '#F79009', bg: '#FFFAEB', icon: 'pin' },
+          { label: 'Total Outlet', value: stores.length,                                              color: '#4361EE', bg: '#EEF2FF', icon: 'store' },
+          { label: 'Aktif',        value: activeCount,                                                color: '#12B76A', bg: '#ECFDF3', icon: 'check' },
+          { label: 'Nonaktif',     value: inactiveCount,                                              color: '#F04438', bg: '#FEF3F2', icon: 'x'     },
+          { label: 'Dengan GPS',   value: stores.filter(s => s.latitude && s.longitude).length,       color: '#F79009', bg: '#FFFAEB', icon: 'pin'   },
         ].map((s) => (
           <div key={s.label} style={{
             background: '#fff', border: '1px solid #EAECF2',
