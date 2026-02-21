@@ -1,0 +1,85 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helpers ────────────────────────────────────────────────────────────
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Check if the calling user has a specific role in the /staff collection
+    function staffHasRole(roles) {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/staff/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/staff/$(request.auth.uid)).data.isActive == true &&
+        get(/databases/$(database)/documents/staff/$(request.auth.uid)).data.role in roles;
+    }
+
+    // Check if the calling user is an admin/master in the /users collection
+    function userIsAdmin() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'master'];
+    }
+
+    // ── /accounts ──────────────────────────────────────────────────────────
+    // Only admin staff or admin users may read/write accounts.
+    // Actual mutations go through API routes (Admin SDK bypasses these rules),
+    // but we restrict direct client-SDK writes as a safety net.
+    match /accounts/{accountId} {
+      allow read:   if staffHasRole(['admin', 'store_manager']) || userIsAdmin();
+      allow create: if false; // Must use /api/accounts (Admin SDK)
+      allow update: if false; // Must use /api/accounts/[id] (Admin SDK)
+      allow delete: if false; // Must use /api/accounts/[id] (Admin SDK)
+    }
+
+    // ── /users ─────────────────────────────────────────────────────────────
+    match /users/{userId} {
+      // Any authenticated user can read their own document
+      allow read:   if isSignedIn() && (request.auth.uid == userId || staffHasRole(['admin', 'store_manager', 'cashier']) || userIsAdmin());
+      // Users can update their own limited fields
+      allow update: if isSignedIn() && request.auth.uid == userId &&
+                       request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly(['phoneNumber', 'photoURL']);
+      allow create: if false; // Must use /api/members (Admin SDK)
+      allow delete: if false; // Must use /api/members/[uid] (Admin SDK)
+    }
+
+    // ── /staff ─────────────────────────────────────────────────────────────
+    match /staff/{staffId} {
+      // Staff can read their own doc; admins can read all
+      allow read:   if isSignedIn() && (request.auth.uid == staffId || staffHasRole(['admin', 'store_manager']) || userIsAdmin());
+      allow create: if false; // Must use /api/staff (Admin SDK)
+      allow update: if false; // Must use /api/staff/[uid] (Admin SDK)
+      allow delete: if false; // Must use /api/staff/[uid] (Admin SDK)
+    }
+
+    // ── /stores ────────────────────────────────────────────────────────────
+    match /stores/{storeId} {
+      // Anyone signed in can read store list (needed for POS UI)
+      allow read:   if isSignedIn();
+      allow write:  if staffHasRole(['admin']) || userIsAdmin();
+    }
+
+    // ── /stores/{storeId}/transactions ─────────────────────────────────────
+    match /stores/{storeId}/transactions/{txId} {
+      // Cashiers can create; managers/admins can read and update status
+      allow read:   if isSignedIn() && (staffHasRole(['cashier', 'store_manager', 'admin']) || userIsAdmin());
+      allow create: if staffHasRole(['cashier', 'store_manager', 'admin']);
+      allow update: if staffHasRole(['store_manager', 'admin']) || userIsAdmin();
+      allow delete: if false;
+    }
+
+    // ── /rewards_catalog ───────────────────────────────────────────────────
+    match /rewards_catalog/{rewardId} {
+      allow read:   if isSignedIn();
+      allow write:  if staffHasRole(['admin']) || userIsAdmin();
+    }
+
+    // ── Deny everything else ───────────────────────────────────────────────
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

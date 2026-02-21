@@ -1,86 +1,102 @@
+// ─── accounts/{id} ──────────────────────────────────────────────────────────
+export type AccountStatus = "active" | "suspended" | "pending";
+export type AccountRole   = "master" | "admin" | "manager" | "viewer";
+
+export interface Account {
+  id?:         string;           // Firestore doc ID
+  name:        string;
+  email:       string;
+  phoneNumber: string;
+  role:        AccountRole;
+  status:      AccountStatus;
+  createdAt:   string;           // ISO timestamp
+  lastLogin:   string | null;
+  notes:       string;
+}
+
 // ─── stores/{storeId} ───────────────────────────────────────────────────────
 export interface Store {
-  id: string;
-  name: string;
-  address: string;
-  latitude: number;
-  longitude: number;
-  openHours: string;
-  isActive: boolean;
+  id:             string;
+  name:           string;
+  address:        string;
+  latitude:       number;
+  longitude:      number;
+  openHours:      string;
+  isActive:       boolean;
   statusOverride: "open" | "closed" | "almost_close";
 }
 
 // ─── stores/{storeId}/transactions/{YYYYMMDD-POSID} ─────────────────────────
 export interface Transaction {
-  transactionId: string;       // POS ID only, e.g. "100866"
-  amount: number;              // in Rupiah
+  transactionId:   string;
+  amount:          number;
   potentialPoints: number;
-  memberId: string;            // Firestore UID of the user
-  memberName: string;
-  staffId: string;             // Firestore UID of the staff
-  storeLocation: string;       // ref to stores.id, e.g. "SBY-TP6"
-  status: "pending" | "verified" | "rejected";
-  createdAt: string;           // ISO or "serverTimestamp" placeholder
-  verifiedAt: string | null;
+  memberId:        string;
+  memberName:      string;
+  staffId:         string;
+  storeLocation:   string;
+  status:          "pending" | "verified" | "rejected";
+  createdAt:       string;
+  verifiedAt:      string | null;
 }
 
 // ─── users/{UID} ────────────────────────────────────────────────────────────
 export interface XpHistoryEntry {
-  id: string;                  // "YYYYMMDD-POSID"
-  date: string;                // ISO timestamp
-  amount: number;
-  type: "earn" | "redeem";
-  status: "pending" | "verified" | "rejected";
-  context: string;             // e.g. "Pembelian di Gong Cha TP6"
-  location: string;            // e.g. "SBY-TP6"
-  transactionId: string;       // matches Transaction.transactionId
+  id:            string;
+  date:          string;
+  amount:        number;
+  type:          "earn" | "redeem";
+  status:        "pending" | "verified" | "rejected";
+  context:       string;
+  location:      string;
+  transactionId: string;
 }
 
 export interface UserVoucher {
-  id: string;                  // "v_{timestamp}"
-  rewardId: string;            // ref to rewards_catalog.id
-  title: string;
-  code: string;                // "GC-XXXXX"
-  isUsed: boolean;
-  expiresAt: string;           // ISO timestamp
+  id:        string;
+  rewardId:  string;
+  title:     string;
+  code:      string;
+  isUsed:    boolean;
+  expiresAt: string;
 }
 
 export type UserRole = "master" | "trial" | "admin" | "member";
 export type UserTier = "Silver" | "Gold" | "Platinum";
 
 export interface User {
-  name: string;
-  phoneNumber: string;
-  email: string;
-  photoURL: string;
-  role: UserRole;
-  tier: UserTier;
-  currentPoints: number;
+  name:           string;
+  phoneNumber:    string;
+  email:          string;
+  photoURL:       string;
+  role:           UserRole;
+  tier:           UserTier;
+  currentPoints:  number;
   lifetimePoints: number;
-  joinedDate: string;          // ISO timestamp
-  xpHistory: XpHistoryEntry[];
-  vouchers: UserVoucher[];
+  joinedDate:     string;
+  xpHistory:      XpHistoryEntry[];
+  vouchers:       UserVoucher[];
 }
 
 // ─── staff/{UID} ─────────────────────────────────────────────────────────────
 export type StaffRole = "cashier" | "store_manager" | "admin";
 
 export interface Staff {
-  name: string;
-  email: string;
-  role: StaffRole;
-  storeLocation: string;       // ref to stores.id
-  isActive: boolean;
+  name:          string;
+  email:         string;
+  role:          StaffRole;
+  storeLocation: string;
+  isActive:      boolean;
 }
 
 // ─── rewards_catalog/{rewardId} ──────────────────────────────────────────────
 export type RewardCategory = "Drink" | "Topping" | "Discount";
 
 export interface Reward {
-  title: string;
+  title:       string;
   description: string;
-  pointsCost: number;
-  imageURL: string;
-  category: RewardCategory;
-  isActive: boolean;
+  pointsCost:  number;
+  imageURL:    string;
+  category:    RewardCategory;
+  isActive:    boolean;
 }

@@ -30,10 +30,24 @@ export async function GET() {
 // ── POST /api/accounts — create new account ───────────────────────────────────
 export async function POST(req: NextRequest) {
   try {
-    const body: Partial<Account> = await req.json();
+    const body: Partial<Account> & { customId?: string } = await req.json();
 
     const err = validateAccountPayload(body);
     if (err) return NextResponse.json({ message: err }, { status: 400 });
+
+    // Validate custom ID format if provided
+    const customId = body.customId?.trim();
+    if (customId) {
+      const idRe = /^[a-zA-Z0-9_-]+$/;
+      if (!idRe.test(customId)) {
+        return NextResponse.json({ message: "Document ID hanya boleh huruf, angka, - dan _." }, { status: 400 });
+      }
+      // Check if ID already exists
+      const idSnap = await adminDb.collection("accounts").doc(customId).get();
+      if (idSnap.exists) {
+        return NextResponse.json({ message: `Document ID "${customId}" sudah digunakan.` }, { status: 409 });
+      }
+    }
 
     // Check for duplicate email
     const existing = await adminDb
@@ -58,8 +72,18 @@ export async function POST(req: NextRequest) {
       lastLogin:   null,
     };
 
-    const docRef = await adminDb.collection("accounts").add(payload);
-    return NextResponse.json({ id: docRef.id, ...payload }, { status: 201 });
+    let finalId: string;
+    if (customId) {
+      // Use custom document ID with .doc().set()
+      await adminDb.collection("accounts").doc(customId).set(payload);
+      finalId = customId;
+    } else {
+      // Auto-generate ID with .add()
+      const docRef = await adminDb.collection("accounts").add(payload);
+      finalId = docRef.id;
+    }
+
+    return NextResponse.json({ id: finalId, ...payload }, { status: 201 });
   } catch (err) {
     console.error("[POST /api/accounts]", err);
     return NextResponse.json({ message: "Gagal membuat akun." }, { status: 500 });

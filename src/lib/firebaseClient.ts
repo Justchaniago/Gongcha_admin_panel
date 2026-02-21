@@ -1,28 +1,21 @@
-// Import the functions you need from the SDKs you need
-import { initializeApp } from "firebase/app";
-import { getAnalytics } from "firebase/analytics";
-import { getFirestore } from "firebase/firestore";
-import { getAuth } from "firebase/auth";
-// TODO: Add SDKs for Firebase products that you want to use
-// https://firebase.google.com/docs/web/setup#available-libraries
+// src/lib/firebaseClient.ts
+// Client-side Firebase SDK — safe to import in "use client" components.
+// Uses NEXT_PUBLIC_ env vars (exposed to the browser).
 
-// Your web app's Firebase configuration
-// For Firebase JS SDK v7.20.0 and later, measurementId is optional
+import { initializeApp, getApps, getApp } from "firebase/app";
+import { getFirestore }                    from "firebase/firestore";
+import { getAuth }                         from "firebase/auth";
+
 const firebaseConfig = {
-  apiKey: "AIzaSyCeSYZdPgERBcf0aKgd0F7wcATkfRt6_iY",
-  authDomain: "gongcha-app-4691f.firebaseapp.com",
-  projectId: "gongcha-app-4691f",
-  storageBucket: "gongcha-app-4691f.firebasestorage.app",
-  messagingSenderId: "808600152798",
-  appId: "1:808600152798:web:97bbdbf4beafc20d27b04f",
-  measurementId: "G-N3HRB86L4N"
+  apiKey:            process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+  authDomain:        process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  projectId:         process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+  storageBucket:     process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  appId:             process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
-// Initialize Firebase
-export const app = initializeApp(firebaseConfig);
-let analytics: ReturnType<typeof getAnalytics> | undefined = undefined;
-if (typeof window !== "undefined") {
-  analytics = getAnalytics(app);
-}
-export const db = getFirestore(app);
+export const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+
+export const db   = getFirestore(app);
 export const auth = getAuth(app);

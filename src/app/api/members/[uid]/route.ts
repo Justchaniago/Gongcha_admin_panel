@@ -1,64 +1,97 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseServer";
-import { getAuth } from "firebase-admin/auth";
+import * as admin from "firebase-admin";
+import { User, UserRole, UserTier } from "@/types/firestore";
 
-// Handler untuk UPDATE (Edit) data member
-export async function PATCH(req: Request, { params }: { params: Promise<{ uid: string }> }) {
+type Params = { params: Promise<{ uid: string }> };
+
+// ── PATCH /api/members/[uid] — update member ──────────────────────────────────
+export async function PATCH(req: NextRequest, { params }: Params) {
+  const { uid } = await params;
+  if (!uid) return NextResponse.json({ message: "UID diperlukan." }, { status: 400 });
+
   try {
-    const resolvedParams = await params;
-    const uid = resolvedParams.uid;
-    const body = await req.json();
-    const { adminUid, ...updateData } = body;
+    const body: Partial<User & { password?: string }> = await req.json();
 
-    // 1. Verifikasi Keamanan Lapis Dua (Hanya Admin/Manager)
-    if (!adminUid) {
-      return NextResponse.json({ error: "Akses Ditolak: Admin UID diperlukan." }, { status: 401 });
+    const docRef = adminDb.collection("users").doc(uid);
+    const snap   = await docRef.get();
+    if (!snap.exists) {
+      return NextResponse.json({ message: "Member tidak ditemukan." }, { status: 404 });
     }
-    const adminDoc = await adminDb.collection("users").doc(adminUid).get();
-    const role = adminDoc.data()?.role;
-    if (!adminDoc.exists || (role !== "admin" && role !== "manager")) {
-      return NextResponse.json({ error: "Akses Ditolak: Otorisasi API gagal." }, { status: 403 });
+
+    // Validate
+    if (body.name !== undefined && !body.name.trim()) {
+      return NextResponse.json({ message: "Nama tidak boleh kosong." }, { status: 400 });
     }
-    // 2. Lakukan Update Data ke Firestore
-    await adminDb.collection("users").doc(uid).update({
-      ...updateData,
-      updatedAt: new Date().toISOString()
-    });
-    return NextResponse.json({ success: true, message: "Data member berhasil diperbarui." });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+
+    const validRoles: UserRole[] = ["master", "trial", "admin", "member"];
+    const validTiers: UserTier[] = ["Silver", "Gold", "Platinum"];
+    if (body.role && !validRoles.includes(body.role)) {
+      return NextResponse.json({ message: "Role tidak valid." }, { status: 400 });
+    }
+    if (body.tier && !validTiers.includes(body.tier)) {
+      return NextResponse.json({ message: "Tier tidak valid." }, { status: 400 });
+    }
+
+    // Update Firestore — only allowed fields
+    const allowed: (keyof User)[] = [
+      "name", "phoneNumber", "tier", "role", "currentPoints", "lifetimePoints",
+    ];
+    const firestoreUpdate: Record<string, unknown> = {};
+    for (const key of allowed) {
+      if (body[key] !== undefined) firestoreUpdate[key] = body[key];
+    }
+    if (body.name) firestoreUpdate.name = body.name.trim();
+
+    if (Object.keys(firestoreUpdate).length > 0) {
+      await docRef.update(firestoreUpdate);
+    }
+
+    // Optionally update Auth display name
+    if (body.name) {
+      await admin.auth().updateUser(uid, { displayName: body.name.trim() }).catch(() => {
+        // Auth user might not exist — not fatal
+      });
+    }
+
+    // Optionally update password
+    if (body.password) {
+      if (body.password.length < 8) {
+        return NextResponse.json({ message: "Password minimal 8 karakter." }, { status: 400 });
+      }
+      await admin.auth().updateUser(uid, { password: body.password });
+    }
+
+    return NextResponse.json({ uid, ...firestoreUpdate });
+  } catch (err) {
+    console.error("[PATCH /api/members/:uid]", err);
+    return NextResponse.json({ message: "Gagal memperbarui member." }, { status: 500 });
   }
 }
 
-// Handler untuk DELETE (Hapus) data member
-export async function DELETE(req: Request, { params }: { params: Promise<{ uid: string }> }) {
-  try {
-    const resolvedParams = await params;
-    const uid = resolvedParams.uid;
-    const url = new URL(req.url);
-    const adminUid = url.searchParams.get("adminUid");
+// ── DELETE /api/members/[uid] — delete member + auth user ────────────────────
+export async function DELETE(_req: NextRequest, { params }: Params) {
+  const { uid } = await params;
+  if (!uid) return NextResponse.json({ message: "UID diperlukan." }, { status: 400 });
 
-    // 1. Verifikasi Keamanan
-    if (!adminUid) {
-      return NextResponse.json({ error: "Akses Ditolak: Admin UID diperlukan." }, { status: 401 });
+  try {
+    const docRef = adminDb.collection("users").doc(uid);
+    const snap   = await docRef.get();
+    if (!snap.exists) {
+      return NextResponse.json({ message: "Member tidak ditemukan." }, { status: 404 });
     }
-    const adminDoc = await adminDb.collection("users").doc(adminUid).get();
-    const role = adminDoc.data()?.role;
-    if (!adminDoc.exists || (role !== "admin" && role !== "manager")) {
-      return NextResponse.json({ error: "Akses Ditolak: Otorisasi API gagal." }, { status: 403 });
-    }
-    // 2. Hapus data dari Firebase Auth (Jika ada)
-    try {
-      await getAuth().deleteUser(uid);
-    } catch (authError: any) {
-      if (authError.code !== 'auth/user-not-found') {
-        console.error("Auth Deletion Error:", authError);
-      }
-    }
-    // 3. Hapus data dari Firestore
-    await adminDb.collection("users").doc(uid).delete();
-    return NextResponse.json({ success: true, message: "Akun dan data member berhasil dihapus." });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+
+    // Delete Firestore doc
+    await docRef.delete();
+
+    // Delete Firebase Auth user (non-fatal if not found)
+    await admin.auth().deleteUser(uid).catch((e: { code?: string }) => {
+      if (e.code !== "auth/user-not-found") throw e;
+    });
+
+    return NextResponse.json({ message: "Member berhasil dihapus.", uid });
+  } catch (err) {
+    console.error("[DELETE /api/members/:uid]", err);
+    return NextResponse.json({ message: "Gagal menghapus member." }, { status: 500 });
   }
 }

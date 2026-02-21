@@ -1,69 +1,80 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseServer";
-import { getAuth } from "firebase-admin/auth";
+import * as admin from "firebase-admin";
+import { Staff, StaffRole } from "@/types/firestore";
 
-// Handler untuk UPDATE (Edit) data staff
-export async function PATCH(req: Request, { params }: { params: Promise<{ uid: string }> }) {
+type Params = { params: Promise<{ uid: string }> };
+
+// ── PATCH /api/staff/[uid] ────────────────────────────────────────────────────
+export async function PATCH(req: NextRequest, { params }: Params) {
+  const { uid } = await params;
+  if (!uid) return NextResponse.json({ message: "UID diperlukan." }, { status: 400 });
+
   try {
-    const resolvedParams = await params;
-    const uid = resolvedParams.uid;
-    const body = await req.json();
-    const { adminUid, ...updateData } = body;
+    const body: Partial<Staff & { password?: string }> = await req.json();
 
-    // 1. Verifikasi Keamanan Lapis Dua (Hanya Admin/Manager)
-    if (!adminUid) {
-      return NextResponse.json({ error: "Akses Ditolak: Admin UID diperlukan." }, { status: 401 });
+    const docRef = adminDb.collection("staff").doc(uid);
+    const snap   = await docRef.get();
+    if (!snap.exists) {
+      return NextResponse.json({ message: "Staff tidak ditemukan." }, { status: 404 });
     }
-    const adminDoc = await adminDb.collection("users").doc(adminUid).get();
-    const role = adminDoc.data()?.role;
-    if (!adminDoc.exists || (role !== "admin" && role !== "manager")) {
-      return NextResponse.json({ error: "Akses Ditolak: Otorisasi API gagal." }, { status: 403 });
+
+    const validRoles: StaffRole[] = ["cashier", "store_manager", "admin"];
+    if (body.role && !validRoles.includes(body.role)) {
+      return NextResponse.json({ message: "Role tidak valid." }, { status: 400 });
     }
-    // 2. Lakukan Update Data ke Firestore (staff & users)
-    await adminDb.collection("staff").doc(uid).update({
-      ...updateData,
-      updatedAt: new Date().toISOString()
-    });
-    await adminDb.collection("users").doc(uid).update({
-      ...updateData,
-      updatedAt: new Date().toISOString()
-    });
-    return NextResponse.json({ success: true, message: "Data staff berhasil diperbarui." });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    if (body.name !== undefined && !body.name.trim()) {
+      return NextResponse.json({ message: "Nama tidak boleh kosong." }, { status: 400 });
+    }
+
+    const allowed: (keyof Staff)[] = ["name", "role", "storeLocation", "isActive"];
+    const update: Record<string, unknown> = {};
+    for (const key of allowed) {
+      if (body[key] !== undefined) update[key] = body[key];
+    }
+    if (body.name) update.name = body.name.trim();
+
+    if (Object.keys(update).length > 0) {
+      await docRef.update(update);
+    }
+
+    if (body.name) {
+      await admin.auth().updateUser(uid, { displayName: body.name.trim() }).catch(() => {});
+    }
+    if (body.password) {
+      if (body.password.length < 8) {
+        return NextResponse.json({ message: "Password minimal 8 karakter." }, { status: 400 });
+      }
+      await admin.auth().updateUser(uid, { password: body.password });
+    }
+
+    return NextResponse.json({ uid, ...update });
+  } catch (err) {
+    console.error("[PATCH /api/staff/:uid]", err);
+    return NextResponse.json({ message: "Gagal memperbarui staff." }, { status: 500 });
   }
 }
 
-// Handler untuk DELETE (Hapus) data staff
-export async function DELETE(req: Request, { params }: { params: Promise<{ uid: string }> }) {
-  try {
-    const resolvedParams = await params;
-    const uid = resolvedParams.uid;
-    const url = new URL(req.url);
-    const adminUid = url.searchParams.get("adminUid");
+// ── DELETE /api/staff/[uid] ───────────────────────────────────────────────────
+export async function DELETE(_req: NextRequest, { params }: Params) {
+  const { uid } = await params;
+  if (!uid) return NextResponse.json({ message: "UID diperlukan." }, { status: 400 });
 
-    // 1. Verifikasi Keamanan
-    if (!adminUid) {
-      return NextResponse.json({ error: "Akses Ditolak: Admin UID diperlukan." }, { status: 401 });
+  try {
+    const docRef = adminDb.collection("staff").doc(uid);
+    const snap   = await docRef.get();
+    if (!snap.exists) {
+      return NextResponse.json({ message: "Staff tidak ditemukan." }, { status: 404 });
     }
-    const adminDoc = await adminDb.collection("users").doc(adminUid).get();
-    const role = adminDoc.data()?.role;
-    if (!adminDoc.exists || (role !== "admin" && role !== "manager")) {
-      return NextResponse.json({ error: "Akses Ditolak: Otorisasi API gagal." }, { status: 403 });
-    }
-    // 2. Hapus data dari Firebase Auth (Jika ada)
-    try {
-      await getAuth().deleteUser(uid);
-    } catch (authError: any) {
-      if (authError.code !== 'auth/user-not-found') {
-        console.error("Auth Deletion Error:", authError);
-      }
-    }
-    // 3. Hapus data dari Firestore (staff & users)
-    await adminDb.collection("staff").doc(uid).delete();
-    await adminDb.collection("users").doc(uid).delete();
-    return NextResponse.json({ success: true, message: "Akun dan data staff berhasil dihapus." });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+
+    await docRef.delete();
+    await admin.auth().deleteUser(uid).catch((e: { code?: string }) => {
+      if (e.code !== "auth/user-not-found") throw e;
+    });
+
+    return NextResponse.json({ message: "Staff berhasil dihapus.", uid });
+  } catch (err) {
+    console.error("[DELETE /api/staff/:uid]", err);
+    return NextResponse.json({ message: "Gagal menghapus staff." }, { status: 500 });
   }
 }
