@@ -30,7 +30,9 @@ export default function Sidebar() {
 
   return (
     <aside className="fixed top-0 left-0 h-screen w-[72px] flex flex-col items-center py-6 z-50 bg-white" style={{ borderRight: "1px solid #E2E8F0" }}>
-      <div className="mb-8 w-10 h-10 rounded-xl flex items-center justify-center font-display font-bold text-white text-sm" style={{ background: "linear-gradient(135deg,#4361EE,#3A0CA3)" }}>G</div>
+      <div className="mb-8 w-14 h-14 rounded-2xl flex items-center justify-center bg-white shadow-lg border border-gray-200 overflow-hidden transition-all duration-200">
+        <img src="/assets/images/logo1.webp" alt="Logo" className="w-12 h-12 object-contain" />
+      </div>
       <nav className="flex flex-col items-center gap-1 flex-1">
         {navItems.map((item, idx) => {
           const active = pathname.startsWith(item.href);

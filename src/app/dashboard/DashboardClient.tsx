@@ -124,6 +124,9 @@ function StatCard({ label, value, trend, trendLabel, iconBg, iconColor, icon, bo
 
 // ── Main Dashboard ────────────────────────────────────────────────────────────
 export default function DashboardClient() {
+  const [mode, setMode] = useState<"realtime" | "range">("realtime");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   // Realtime state
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [members,      setMembers]      = useState<Member[]>([]);
@@ -141,25 +144,66 @@ export default function DashboardClient() {
 
   // ── Firestore listeners ──────────────────────────────────────────────────
   useEffect(() => {
-    // Transactions — latest 20
-    const txQ = query(collection(db, "transactions"), orderBy("createdAt", "desc"), limit(20));
-    const unsubTx = onSnapshot(txQ,
-      (snap) => {
-        setTransactions(snap.docs.map(d => {
-          const data = d.data();
-          return {
-            transactionId: d.id,
-            memberName:    data.memberName    ?? data.userName ?? "—",
-            amount:        data.amount        ?? data.totalAmount ?? 0,
-            status:        data.status        ?? "pending",
-            createdAt:     data.createdAt?.toDate?.()?.toISOString?.() ?? data.createdAt ?? null,
-            storeId:       data.storeId       ?? data.storeLocation ?? "",
-          } as Transaction;
-        }));
-        setTxStatus("live");
-      },
-      () => setTxStatus("error"),
-    );
+    let unsubTx: (() => void) | null = null;
+    let ignore = false;
+
+    async function fetchRange() {
+      setTxStatus("connecting");
+      try {
+        const { getDocs, collection, query, orderBy, where, Timestamp, limit } = await import("firebase/firestore");
+        let q = query(collection(db, "transactions"), orderBy("createdAt", "desc"));
+        if (dateFrom && dateTo) {
+          const from = Timestamp.fromDate(new Date(dateFrom + "T00:00:00"));
+          const to = Timestamp.fromDate(new Date(dateTo + "T23:59:59"));
+          q = query(collection(db, "transactions"),
+            orderBy("createdAt", "desc"),
+            where("createdAt", ">=", from),
+            where("createdAt", "<=", to),
+            limit(100)
+          );
+        }
+        const snap = await getDocs(q);
+        if (!ignore) {
+          setTransactions(snap.docs.map(d => {
+            const data = d.data();
+            return {
+              transactionId: d.id,
+              memberName:    data.memberName    ?? data.userName ?? "—",
+              amount:        data.amount        ?? data.totalAmount ?? 0,
+              status:        data.status        ?? "pending",
+              createdAt:     data.createdAt?.toDate?.()?.toISOString?.() ?? data.createdAt ?? null,
+              storeId:       data.storeId       ?? data.storeLocation ?? "",
+            } as Transaction;
+          }));
+          setTxStatus("live");
+        }
+      } catch {
+        if (!ignore) setTxStatus("error");
+      }
+    }
+
+    if (mode === "realtime") {
+      const txQ = query(collection(db, "transactions"), orderBy("createdAt", "desc"), limit(20));
+      unsubTx = onSnapshot(txQ,
+        (snap) => {
+          setTransactions(snap.docs.map(d => {
+            const data = d.data();
+            return {
+              transactionId: d.id,
+              memberName:    data.memberName    ?? data.userName ?? "—",
+              amount:        data.amount        ?? data.totalAmount ?? 0,
+              status:        data.status        ?? "pending",
+              createdAt:     data.createdAt?.toDate?.()?.toISOString?.() ?? data.createdAt ?? null,
+              storeId:       data.storeId       ?? data.storeLocation ?? "",
+            } as Transaction;
+          }));
+          setTxStatus("live");
+        },
+        () => setTxStatus("error"),
+      );
+    } else {
+      fetchRange();
+    }
 
     // Members
     const memQ = query(collection(db, "users"));
@@ -178,8 +222,8 @@ export default function DashboardClient() {
       (err)  => console.error("[stores]", err),
     );
 
-    return () => { unsubTx(); unsubMem(); unsubStore(); };
-  }, []);
+    return () => { if (unsubTx) unsubTx(); ignore = true; unsubMem(); unsubStore(); };
+  }, [mode, dateFrom, dateTo]);
 
   // ── Derived stats ────────────────────────────────────────────────────────
   const totalMembers  = members.length;
@@ -228,15 +272,44 @@ export default function DashboardClient() {
             <LiveBadge status={overallStatus}/>
           </p>
         </div>
-        <div style={{ display: "flex", gap: 10 }}>
-          {/* Refresh hint */}
-          <div style={{ display: "flex", alignItems: "center", gap: 8, background: C.white, border: `1.5px solid ${C.border}`, borderRadius: 10, padding: "8px 16px", boxShadow: C.shadow }}>
-            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke={C.tx3} strokeWidth={2}>
-              <rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>
-            </svg>
-            <span style={{ fontSize: 13, fontWeight: 600, color: C.tx1 }}>Real-time</span>
+        <div style={{ display: "flex", flex: 1, justifyContent: "flex-end", gap: 10, alignItems: "center" }}>
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <select
+              value={mode}
+              onChange={e => setMode(e.target.value as "realtime" | "range")}
+              style={{ padding: "7px 14px", borderRadius: 8, border: "1.5px solid " + C.blueL, background: C.white, fontWeight: 600, color: C.tx1, fontSize: 13 }}
+            >
+              <option value="realtime">Real-time</option>
+              <option value="range">Rentang Tanggal</option>
+            </select>
+            {mode === "range" && (
+              <>
+                <input
+                  type="date"
+                  value={dateFrom}
+                  onChange={e => setDateFrom(e.target.value)}
+                  style={{ padding: "7px 10px", borderRadius: 8, border: "1.5px solid " + C.border, background: C.white, fontSize: 13, color: C.tx1 }}
+                />
+                <span style={{ color: C.tx3, fontWeight: 600 }}>s/d</span>
+                <input
+                  type="date"
+                  value={dateTo}
+                  onChange={e => setDateTo(e.target.value)}
+                  style={{ padding: "7px 10px", borderRadius: 8, border: "1.5px solid " + C.border, background: C.white, fontSize: 13, color: C.tx1 }}
+                />
+              </>
+            )}
+            {mode === "realtime" && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, background: C.white, border: "1.5px solid " + C.border, borderRadius: 10, padding: "8px 16px", boxShadow: C.shadow }}>
+                <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke={C.tx3} strokeWidth={2}>
+                  <rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>
+                </svg>
+                <span style={{ fontSize: 13, fontWeight: 600, color: C.tx1 }}>Real-time</span>
+              </div>
+            )}
           </div>
         </div>
+        
       </div>
 
       {/* ── BENTO ROW 1: 4 stat cards ── */}

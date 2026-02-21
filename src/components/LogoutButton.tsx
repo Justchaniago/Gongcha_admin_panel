@@ -2,7 +2,7 @@
 // src/components/LogoutButton.tsx
 // Drop this anywhere in Sidebar to show user info + logout
 
-import { useAdminAuth } from "@/components/AuthProvider";
+import { useAuth } from "@/context/AuthContext";
 
 const C = {
   tx1: '#0F1117', tx2: '#4A5065', tx3: '#9299B0',
@@ -11,12 +11,20 @@ const C = {
 } as const;
 const font = "'Plus Jakarta Sans', system-ui, sans-serif";
 
+
 export default function LogoutButton() {
-  const { user, logout } = useAdminAuth();
-  if (!user) return null;
+  const { user, loading } = useAuth();
+  const router = require("next/navigation").useRouter();
+  if (!user || loading) return null;
+  async function handleLogout() {
+    const { getAuth, signOut } = await import("firebase/auth");
+    const { app } = await import("@/lib/firebaseClient");
+    await signOut(getAuth(app));
+    router.push("/login");
+  }
   return (
     <button
-      onClick={logout}
+      onClick={handleLogout}
       title={`Logout (${user.email || ''})`}
       style={{
         width: 44, height: 44, borderRadius: 12,
