@@ -1,10 +1,12 @@
-import { collection, getDocs } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+
+'use server';
+import { adminDb } from '@/lib/firebaseServer';
 import StoresClient from './StoresClient';
 import { Store } from '@/types/firestore';
 
 export default async function StoresPage() {
-  const snapshot = await getDocs(collection(db, 'stores'));
+  // Use Admin SDK to fetch stores (server-side only)
+  const snapshot = await adminDb.collection('stores').get();
   const stores = snapshot.docs.map(doc => ({
     id: doc.id,
     ...doc.data(),
@@ -19,7 +21,6 @@ export default async function StoresPage() {
       fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif",
       WebkitFontSmoothing: 'antialiased',
     }}>
-
       {/* ── PAGE HEADER ── */}
       <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 28 }}>
         <div>

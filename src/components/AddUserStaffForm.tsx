@@ -1,85 +1,116 @@
 "use client";
 import { useState } from "react";
-import { addUser, addStaff, deleteUser, deleteStaff } from "@/lib/userStaffActions";
+import { useAuth } from "@/context/AuthContext";
 
 export default function AddUserStaffForm() {
-  const [type, setType] = useState<"user"|"staff">("user");
-  const [uid, setUid] = useState("");
+  const { user: currentUser, role: currentUserRole } = useAuth();
+  const [type, setType] = useState<"user" | "staff">("user");
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState("");
+  const [password, setPassword] = useState("");
+  const [roleInput, setRoleInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [msg, setMsg] = useState<string|null>(null);
+  const [msg, setMsg] = useState<{ text: string; isError: boolean } | null>(null);
+
+  const hasPermission = currentUserRole === "admin" || currentUserRole === "manager";
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setMsg(null);
-    if (!uid || !email || !role) {
-      setMsg("Semua field wajib diisi.");
+    if (!hasPermission || !currentUser) {
+      setMsg({ text: "❌ Akses ditolak: Hanya Admin/Manager.", isError: true });
+      return;
+    }
+    if (!email || !password || !roleInput) {
+      setMsg({ text: "Email, Password, dan Role wajib diisi.", isError: true });
+      return;
+    }
+    if (password.length < 6) {
+      setMsg({ text: "Password minimal 6 karakter.", isError: true });
       return;
     }
     setLoading(true);
     try {
-      if (type === "user") {
-        await addUser(uid, { email, role });
-      } else {
-        await addStaff(uid, { email, role });
+      const response = await fetch("/api/accounts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email,
+          password,
+          role: roleInput,
+          type,
+          adminUid: currentUser.uid // Kirim UID Admin untuk validasi keamanan di backend
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "Gagal menghubungi server.");
       }
-      setMsg(`✅ Berhasil menambah ${type}.`);
-      setUid(""); setEmail(""); setRole("");
+      setMsg({ text: `✅ Berhasil membuat akun ${type}. UID Baru: ${data.uid}`, isError: false });
+      setEmail(""); setPassword(""); setRoleInput("");
     } catch (err: any) {
-      setMsg("❌ Gagal menyimpan: " + (err.message || err.toString()));
-    }
-    setLoading(false);
-  }
-
-  async function handleDelete() {
-    setMsg(null);
-    if (!uid) {
-      setMsg("Masukkan UID yang ingin dihapus.");
-      return;
-    }
-    setLoading(true);
-    try {
-      if (type === "user") {
-        await deleteUser(uid);
-      } else {
-        await deleteStaff(uid);
-      }
-      setMsg(`✅ Berhasil menghapus ${type}.`);
-      setUid(""); setEmail(""); setRole("");
-    } catch (err: any) {
-      setMsg("❌ Gagal menghapus: " + (err.message || err.toString()));
+      setMsg({ text: "❌ Error: " + err.message, isError: true });
     }
     setLoading(false);
   }
 
   return (
-    <form onSubmit={handleSubmit} style={{ maxWidth: 340, margin: "32px auto", padding: 24, border: "1px solid #E2E8F0", borderRadius: 14, background: "#fff", boxShadow: "0 2px 8px rgba(67,97,238,.06)" }}>
-      <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 18 }}>Tambah User/Staff</h3>
-      <div style={{ marginBottom: 14 }}>
-        <label style={{ fontWeight: 600, fontSize: 13, marginRight: 10 }}>
-          <input type="radio" checked={type==="user"} onChange={()=>setType("user")}/> User
+    <form 
+      onSubmit={handleSubmit} 
+      className="w-full max-w-md mx-auto my-8 p-6 border border-slate-200 rounded-2xl bg-white shadow-sm"
+    >
+      <h3 className="text-xl font-bold mb-5 text-slate-800">Manajemen Akses Sistem</h3>
+      {!hasPermission && (
+        <div className="mb-5 p-4 bg-red-50 text-red-600 text-sm rounded-xl border border-red-200 flex items-start gap-3">
+          <span className="text-lg">🔒</span>
+          <p>Login sebagai: <b className="capitalize">{currentUserRole || "Staff"}</b>. Pembuatan akun dikunci.</p>
+        </div>
+      )}
+      <div className="flex gap-6 mb-5">
+        <label className="flex items-center gap-2 text-sm font-semibold text-slate-700 cursor-pointer">
+          <input 
+            type="radio" checked={type==="user"} onChange={()=>setType("user")}
+            className="accent-blue-600 w-4 h-4" disabled={!hasPermission}
+          /> User Data
         </label>
-        <label style={{ fontWeight: 600, fontSize: 13 }}>
-          <input type="radio" checked={type==="staff"} onChange={()=>setType("staff")}/> Staff
+        <label className="flex items-center gap-2 text-sm font-semibold text-slate-700 cursor-pointer">
+          <input 
+            type="radio" checked={type==="staff"} onChange={()=>setType("staff")}
+            className="accent-blue-600 w-4 h-4" disabled={!hasPermission}
+          /> Staff Data
         </label>
       </div>
-      <div style={{ marginBottom: 12 }}>
-        <input value={uid} onChange={e=>setUid(e.target.value)} placeholder="UID" style={{ width: "100%", padding: 8, borderRadius: 7, border: "1px solid #E2E8F0", fontSize: 14 }}/>
+      <div className="mb-4">
+        <input 
+          value={email} onChange={e=>setEmail(e.target.value)}
+          placeholder="Alamat Email Akun Baru" type="email" disabled={!hasPermission}
+          className="w-full p-3.5 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-50 disabled:cursor-not-allowed"
+        />
       </div>
-      <div style={{ marginBottom: 12 }}>
-        <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="Email" style={{ width: "100%", padding: 8, borderRadius: 7, border: "1px solid #E2E8F0", fontSize: 14 }}/>
+      <div className="mb-4">
+        <input 
+          value={password} onChange={e=>setPassword(e.target.value)}
+          placeholder="Password Sementara" type="password" disabled={!hasPermission}
+          className="w-full p-3.5 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-50 disabled:cursor-not-allowed"
+        />
       </div>
-      <div style={{ marginBottom: 16 }}>
-        <input value={role} onChange={e=>setRole(e.target.value)} placeholder="Role (admin/cashier)" style={{ width: "100%", padding: 8, borderRadius: 7, border: "1px solid #E2E8F0", fontSize: 14 }}/>
+      <div className="mb-6">
+        <input 
+          value={roleInput} onChange={e=>setRoleInput(e.target.value)}
+          placeholder="Role (contoh: cashier, staff)" disabled={!hasPermission}
+          className="w-full p-3.5 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-50 disabled:cursor-not-allowed"
+        />
       </div>
-      <button type="submit" disabled={loading} style={{ width: "100%", padding: 10, borderRadius: 8, background: loading ? "#c7d2fe" : "#4361EE", color: "#fff", fontWeight: 700, fontSize: 15, border: "none", cursor: loading ? "not-allowed" : "pointer", marginBottom: 8 }}>
-        {loading ? "Menyimpan..." : `Tambah ${type}`}
+      <button 
+        type="submit" disabled={loading || !hasPermission}
+        className="w-full py-3.5 rounded-xl bg-blue-600 text-white font-bold text-sm mb-3 hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors"
+      >
+        {loading ? "Memproses Pembuatan Akun..." : `Buat Akun ${type} Baru`}
       </button>
-      <button type="button" onClick={handleDelete} disabled={loading} style={{ width: "100%", padding: 10, borderRadius: 8, background: loading ? "#fee2e2" : "#C8102E", color: "#fff", fontWeight: 700, fontSize: 15, border: "none", cursor: loading ? "not-allowed" : "pointer" }}>
-        {loading ? "Menghapus..." : `Hapus ${type}`}
-      </button>
-      {msg && <div style={{ marginTop: 14, color: msg.startsWith("✅") ? "#12B76A" : "#C8102E", fontSize: 13 }}>{msg}</div>}
+      {msg && (
+        <div className={`mt-5 text-sm p-4 rounded-xl ${!msg.isError ? "bg-green-50 text-green-700 border-green-200" : "bg-red-50 text-red-700 border-red-200"} border`}>
+          {msg.text}
+        </div>
+      )}
     </form>
   );
 }
