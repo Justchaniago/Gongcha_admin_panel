@@ -4,8 +4,9 @@ import * as admin from "firebase-admin";
 if (!admin.apps.length) {
   // Di production (Vercel), simpan service account sebagai env var JSON string
   // Di local dev, baca dari file path
-  const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_JSON
-    ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON)
+  const jsonEnv = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+  const serviceAccount = (jsonEnv && jsonEnv.trim().startsWith("{"))
+    ? JSON.parse(jsonEnv)
     : (() => {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const fs = require("fs");

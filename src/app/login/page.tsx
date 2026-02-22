@@ -2,9 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { signInWithEmailAndPassword, onAuthStateChanged } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
-import { auth, db } from "@/lib/firebaseClient";
+import { signIn as nextAuthSignIn, useSession } from "next-auth/react";
 
 const font = "'Plus Jakarta Sans', system-ui, sans-serif";
 
@@ -27,28 +25,23 @@ const C = {
 
 export default function LoginPage() {
   const router = useRouter();
+  const { data: session, status } = useSession();
 
   const [email,    setEmail]    = useState("");
   const [password, setPassword] = useState("");
   const [loading,  setLoading]  = useState(false);
-  const [checking, setChecking] = useState(true); // checking existing session
   const [error,    setError]    = useState("");
   const [showPw,   setShowPw]   = useState(false);
   const [focusE,   setFocusE]   = useState(false);
   const [focusP,   setFocusP]   = useState(false);
   const [success,  setSuccess]  = useState(false);
 
-  // If already logged in, redirect straight to dashboard
+  // If already authenticated via NextAuth session, redirect to dashboard
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        router.replace("/dashboard");
-      } else {
-        setChecking(false);
-      }
-    });
-    return () => unsub();
-  }, [router]);
+    if (status === "authenticated") {
+      router.replace("/dashboard");
+    }
+  }, [status, router]);
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -56,28 +49,19 @@ export default function LoginPage() {
     setLoading(true); setError("");
 
     try {
-      const cred = await signInWithEmailAndPassword(auth, email.trim(), password);
-      const uid  = cred.user.uid;
+      // Use NextAuth credentials sign-in — this sets the session cookie atomically.
+      // The authorize() function in src/lib/auth.ts handles Firebase auth + role check.
+      const result = await nextAuthSignIn("credentials", {
+        email:    email.trim(),
+        password,
+        redirect: false,
+      });
 
-
-      // Check if this UID is admin or cashier in Firestore
-      const [adminCheck, staffCheck] = await Promise.all([
-        getDoc(doc(db, "users", uid)),
-        getDoc(doc(db, "staff", uid)),
-      ]);
-
-      // Cek role di users
-      const userRole = adminCheck.exists() ? adminCheck.data()?.role : undefined;
-      // Cek role di staff
-      const staffRole = staffCheck.exists() ? staffCheck.data()?.role : undefined;
-
-      const allowedRoles = ["admin", "cashier"];
-      const isAllowed = allowedRoles.includes(userRole) || allowedRoles.includes(staffRole);
-
-      if (!isAllowed) {
-        // User tidak punya akses admin panel
-        await auth.signOut();
-        setError("Akun ini tidak memiliki akses ke panel admin.");
+      if (result?.error) {
+        // NextAuth passes the error message thrown in authorize()
+        setError(result.error === "CredentialsSignin"
+          ? "Email atau password salah."
+          : result.error);
         setLoading(false);
         return;
       }
@@ -86,22 +70,13 @@ export default function LoginPage() {
       setTimeout(() => router.replace("/dashboard"), 800);
 
     } catch (err: any) {
-      const map: Record<string, string> = {
-        "auth/invalid-credential":     "Email atau password salah.",
-        "auth/user-not-found":         "Akun tidak ditemukan.",
-        "auth/wrong-password":         "Password salah.",
-        "auth/invalid-email":          "Format email tidak valid.",
-        "auth/user-disabled":          "Akun ini telah dinonaktifkan.",
-        "auth/too-many-requests":      "Terlalu banyak percobaan. Tunggu beberapa menit.",
-        "auth/network-request-failed": "Koneksi gagal. Periksa koneksi internet.",
-      };
-      setError(map[err.code] ?? `Login gagal: ${err.message}`);
+      setError(`Login gagal: ${err.message ?? "Coba lagi."}`);
       setLoading(false);
     }
   }
 
-  // Loading screen while checking auth state
-  if (checking) {
+  // Loading screen while checking existing NextAuth session
+  if (status === "loading") {
     return (
       <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>

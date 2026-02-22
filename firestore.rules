@@ -77,6 +77,18 @@ service cloud.firestore {
       allow write:  if staffHasRole(['admin']) || userIsAdmin();
     }
 
+    // ── /settings ──────────────────────────────────────────────────────────
+    // Global app settings (e.g. settings/global).
+    // Read: any authenticated staff or admin user.
+    // Write: only admin staff or admin users — but mutations go through
+    //        /api/settings (Admin SDK), so direct client writes are blocked.
+    match /settings/{settingId} {
+      allow read:   if staffHasRole(['admin', 'store_manager', 'cashier']) || userIsAdmin();
+      allow create: if false; // Must use /api/settings (Admin SDK)
+      allow update: if false; // Must use /api/settings (Admin SDK)
+      allow delete: if false;
+    }
+
     // ── Deny everything else ───────────────────────────────────────────────
     match /{document=**} {
       allow read, write: if false;

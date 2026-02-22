@@ -1,0 +1,94 @@
+// src/app/api/settings/route.ts
+import { NextRequest, NextResponse } from "next/server";
+import { adminDb } from "@/lib/firebaseServer";
+import { getToken } from "next-auth/jwt";
+
+const SETTINGS_DOC = "settings/global";
+
+// ── Default settings ──────────────────────────────────────────────────────────
+const DEFAULTS = {
+  pointsPerThousand:   10,
+  minimumTransaction:  25000,
+  pointsExpiry:        "12_months",
+  tiers: {
+    silver:   { minPoints: 0,     bonus: "0%",  label: "Silver" },
+    gold:     { minPoints: 10000, bonus: "10%", label: "Gold" },
+    platinum: { minPoints: 50000, bonus: "25%", label: "Platinum" },
+  },
+  notifications: {
+    email:  true,
+    push:   true,
+    weekly: false,
+  },
+  updatedAt: null as string | null,
+  updatedBy: null as string | null,
+};
+
+// ── Auth helper ───────────────────────────────────────────────────────────────
+async function validateAdmin(req: NextRequest) {
+  const token = await getToken({
+    req,
+    secret: process.env.NEXTAUTH_SECRET,
+    secureCookie: process.env.NODE_ENV === "production",
+  });
+  if (!token) return { error: "Unauthorized", status: 401, token: null };
+  const role = token.role as string;
+  if (!["admin", "master"].includes(role)) {
+    return { error: "Hanya admin yang dapat mengakses pengaturan.", status: 403, token: null };
+  }
+  return { token, error: null, status: 200 };
+}
+
+// ── GET — read settings ───────────────────────────────────────────────────────
+export async function GET(req: NextRequest) {
+  const auth = await validateAdmin(req);
+  if (auth.error) return NextResponse.json({ message: auth.error }, { status: auth.status });
+
+  try {
+    const snap = await adminDb.doc(SETTINGS_DOC).get();
+    if (!snap.exists) {
+      // Return defaults if not yet configured
+      return NextResponse.json(DEFAULTS);
+    }
+    return NextResponse.json({ ...DEFAULTS, ...snap.data() });
+  } catch (e: any) {
+    console.error("[GET /api/settings]", e);
+    return NextResponse.json({ message: e.message }, { status: 500 });
+  }
+}
+
+// ── PATCH — update settings ───────────────────────────────────────────────────
+export async function PATCH(req: NextRequest) {
+  const auth = await validateAdmin(req);
+  if (auth.error) return NextResponse.json({ message: auth.error }, { status: auth.status });
+
+  try {
+    const body = await req.json();
+
+    // Whitelist allowed fields
+    const allowed = [
+      "pointsPerThousand", "minimumTransaction", "pointsExpiry",
+      "tiers", "notifications",
+    ];
+    const update: Record<string, unknown> = {};
+    for (const key of allowed) {
+      if (key in body) update[key] = body[key];
+    }
+
+    if (Object.keys(update).length === 0) {
+      return NextResponse.json({ message: "Tidak ada field yang valid untuk diupdate." }, { status: 400 });
+    }
+
+    update.updatedAt = new Date().toISOString();
+    update.updatedBy = auth.token!.uid as string;
+
+    await adminDb.doc(SETTINGS_DOC).set(update, { merge: true });
+
+    // Return the full merged settings
+    const snap = await adminDb.doc(SETTINGS_DOC).get();
+    return NextResponse.json({ ...DEFAULTS, ...snap.data() });
+  } catch (e: any) {
+    console.error("[PATCH /api/settings]", e);
+    return NextResponse.json({ message: e.message }, { status: 500 });
+  }
+}

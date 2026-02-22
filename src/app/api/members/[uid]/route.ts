@@ -2,28 +2,36 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseServer";
 import * as admin from "firebase-admin";
 import { User, UserRole, UserTier } from "@/types/firestore";
-import { getToken } from "next-auth/jwt";
+import { decode } from "next-auth/jwt";
+import { cookies } from "next/headers";
 
 type Params = { params: Promise<{ uid: string }> };
 
-// Helper untuk validasi session
-async function validateSession(req: NextRequest) {
-  const token = await getToken({ 
-    req, 
-    secret: process.env.NEXTAUTH_SECRET,
-    secureCookie: process.env.NODE_ENV === "production"
-  });
-  
-  if (!token) {
-    return { error: "Session tidak ditemukan. Silakan login ulang.", status: 403 };
+// Helper untuk validasi session — baca cookie langsung dari next/headers
+// dan decode JWT secara manual (kompatibel dengan Next.js 16).
+async function validateSession() {
+  const cookieStore = await cookies();
+  const sessionToken = cookieStore.get("next-auth.session-token")?.value;
+
+  if (!sessionToken) {
+    return { error: "Session tidak ditemukan. Silakan login ulang.", status: 403 as const };
   }
-  
+
+  const token = await decode({
+    token: sessionToken,
+    secret: process.env.NEXTAUTH_SECRET!,
+  });
+
+  if (!token) {
+    return { error: "Session tidak ditemukan. Silakan login ulang.", status: 403 as const };
+  }
+
   const userRole = token.role as string;
   // Hanya admin dan master yang bisa modify member
-  if (!['admin', 'master'].includes(userRole)) {
-    return { error: "Akses ditolak. Anda tidak memiliki izin.", status: 403 };
+  if (!["admin", "master"].includes(userRole)) {
+    return { error: "Akses ditolak. Anda tidak memiliki izin.", status: 403 as const };
   }
-  
+
   return { token, userRole, error: null };
 }
 
@@ -33,7 +41,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   if (!uid) return NextResponse.json({ message: "UID diperlukan." }, { status: 400 });
 
   // Validasi session
-  const validation = await validateSession(req);
+  const validation = await validateSession();
   if (validation.error) {
     return NextResponse.json({ message: validation.error }, { status: validation.status });
   }
@@ -103,7 +111,7 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
   if (!uid) return NextResponse.json({ message: "UID diperlukan." }, { status: 400 });
 
   // Validasi session
-  const validation = await validateSession(_req);
+  const validation = await validateSession();
   if (validation.error) {
     return NextResponse.json({ message: validation.error }, { status: validation.status });
   }
