@@ -407,7 +407,7 @@ export default function DashboardClient() {
                 <LiveBadge status={txStatus}/>
               </h2>
             </div>
-            <a href="/dashboard/transactions" style={{ fontSize: 13, fontWeight: 600, color: C.blue, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 5, padding: "7px 14px", borderRadius: 8, border: `1.5px solid ${C.blueL}`, background: C.blueL }}>
+              <a href="/transactions" style={{ fontSize: 13, fontWeight: 600, color: C.blue, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 5, padding: "7px 14px", borderRadius: 8, border: `1.5px solid ${C.blueL}`, background: C.blueL }}>
               View all
               <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                 <path d="M7 17L17 7M17 7H7M17 7v10"/>

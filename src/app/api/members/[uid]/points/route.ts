@@ -1,48 +1,34 @@
 import { NextRequest, NextResponse } from "next/server";
-import { adminDb } from "@/lib/firebaseServer";
-import { getServerSession } from "next-auth"; // atau auth lib yang kamu pakai
-import { authOptions } from "@/lib/auth";
+import { adminDb } from "@/lib/firebaseAdmin";
+import { getToken } from "next-auth/jwt";
 
 export async function PATCH(
   req: NextRequest,
   context: { params: Promise<{ uid: string }> }
 ) {
   try {
-    // ── Auth guard: hanya admin ──
-    const session = await getServerSession(authOptions);
-    if (!session || session.user.role !== "admin") {
+    const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+    console.log('TOKEN DEBUG', JSON.stringify(token));
+    if (!token || !['admin', 'master'].includes(token.role)) {
       return NextResponse.json(
-        { error: "Akses ditolak. Hanya admin yang dapat mengubah poin." },
+        { error: "Akses ditolak. Anda tidak memiliki izin." },
         { status: 403 }
       );
     }
 
     const { currentPoints, lifetimePoints } = await req.json();
     const { uid } = await context.params;
+    if (!uid) return NextResponse.json({ error: 'Missing uid' }, { status: 400 });
 
-    if (typeof currentPoints  !== "number" || currentPoints  < 0) {
-      return NextResponse.json({ error: "Nilai poin tidak valid." }, { status: 400 });
-    }
-    if (typeof lifetimePoints !== "number" || lifetimePoints < 0) {
-      return NextResponse.json({ error: "Nilai lifetime XP tidak valid." }, { status: 400 });
-    }
-    if (lifetimePoints < currentPoints) {
-      return NextResponse.json(
-        { error: "Lifetime XP tidak boleh lebih kecil dari poin aktif." },
-        { status: 400 }
-      );
-    }
-
-    await adminDb.collection("users").doc(uid).update({
-      currentPoints,
-      lifetimePoints,
-      // Opsional: catat log audit
-      pointsLastEditedBy: session.user.uid,
+    await adminDb.collection('users').doc(uid).update({
+      currentPoints: Number(currentPoints),
+      lifetimePoints: Number(lifetimePoints),
+      pointsLastEditedBy: token.uid,
       pointsLastEditedAt: new Date().toISOString(),
     });
 
     return NextResponse.json({ success: true });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  } catch (e: any) {
+    return NextResponse.json({ error: e.message || 'Failed to update points' }, { status: 500 });
   }
 }
