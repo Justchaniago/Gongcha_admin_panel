@@ -633,7 +633,7 @@ function EditStaffModal({ staff, storeIds, onClose, onSaved, toast }: {
         </div>
         <SL>Akses Outlet</SL>
         <div style={{ marginBottom: 22 }}>
-          <StoreAccessPicker storeIds={storeIds} selected={form.storeLocations} accessAll={form.accessAllStores} onChangeSelected={setStoreLocations} onChangeAccessAll={v => { setAccessAllStores(v); if (v) setStoreLocations([]); }} />
+<StoreAccessPicker storeIds={storeIds} selected={form.storeLocations} accessAll={form.accessAllStores} onChangeSelected={v => setForm(p => ({ ...p, storeLocations: v }))} onChangeAccessAll={v => { setForm(p => ({ ...p, accessAllStores: v })); if (v) setForm(p => ({ ...p, storeLocations: [] })); }} />
         </div>
         <SL>Status Akun</SL>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", borderRadius: 12, background: C.bg, border: `1.5px solid ${C.border}` }}>
