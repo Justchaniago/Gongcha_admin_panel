@@ -1,7 +1,10 @@
 // app/dashboard/members/page.tsx
-// Server component — provides SSR initial data, then client takes over with realtime
+// Server component — SSR initial data + real session via NextAuth
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 import { adminDb } from "@/lib/firebaseServer";
 import { User, Staff } from "@/types/firestore";
+import { redirect } from "next/navigation";
 import MembersClient from "./MembersClient";
 
 async function getData() {
@@ -18,6 +21,20 @@ async function getData() {
 }
 
 export default async function UsersStaffPage() {
+  // Ambil session dari NextAuth — null jika belum login
+  const session = await getServerSession(authOptions);
+
+  // Redirect ke login jika belum autentikasi
+  if (!session) {
+    redirect("/login");
+  }
+
+  // Hanya staff dan admin yang boleh akses halaman ini
+  const allowedRoles = ["admin", "cashier", "store_manager"];
+  if (!allowedRoles.includes(session.user.role)) {
+    redirect("/unauthorized");
+  }
+
   let users:    (User  & { uid: string })[] = [];
   let staff:    (Staff & { uid: string })[] = [];
   let storeIds: string[] = [];
@@ -27,8 +44,9 @@ export default async function UsersStaffPage() {
     users    = d.users;
     staff    = d.staff;
     storeIds = d.storeIds;
-  } catch {
-    // Firebase not configured — client will hydrate from onSnapshot
+  } catch (err) {
+    console.error("Failed to fetch members data:", err);
+    // Tetap render — client akan hydrate via onSnapshot jika ada
   }
 
   return (
@@ -36,6 +54,7 @@ export default async function UsersStaffPage() {
       initialUsers={users}
       initialStaff={staff}
       storeIds={storeIds}
+      currentUserRole={session.user.role}
     />
   );
 }

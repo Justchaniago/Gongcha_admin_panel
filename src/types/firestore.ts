@@ -82,11 +82,17 @@ export interface User {
 export type StaffRole = "cashier" | "store_manager" | "admin";
 
 export interface Staff {
-  name:          string;
-  email:         string;
-  role:          StaffRole;
-  storeLocation: string;
-  isActive:      boolean;
+  name:            string;
+  email:           string;
+  role:            StaffRole;
+  isActive:        boolean;
+
+  // Lama (tetap ada untuk compat)
+  storeLocation?:  string;
+
+  // Baru (multi-store)
+  storeLocations?: string[];
+  accessAllStores?: boolean;
 }
 
 // ─── rewards_catalog/{rewardId} ──────────────────────────────────────────────

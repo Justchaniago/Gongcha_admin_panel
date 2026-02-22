@@ -402,126 +402,329 @@ async function apiFetch(url: string, options?: RequestInit): Promise<any> {
 
 // ── Member Detail Modal ───────────────────────────────────────────────────────
 function MemberDetailModal({
-  user, onClose, onEdit, onDeleted, toast, confirm,
+  user, onClose, onEdit, onDeleted, toast, confirm, isAdmin,
 }: {
   user: UserWithUid; onClose: () => void; onEdit: () => void;
   onDeleted: (uid: string) => void;
   toast: ReturnType<typeof useToast>["show"];
   confirm: ReturnType<typeof useConfirm>["confirm"];
+  isAdmin: boolean;
 }) {
   const tier = TIER_CFG[user.tier] ?? TIER_CFG.Silver;
+  const [localUser, setLocalUser] = useState(user);
+  const [showEditPoints, setShowEditPoints] = useState(false);
 
   function handleDelete() {
     confirm({
       title: "Hapus Akun Member",
-      description: `Akun "${user.name}" akan dihapus permanen. Data poin, voucher, dan riwayat XP tidak dapat dikembalikan.`,
+      description: `Akun "${localUser.name}" akan dihapus permanen. Data poin, voucher, dan riwayat XP tidak dapat dikembalikan.`,
       confirmLabel: "Hapus Akun",
       danger: true,
       onConfirm: async () => {
-        await apiFetch(`/api/members/${user.uid}`, { method: "DELETE" });
-        toast(`Akun ${user.name} berhasil dihapus.`, "success");
-        onDeleted(user.uid);
+        await apiFetch(`/api/members/${localUser.uid}`, { method: "DELETE" });
+        toast(`Akun ${localUser.name} berhasil dihapus.`, "success");
+        onDeleted(localUser.uid);
         onClose();
       },
     });
   }
 
   return (
-    <Modal onClose={onClose} maxW={540}>
-      <MHead eyebrow="Detail Member" title={user.name ?? "—"} onClose={onClose} />
-      <MBody>
-        <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "16px 18px",
-          background: C.bg, borderRadius: 14, border: `1px solid ${C.border}`, marginBottom: 20 }}>
-          <Avatar name={user.name} size={52} />
-          <div style={{ flex: 1 }}>
-            <p style={{ fontSize: 16, fontWeight: 700, color: C.tx1, marginBottom: 3 }}>{user.name}</p>
-            <p style={{ fontSize: 12.5, color: C.tx3, marginBottom: 2 }}>{user.email}</p>
-            <p style={{ fontSize: 12.5, color: C.tx3 }}>{user.phoneNumber}</p>
+    <>
+      <Modal onClose={onClose} maxW={540}>
+        <MHead eyebrow="Detail Member" title={localUser.name ?? "—"} onClose={onClose} />
+        <MBody>
+          <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "16px 18px",
+            background: C.bg, borderRadius: 14, border: `1px solid ${C.border}`, marginBottom: 20 }}>
+            <Avatar name={localUser.name} size={52} />
+            <div style={{ flex: 1 }}>
+              <p style={{ fontSize: 16, fontWeight: 700, color: C.tx1, marginBottom: 3 }}>{localUser.name}</p>
+              <p style={{ fontSize: 12.5, color: C.tx3, marginBottom: 2 }}>{localUser.email}</p>
+              <p style={{ fontSize: 12.5, color: C.tx3 }}>{localUser.phoneNumber}</p>
+            </div>
+            <span style={{ padding: "5px 12px", borderRadius: 99, fontSize: 11, fontWeight: 700,
+              background: tier.bg, color: tier.color, border: `1.5px solid ${tier.ring}` }}>
+              {localUser.tier}
+            </span>
           </div>
-          <span style={{ padding: "5px 12px", borderRadius: 99, fontSize: 11, fontWeight: 700,
-            background: tier.bg, color: tier.color, border: `1.5px solid ${tier.ring}` }}>
-            {user.tier}
-          </span>
+
+          {/* Stats + optional Edit Poin button */}
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10, marginBottom: 10 }}>
+              {[
+                { label: "Poin Aktif",  value: (localUser.currentPoints  ?? 0).toLocaleString("id"), color: C.blue   },
+                { label: "Lifetime XP", value: (localUser.lifetimePoints ?? 0).toLocaleString("id"), color: C.purple },
+                { label: "Voucher",     value: String(localUser.vouchers?.length ?? 0),               color: C.green  },
+              ].map(s => (
+                <div key={s.label} style={{ textAlign: "center", padding: "14px 10px", background: C.bg,
+                  border: `1px solid ${C.border2}`, borderRadius: 12 }}>
+                  <p style={{ fontSize: 22, fontWeight: 800, color: s.color, lineHeight: 1, marginBottom: 5 }}>{s.value}</p>
+                  <p style={{ fontSize: 10.5, color: C.tx3, fontWeight: 600, letterSpacing: ".05em", textTransform: "uppercase" }}>{s.label}</p>
+                </div>
+              ))}
+            </div>
+
+            {isAdmin ? (
+              <button
+                type="button"
+                onClick={() => setShowEditPoints(true)}
+                style={{ width: "100%", height: 34, borderRadius: 8, border: `1.5px dashed ${C.blue}`,
+                  background: C.blueL, color: C.blue, fontFamily: font, fontSize: 12.5, fontWeight: 600,
+                  cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                  transition: "all .13s" }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round">
+                  <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+                  <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                </svg>
+                Edit Poin & Lifetime XP
+              </button>
+            ) : (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px",
+                borderRadius: 8, background: C.bg, border: `1px solid ${C.border2}` }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={C.tx4} strokeWidth={2} strokeLinecap="round">
+                  <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/>
+                </svg>
+                <p style={{ fontSize: 12, color: C.tx3 }}>Edit poin hanya bisa dilakukan oleh <strong>Admin</strong>.</p>
+              </div>
+            )}
+          </div>
+
+          <SL>Informasi Akun</SL>
+          <div style={{ marginBottom: 20 }}>
+            {[
+              { label: "UID",       value: <code style={{ fontSize: 11, background: C.blueL, padding: "2px 8px", borderRadius: 6, color: C.blue }}>{localUser.uid}</code> },
+              { label: "Role",      value: localUser.role },
+              { label: "Bergabung", value: localUser.joinedDate ? new Date(localUser.joinedDate).toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" }) : "—" },
+            ].map((r, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between",
+                padding: "10px 0", borderBottom: `1px solid ${C.border2}` }}>
+                <span style={{ fontSize: 12.5, color: C.tx3, fontWeight: 500 }}>{r.label}</span>
+                <span style={{ fontSize: 12.5, color: C.tx1, fontWeight: 600 }}>{r.value}</span>
+              </div>
+            ))}
+          </div>
+
+          {((localUser as any).xpHistory?.length ?? 0) > 0 && (
+            <>
+              <SL>Riwayat XP (5 terbaru)</SL>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 20 }}>
+                {[...(localUser as any).xpHistory].reverse().slice(0, 5).map((x: any) => (
+                  <div key={x.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between",
+                    padding: "10px 14px", background: C.bg, borderRadius: 10, border: `1px solid ${C.border2}` }}>
+                    <div>
+                      <p style={{ fontSize: 13, fontWeight: 600, color: C.tx1, marginBottom: 2 }}>{x.context}</p>
+                      <p style={{ fontSize: 11, color: C.tx3 }}>{x.location} · {new Date(x.date).toLocaleDateString("id-ID")}</p>
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <p style={{ fontSize: 13, fontWeight: 700, color: x.type === "earn" ? "#027A48" : C.red, marginBottom: 3 }}>
+                        {x.type === "earn" ? "+" : "-"}{x.amount.toLocaleString("id")} pts
+                      </p>
+                      <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 99,
+                        background: x.status === "verified" ? C.greenBg : x.status === "pending" ? C.amberBg : C.redBg,
+                        color: x.status === "verified" ? "#027A48" : x.status === "pending" ? "#B54708" : "#B42318" }}>
+                        {x.status}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+
+          {localUser.vouchers?.filter((v: any) => !v.isUsed).length > 0 && (
+            <>
+              <SL>Voucher Aktif</SL>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {localUser.vouchers.filter((v: any) => !v.isUsed).map((v: any) => (
+                  <div key={v.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between",
+                    padding: "10px 14px", border: `1.5px solid ${C.border}`, borderRadius: 10 }}>
+                    <div>
+                      <p style={{ fontSize: 13, fontWeight: 600, color: C.tx1, marginBottom: 2 }}>{v.title}</p>
+                      <code style={{ fontSize: 11, background: C.blueL, padding: "2px 7px", borderRadius: 5, color: C.blue }}>{v.code}</code>
+                    </div>
+                    <p style={{ fontSize: 11.5, color: C.tx3 }}>Exp: {new Date(v.expiresAt).toLocaleDateString("id-ID")}</p>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </MBody>
+        <MFoot>
+          <GcBtn variant="ghost"  onClick={onClose}>Tutup</GcBtn>
+          <GcBtn variant="blue"   onClick={onEdit}>Edit Member</GcBtn>
+          <GcBtn variant="danger" onClick={handleDelete}>Hapus Akun</GcBtn>
+        </MFoot>
+      </Modal>
+
+      {showEditPoints && (
+        <EditPointsModal
+          user={localUser}
+          onClose={() => setShowEditPoints(false)}
+          onSaved={patch => setLocalUser(p => ({ ...p, ...patch }))}
+          toast={toast}
+          confirm={confirm}
+        />
+      )}
+    </>
+  );
+}
+
+// ── Points Access Gate ────────────────────────────────────────────────────────
+// Shown inside EditMemberModal for non-admin roles
+function PointsAccessGate() {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "16px 18px",
+      borderRadius: 12, background: "#FAFAFA", border: `1.5px dashed ${C.border}`,
+      marginTop: 4 }}>
+      <div style={{ width: 40, height: 40, borderRadius: 10, background: C.bg,
+        border: `1.5px solid ${C.border}`, display: "flex", alignItems: "center",
+        justifyContent: "center", flexShrink: 0 }}>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.tx4} strokeWidth={2} strokeLinecap="round">
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+        </svg>
+      </div>
+      <div>
+        <p style={{ fontSize: 13, fontWeight: 700, color: C.tx2, marginBottom: 3 }}>Akses Dibatasi</p>
+        <p style={{ fontSize: 12, color: C.tx3, lineHeight: 1.5 }}>
+          Mengedit poin dan lifetime XP hanya bisa dilakukan oleh <strong style={{ color: C.tx2 }}>Admin</strong>.
+          Hubungi admin untuk melakukan perubahan ini.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ── Edit Points Modal (Admin-only) ────────────────────────────────────────────
+function EditPointsModal({
+  user, onClose, onSaved, toast, confirm,
+}: {
+  user: UserWithUid; onClose: () => void;
+  onSaved: (patch: Pick<UserWithUid, "currentPoints" | "lifetimePoints">) => void;
+  toast: ReturnType<typeof useToast>["show"];
+  confirm: ReturnType<typeof useConfirm>["confirm"];
+}) {
+  const [points,   setPoints]   = useState(String(user.currentPoints   ?? 0));
+  const [lifetime, setLifetime] = useState(String(user.lifetimePoints  ?? 0));
+  const [loading,  setLoading]  = useState(false);
+  const [error,    setError]    = useState("");
+
+  const pointsNum   = parseInt(points,   10);
+  const lifetimeNum = parseInt(lifetime, 10);
+  const isValid     = !isNaN(pointsNum) && !isNaN(lifetimeNum)
+                    && pointsNum   >= 0
+                    && lifetimeNum >= 0
+                    && lifetimeNum >= pointsNum; // lifetime always ≥ current
+
+  function handleSave() {
+    if (!isValid) return;
+    confirm({
+      title: "Konfirmasi Edit Poin",
+      description: `Poin aktif ${user.name} akan diubah menjadi ${pointsNum.toLocaleString("id")} dan Lifetime XP menjadi ${lifetimeNum.toLocaleString("id")}. Perubahan ini akan tercatat di log audit.`,
+      confirmLabel: "Simpan Perubahan",
+      onConfirm: async () => {
+        setLoading(true); setError("");
+        try {
+          await apiFetch(`/api/members/${user.uid}/points`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ currentPoints: pointsNum, lifetimePoints: lifetimeNum }),
+          });
+          toast(`Poin ${user.name} berhasil diperbarui.`, "success");
+          onSaved({ currentPoints: pointsNum, lifetimePoints: lifetimeNum });
+          onClose();
+        } catch (e: any) {
+          setError(e.message ?? "Gagal menyimpan perubahan poin.");
+        } finally {
+          setLoading(false);
+        }
+      },
+    });
+  }
+
+  const deltaPoints   = pointsNum   - (user.currentPoints   ?? 0);
+  const deltaLifetime = lifetimeNum - (user.lifetimePoints  ?? 0);
+
+  return (
+    <Modal onClose={onClose} maxW={460}>
+      <MHead eyebrow="Admin · Edit Poin" title={user.name ?? "—"} onClose={onClose} />
+      <MBody>
+        {/* Admin warning banner */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px",
+          borderRadius: 10, background: C.amberBg, border: `1px solid #FDE68A`, marginBottom: 20 }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.amber} strokeWidth={2.2} strokeLinecap="round">
+            <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0zM12 9v4m0 4h.01"/>
+          </svg>
+          <p style={{ fontSize: 12.5, color: "#92400E", fontWeight: 500, lineHeight: 1.5 }}>
+            Tindakan ini bersifat <strong>manual override</strong> dan akan dicatat di log audit. Gunakan hanya untuk koreksi data.
+          </p>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10, marginBottom: 20 }}>
+        {/* Current snapshot */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 22 }}>
           {[
-            { label: "Poin Aktif",  value: (user.currentPoints  ?? 0).toLocaleString("id"), color: C.blue   },
-            { label: "Lifetime XP", value: (user.lifetimePoints ?? 0).toLocaleString("id"), color: C.purple },
-            { label: "Voucher",     value: String(user.vouchers?.length ?? 0),               color: C.green  },
+            { label: "Poin Aktif Sekarang",  value: (user.currentPoints  ?? 0).toLocaleString("id"), color: C.blue   },
+            { label: "Lifetime XP Sekarang", value: (user.lifetimePoints ?? 0).toLocaleString("id"), color: C.purple },
           ].map(s => (
-            <div key={s.label} style={{ textAlign: "center", padding: "14px 10px", background: C.bg,
-              border: `1px solid ${C.border2}`, borderRadius: 12 }}>
-              <p style={{ fontSize: 22, fontWeight: 800, color: s.color, lineHeight: 1, marginBottom: 5 }}>{s.value}</p>
-              <p style={{ fontSize: 10.5, color: C.tx3, fontWeight: 600, letterSpacing: ".05em", textTransform: "uppercase" }}>{s.label}</p>
+            <div key={s.label} style={{ padding: "12px 14px", background: C.bg,
+              border: `1px solid ${C.border2}`, borderRadius: 10 }}>
+              <p style={{ fontSize: 10, fontWeight: 700, color: C.tx3, letterSpacing: ".08em",
+                textTransform: "uppercase", marginBottom: 5 }}>{s.label}</p>
+              <p style={{ fontSize: 20, fontWeight: 800, color: s.color }}>{s.value}</p>
             </div>
           ))}
         </div>
 
-        <SL>Informasi Akun</SL>
-        <div style={{ marginBottom: 20 }}>
-          {[
-            { label: "UID",       value: <code style={{ fontSize: 11, background: C.blueL, padding: "2px 8px", borderRadius: 6, color: C.blue }}>{user.uid}</code> },
-            { label: "Role",      value: user.role },
-            { label: "Bergabung", value: user.joinedDate ? new Date(user.joinedDate).toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" }) : "—" },
-          ].map((r, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between",
-              padding: "10px 0", borderBottom: `1px solid ${C.border2}` }}>
-              <span style={{ fontSize: 12.5, color: C.tx3, fontWeight: 500 }}>{r.label}</span>
-              <span style={{ fontSize: 12.5, color: C.tx1, fontWeight: 600 }}>{r.value}</span>
-            </div>
-          ))}
+        <SL>Nilai Baru</SL>
+        <div style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 16 }}>
+          <div>
+            <FL>Poin Aktif</FL>
+            <GcInput
+              type="number" min="0" value={points}
+              onChange={e => setPoints(e.target.value)}
+              style={{ borderColor: !isNaN(pointsNum) && pointsNum < 0 ? "#F04438" : undefined }} />
+          </div>
+          <div>
+            <FL>Lifetime XP</FL>
+            <GcInput
+              type="number" min="0" value={lifetime}
+              onChange={e => setLifetime(e.target.value)}
+              style={{ borderColor: !isNaN(lifetimeNum) && lifetimeNum < pointsNum ? "#F04438" : undefined }} />
+            {!isNaN(lifetimeNum) && !isNaN(pointsNum) && lifetimeNum < pointsNum && (
+              <p style={{ fontSize: 11.5, color: "#B42318", marginTop: 5 }}>
+                Lifetime XP tidak boleh lebih kecil dari Poin Aktif.
+              </p>
+            )}
+          </div>
         </div>
 
-        {((user as any).xpHistory?.length ?? 0) > 0 && (
-          <>
-            <SL>Riwayat XP (5 terbaru)</SL>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 20 }}>
-              {[...(user as any).xpHistory].reverse().slice(0, 5).map((x: any) => (
-                <div key={x.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between",
-                  padding: "10px 14px", background: C.bg, borderRadius: 10, border: `1px solid ${C.border2}` }}>
-                  <div>
-                    <p style={{ fontSize: 13, fontWeight: 600, color: C.tx1, marginBottom: 2 }}>{x.context}</p>
-                    <p style={{ fontSize: 11, color: C.tx3 }}>{x.location} · {new Date(x.date).toLocaleDateString("id-ID")}</p>
-                  </div>
-                  <div style={{ textAlign: "right" }}>
-                    <p style={{ fontSize: 13, fontWeight: 700, color: x.type === "earn" ? "#027A48" : C.red, marginBottom: 3 }}>
-                      {x.type === "earn" ? "+" : "-"}{x.amount.toLocaleString("id")} pts
-                    </p>
-                    <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 99,
-                      background: x.status === "verified" ? C.greenBg : x.status === "pending" ? C.amberBg : C.redBg,
-                      color: x.status === "verified" ? "#027A48" : x.status === "pending" ? "#B54708" : "#B42318" }}>
-                      {x.status}
-                    </span>
-                  </div>
-                </div>
-              ))}
+        {/* Delta preview */}
+        {isValid && (deltaPoints !== 0 || deltaLifetime !== 0) && (
+          <div style={{ padding: "10px 14px", borderRadius: 9, background: C.blueL,
+            border: `1px solid rgba(67,97,238,.2)`, marginBottom: 4 }}>
+            <p style={{ fontSize: 11.5, fontWeight: 700, color: C.blue, marginBottom: 6 }}>Preview Perubahan</p>
+            <div style={{ display: "flex", gap: 16 }}>
+              {deltaPoints !== 0 && (
+                <span style={{ fontSize: 12.5, fontWeight: 600, color: deltaPoints > 0 ? "#027A48" : C.red }}>
+                  Poin: {deltaPoints > 0 ? "+" : ""}{deltaPoints.toLocaleString("id")}
+                </span>
+              )}
+              {deltaLifetime !== 0 && (
+                <span style={{ fontSize: 12.5, fontWeight: 600, color: deltaLifetime > 0 ? "#027A48" : C.red }}>
+                  Lifetime XP: {deltaLifetime > 0 ? "+" : ""}{deltaLifetime.toLocaleString("id")}
+                </span>
+              )}
             </div>
-          </>
+          </div>
         )}
 
-        {user.vouchers?.filter((v: any) => !v.isUsed).length > 0 && (
-          <>
-            <SL>Voucher Aktif</SL>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {user.vouchers.filter((v: any) => !v.isUsed).map((v: any) => (
-                <div key={v.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between",
-                  padding: "10px 14px", border: `1.5px solid ${C.border}`, borderRadius: 10 }}>
-                  <div>
-                    <p style={{ fontSize: 13, fontWeight: 600, color: C.tx1, marginBottom: 2 }}>{v.title}</p>
-                    <code style={{ fontSize: 11, background: C.blueL, padding: "2px 7px", borderRadius: 5, color: C.blue }}>{v.code}</code>
-                  </div>
-                  <p style={{ fontSize: 11.5, color: C.tx3 }}>Exp: {new Date(v.expiresAt).toLocaleDateString("id-ID")}</p>
-                </div>
-              ))}
-            </div>
-          </>
-        )}
+        {error && <ErrorBox message={error} />}
       </MBody>
       <MFoot>
-        <GcBtn variant="ghost" onClick={onClose}>Tutup</GcBtn>
-        <GcBtn variant="blue"   onClick={onEdit}>Edit Member</GcBtn>
-        <GcBtn variant="danger" onClick={handleDelete}>Hapus Akun</GcBtn>
+        <GcBtn variant="ghost" onClick={onClose} disabled={loading}>Batal</GcBtn>
+        <GcBtn variant="blue" onClick={handleSave} disabled={loading || !isValid || (deltaPoints === 0 && deltaLifetime === 0)}>
+          {loading ? "Menyimpan…" : "Simpan Perubahan"}
+        </GcBtn>
       </MFoot>
     </Modal>
   );
@@ -529,11 +732,13 @@ function MemberDetailModal({
 
 // ── Edit Member Modal ─────────────────────────────────────────────────────────
 function EditMemberModal({
-  user, onClose, onSaved, toast,
+  user, onClose, onSaved, toast, isAdmin, confirm,
 }: {
   user: UserWithUid; onClose: () => void;
   onSaved: (u: Partial<UserWithUid>) => void;
   toast: ReturnType<typeof useToast>["show"];
+  isAdmin: boolean;
+  confirm: ReturnType<typeof useConfirm>["confirm"];
 }) {
   const [form, setForm] = useState({
     name:        user.name        ?? "",
@@ -544,6 +749,11 @@ function EditMemberModal({
   });
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState("");
+  // Points sub-modal (admin only)
+  const [showEditPoints, setShowEditPoints] = useState(false);
+  // Optimistic local points (so detail reflects changes immediately after sub-modal save)
+  const [localPoints,   setLocalPoints]   = useState<number | undefined>(user.currentPoints);
+  const [localLifetime, setLocalLifetime] = useState<number | undefined>(user.lifetimePoints);
 
   const set = <K extends keyof typeof form>(k: K, v: typeof form[K]) =>
     setForm(p => ({ ...p, [k]: v }));
@@ -574,35 +784,84 @@ function EditMemberModal({
   }
 
   return (
-    <Modal onClose={onClose} maxW={520}>
-      <MHead eyebrow="Edit Akun" title="Edit Member" onClose={onClose} />
-      <MBody>
-        <SL>Informasi Member</SL>
-        <div style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 22 }}>
-          <div><FL>Nama</FL><GcInput value={form.name}        onChange={e => set("name",        e.target.value)} /></div>
-          <div><FL>Email</FL><GcInput type="email" value={form.email}  onChange={e => set("email",       e.target.value)} /></div>
-          <div><FL>No. HP</FL><GcInput value={form.phoneNumber} onChange={e => set("phoneNumber", e.target.value)} /></div>
-          <div>
-            <FL>Tier</FL>
-            <GcSelect value={form.tier} onChange={e => set("tier", e.target.value as UserTier)}>
-              {["Silver","Gold","Platinum"].map(t => <option key={t}>{t}</option>)}
-            </GcSelect>
+    <>
+      <Modal onClose={onClose} maxW={520}>
+        <MHead eyebrow="Edit Akun" title="Edit Member" onClose={onClose} />
+        <MBody>
+          <SL>Informasi Member</SL>
+          <div style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 22 }}>
+            <div><FL>Nama</FL><GcInput value={form.name}        onChange={e => set("name",        e.target.value)} /></div>
+            <div><FL>Email</FL><GcInput type="email" value={form.email}  onChange={e => set("email",       e.target.value)} /></div>
+            <div><FL>No. HP</FL><GcInput value={form.phoneNumber} onChange={e => set("phoneNumber", e.target.value)} /></div>
+            <div>
+              <FL>Tier</FL>
+              <GcSelect value={form.tier} onChange={e => set("tier", e.target.value as UserTier)}>
+                {["Silver","Gold","Platinum"].map(t => <option key={t}>{t}</option>)}
+              </GcSelect>
+            </div>
+            <div>
+              <FL>Role</FL>
+              <GcSelect value={form.role} onChange={e => set("role", e.target.value as UserRole)}>
+                <option value="member">Member</option>
+                <option value="admin">Admin</option>
+              </GcSelect>
+            </div>
           </div>
-          <div>
-            <FL>Role</FL>
-            <GcSelect value={form.role} onChange={e => set("role", e.target.value as UserRole)}>
-              <option value="member">Member</option>
-              <option value="admin">Admin</option>
-            </GcSelect>
+
+          {/* ── Points Section ── */}
+          <SL>Data Poin & XP</SL>
+          <div style={{ marginBottom: 20 }}>
+            {/* Current values snapshot */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+              {[
+                { label: "Poin Aktif",  value: (localPoints   ?? 0).toLocaleString("id"), color: C.blue   },
+                { label: "Lifetime XP", value: (localLifetime ?? 0).toLocaleString("id"), color: C.purple },
+              ].map(s => (
+                <div key={s.label} style={{ padding: "12px 14px", background: C.bg,
+                  border: `1px solid ${C.border2}`, borderRadius: 10 }}>
+                  <p style={{ fontSize: 10, fontWeight: 700, color: C.tx3, letterSpacing: ".08em",
+                    textTransform: "uppercase", marginBottom: 5 }}>{s.label}</p>
+                  <p style={{ fontSize: 20, fontWeight: 800, color: s.color }}>{s.value}</p>
+                </div>
+              ))}
+            </div>
+
+            {isAdmin ? (
+              <GcBtn variant="ghost" onClick={() => setShowEditPoints(true)}
+                style={{ width: "100%", justifyContent: "center", borderStyle: "dashed" }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round">
+                  <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+                  <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                </svg>
+                Edit Poin & Lifetime XP
+              </GcBtn>
+            ) : (
+              <PointsAccessGate />
+            )}
           </div>
-        </div>
-        {error && <ErrorBox message={error} />}
-      </MBody>
-      <MFoot>
-        <GcBtn variant="ghost" onClick={onClose} disabled={loading}>Batal</GcBtn>
-        <GcBtn variant="blue"  onClick={save}    disabled={loading}>{loading ? "Menyimpan…" : "Simpan"}</GcBtn>
-      </MFoot>
-    </Modal>
+
+          {error && <ErrorBox message={error} />}
+        </MBody>
+        <MFoot>
+          <GcBtn variant="ghost" onClick={onClose} disabled={loading}>Batal</GcBtn>
+          <GcBtn variant="blue"  onClick={save}    disabled={loading}>{loading ? "Menyimpan…" : "Simpan"}</GcBtn>
+        </MFoot>
+      </Modal>
+
+      {showEditPoints && (
+        <EditPointsModal
+          user={{ ...user, currentPoints: localPoints ?? 0, lifetimePoints: localLifetime ?? 0 }}
+          onClose={() => setShowEditPoints(false)}
+          onSaved={patch => {
+            setLocalPoints(patch.currentPoints);
+            setLocalLifetime(patch.lifetimePoints);
+            onSaved(patch);
+          }}
+          toast={toast}
+          confirm={confirm}
+        />
+      )}
+    </>
   );
 }
 
@@ -635,7 +894,17 @@ function EditStaffModal({
       await apiFetch(`/api/staff/${staff.uid}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify({
+          name:            form.name,
+          role:            form.role,
+          isActive:        form.isActive,
+          // New multi-store fields
+          storeLocations:  form.storeLocations,
+          accessAllStores: form.accessAllStores,
+          // Legacy field kept for backward compat with existing API handlers —
+          // set to first store or empty string so old code doesn't break
+          storeLocation:   form.accessAllStores ? "" : (form.storeLocations[0] ?? ""),
+        }),
       });
       toast(`${form.name} berhasil diperbarui.`, "success");
       onSaved({
@@ -1274,9 +1543,12 @@ function TierFilter({ value, onChange }: { value: string; onChange: (v: string) 
 }
 
 // ── Main Component ────────────────────────────────────────────────────────────
-export default function MembersClient({ initialUsers, initialStaff, storeIds }: {
+export default function MembersClient({ initialUsers, initialStaff, storeIds, currentUserRole }: {
   initialUsers: UserWithUid[]; initialStaff: StaffWithUid[]; storeIds: string[];
+  /** Role of the currently logged-in user. Accepts both UserRole ("admin") and StaffRole ("admin" | "cashier" | "store_manager"). */
+  currentUserRole: string;
 }) {
+  const isAdmin = currentUserRole === "admin";
   const [users,   setUsers]   = useState(initialUsers);
   const [staff,   setStaff]   = useState(initialStaff);
   const [tab,     setTab]     = useState<TabType>("member");
@@ -1619,6 +1891,7 @@ export default function MembersClient({ initialUsers, initialStaff, storeIds }: 
       {detailUser && !editUser && (
         <MemberDetailModal
           user={detailUser}
+          isAdmin={isAdmin}
           onClose={() => setDetailUser(null)}
           onEdit={() => { setEditUser(detailUser); setDetailUser(null); }}
           onDeleted={uid => setUsers(p => p.filter(u => u.uid !== uid))}
@@ -1629,6 +1902,8 @@ export default function MembersClient({ initialUsers, initialStaff, storeIds }: 
       {editUser && (
         <EditMemberModal
           user={editUser}
+          isAdmin={isAdmin}
+          confirm={confirm}
           onClose={() => setEditUser(null)}
           onSaved={patch => setUsers(p => p.map(u => u.uid === editUser.uid ? { ...u, ...patch } : u))}
           toast={toast}

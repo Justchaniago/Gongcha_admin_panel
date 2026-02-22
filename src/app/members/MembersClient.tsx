@@ -493,8 +493,11 @@ function StaffRow({ s, isLast, onEdit }: { s: StaffWithUid; isLast: boolean; onE
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
-export default function MembersClient({ initialUsers, initialStaff, storeIds }: {
-  initialUsers: UserWithUid[]; initialStaff: StaffWithUid[]; storeIds: string[];
+export default function MembersClient({ initialUsers, initialStaff, storeIds, currentUserRole }: {
+  initialUsers: UserWithUid[];
+  initialStaff: StaffWithUid[];
+  storeIds: string[];
+  currentUserRole: string;
 }) {
   // ── Realtime Firestore listeners ──────────────────────────────────────────
   const [users,       setUsers]       = useState<UserWithUid[]>(initialUsers);
@@ -549,6 +552,7 @@ export default function MembersClient({ initialUsers, initialStaff, storeIds }: 
     return !q || s.name?.toLowerCase().includes(q) || s.email?.toLowerCase().includes(q);
   }), [staff, search]);
 
+  // currentUserRole is now available for use in this component
   return (
     <div style={{ padding: '28px 32px', maxWidth: 1400, fontFamily: font, WebkitFontSmoothing: 'antialiased' }}>
 
