@@ -509,6 +509,10 @@ export default function StoresClient({ initialStores, showAddTrigger }: { initia
             <strong style={{ color: C.tx2 }}>{stores.filter(s => s.isActive === false).length}</strong> nonaktif ·{' '}
             <strong style={{ color: C.tx2 }}>{stores.filter(s => s.latitude && s.longitude).length}</strong> dengan GPS
           </p>
+          <button onClick={() => { /* refresh */ }} style={{ height: 34, padding: '0 16px', borderRadius: 8, background: C.bg, color: C.tx2, border: `1px solid ${C.border}`, fontFamily: font, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, marginRight: 10 }} >
+            <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+            Refresh
+          </button>
           <button onClick={() => setShowAdd(true)} style={{ height: 34, padding: '0 16px', borderRadius: 8, background: C.tx1, color: '#fff', border: 'none', fontFamily: font, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}
             onMouseOver={e => (e.currentTarget.style.background = C.red)}
             onMouseOut={e  => (e.currentTarget.style.background = C.tx1)}>

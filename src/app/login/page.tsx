@@ -38,7 +38,7 @@ export default function LoginPage() {
 
   // If already authenticated via NextAuth session, redirect to dashboard
   useEffect(() => {
-    if (status === "authenticated") {
+    if (status === "authenticated" && window.location.pathname !== "/dashboard") {
       router.replace("/dashboard");
     }
   }, [status, router]);
@@ -67,7 +67,9 @@ export default function LoginPage() {
       }
 
       setSuccess(true);
-      setTimeout(() => router.replace("/dashboard"), 800);
+      setTimeout(() => {
+        if (window.location.pathname !== "/dashboard") router.replace("/dashboard");
+      }, 800);
 
     } catch (err: any) {
       setError(`Login gagal: ${err.message ?? "Coba lagi."}`);

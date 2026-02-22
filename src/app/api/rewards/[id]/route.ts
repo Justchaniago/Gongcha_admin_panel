@@ -85,13 +85,17 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
     }
 
     // Build safe update payload (whitelist fields)
-    const allowed = ["title", "description", "pointsCost", "category", "isActive"] as const;
+    const allowed = ["title", "description", "pointsCost", "category", "isActive", "type"] as const;
     const update: Record<string, unknown> = {};
     for (const key of allowed) {
       if (key in body) {
-        update[key] = key === "title" || key === "description"
-          ? (body[key] as string).trim?.() ?? body[key]
-          : body[key];
+        if (key === "type") {
+          update[key] = body[key] === "personal" ? "personal" : "catalog";
+        } else {
+          update[key] = key === "title" || key === "description"
+            ? (body[key] as string).trim?.() ?? body[key]
+            : body[key];
+        }
       }
     }
 

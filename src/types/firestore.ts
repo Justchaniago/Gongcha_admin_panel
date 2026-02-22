@@ -52,6 +52,7 @@ export interface XpHistoryEntry {
   transactionId: string;
 }
 
+export type VoucherType = "catalog" | "personal";
 export interface UserVoucher {
   id:        string;
   rewardId:  string;
@@ -59,6 +60,7 @@ export interface UserVoucher {
   code:      string;
   isUsed:    boolean;
   expiresAt: string;
+  type:      VoucherType;
 }
 
 export type UserRole = "master" | "trial" | "admin" | "member";
@@ -106,6 +108,7 @@ export interface Reward {
   imageURL:    string;
   category:    RewardCategory;
   isActive:    boolean;
+  type:        VoucherType; // "catalog" untuk voucher katalog, "personal" untuk voucher suntikan
 }
 
 export type RewardItem = Reward;

@@ -1,7 +1,15 @@
+
 "use client";
+// Label kecil untuk form field
+export function FL({ children }: { children: React.ReactNode }) {
+  return <label style={{ display: "block", marginBottom: 6, fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: C.tx3 }}>{children}</label>;
+}
+import InjectVoucherModalForMember from "./InjectVoucherModalForMember";
 
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { User, Staff, UserTier, UserRole, StaffRole } from "@/types/firestore";
+import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
+import { db } from "@/lib/firebaseClient";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type UserWithUid  = User  & { uid: string };
@@ -152,15 +160,12 @@ function Avatar({ name, size = 36 }: { name?: string; size?: number }) {
   );
 }
 
-function FL({ children }: { children: React.ReactNode }) {
-  return <label style={{ display: "block", marginBottom: 6, fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: C.tx3 }}>{children}</label>;
-}
 
 interface GcInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   hasError?: boolean;
 }
 
-function GcInput({ style, hasError, ...p }: GcInputProps) {
+export function GcInput({ style, hasError, ...p }: GcInputProps) {
   const [f, setF] = useState(false);
   // Tentukan warna border. Prioritas: 1. Focus -> 2. Error -> 3. Default
   const currentBorderColor = f ? C.blue : (hasError ? "#F04438" : C.border);
@@ -471,7 +476,8 @@ function MemberDetailModal({
           user={localUser}
           onClose={() => setShowEditPoints(false)}
           onSaved={patch => setLocalUser(p => ({ ...p, ...patch }))}
-          toast={toast} confirm={confirm}
+          toast={(msg, type) => toast(msg, type as any)}
+          confirm={confirm}
         />
       )}
     </>
@@ -481,113 +487,108 @@ function MemberDetailModal({
 // ── Edit Member Modal ─────────────────────────────────────────────────────────
 // ✅ isAdmin prop REMOVED — edit poin selalu tersedia
 function EditMemberModal({
-  user, onClose, onSaved, toast, confirm,
+  user, onClose, onSaved, toast, confirm
 }: {
-  user: UserWithUid; onClose: () => void;
-  onSaved: (u: Partial<UserWithUid>) => void;
-  toast: ReturnType<typeof useToast>["show"];
-  confirm: ReturnType<typeof useConfirm>["confirm"];
+  user: UserWithUid;
+  onClose: () => void;
+  onSaved: (patch: Partial<UserWithUid>) => void;
+  toast: (msg: string, type?: string) => void;
+  confirm: (msg: string, onYes: () => void) => void;
 }) {
-  const [form, setForm] = useState({
-    name:        user.name        ?? "",
-    email:       user.email       ?? "",
-    phoneNumber: user.phoneNumber ?? "",
-    tier:        (user.tier  as string) ?? "Silver",
-    role:        (user.role  as string) ?? "member",
-  });
-  const [loading,       setLoading]       = useState(false);
-  const [error,         setError]         = useState("");
-  const [showEditPoints, setShowEditPoints] = useState(false);
-  const [localPoints,   setLocalPoints]   = useState<number | undefined>(user.currentPoints);
-  const [localLifetime, setLocalLifetime] = useState<number | undefined>(user.lifetimePoints);
+    const [showInject, setShowInject] = useState(false);
+    const [form, setForm] = useState({
+      name:        user.name        ?? "",
+      email:       user.email       ?? "",
+      phoneNumber: user.phoneNumber ?? "",
+      tier:        (user.tier  as string) ?? "Silver",
+      role:        (user.role  as string) ?? "member",
+    });
+    const [loading,       setLoading]       = useState(false);
+    const [error,         setError]         = useState("");
+    const [showEditPoints, setShowEditPoints] = useState(false);
+    const [localPoints,   setLocalPoints]   = useState<number | undefined>(user.currentPoints);
+    const [localLifetime, setLocalLifetime] = useState<number | undefined>(user.lifetimePoints);
 
-  const set = <K extends keyof typeof form>(k: K, v: typeof form[K]) => setForm(p => ({ ...p, [k]: v }));
+    const set = <K extends keyof typeof form>(k: K, v: typeof form[K]) => setForm(p => ({ ...p, [k]: v }));
 
-  async function save() {
-    if (!form.name.trim()) { setError("Nama tidak boleh kosong."); return; }
-    setLoading(true); setError("");
-    try {
-      await apiFetch(`/api/members/${user.uid}`, {
-        method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
-      });
-      toast(`${form.name} berhasil diperbarui.`, "success");
-      onSaved({ name: form.name, email: form.email, phoneNumber: form.phoneNumber, tier: form.tier as UserTier, role: form.role as UserRole });
-      onClose();
-    } catch (e: any) {
-      setError(e.message ?? "Gagal menyimpan perubahan.");
-    } finally { setLoading(false); }
-  }
+    async function save() {
+      if (!form.name.trim()) { setError("Nama tidak boleh kosong."); return; }
+      setLoading(true); setError("");
+      try {
+        await apiFetch(`/api/members/${user.uid}`, {
+          method: "PATCH", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(form),
+        });
+        toast(`${form.name} berhasil diperbarui.`, "success");
+        onSaved({ name: form.name, email: form.email, phoneNumber: form.phoneNumber, tier: form.tier as UserTier, role: form.role as UserRole });
+        onClose();
+      } catch (e: any) {
+        setError(e.message ?? "Gagal menyimpan perubahan.");
+      } finally { setLoading(false); }
+    }
 
-  return (
-    <>
-      <Modal onClose={onClose} maxW={520}>
-        <MHead eyebrow="Edit Akun" title="Edit Member" onClose={onClose} />
-        <MBody>
-          <SL>Informasi Member</SL>
-          <div style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 22 }}>
-            <div><FL>Nama</FL><GcInput value={form.name}        onChange={e => set("name",        e.target.value)} /></div>
-            <div><FL>Email</FL><GcInput type="email" value={form.email}  onChange={e => set("email",       e.target.value)} /></div>
-            <div><FL>No. HP</FL><GcInput value={form.phoneNumber} onChange={e => set("phoneNumber", e.target.value)} /></div>
-            <div>
-              <FL>Tier</FL>
-              <GcSelect value={form.tier} onChange={e => set("tier", e.target.value as UserTier)}>
-                {["Silver","Gold","Platinum"].map(t => <option key={t}>{t}</option>)}
-              </GcSelect>
+    return (
+      <>
+        <Modal onClose={onClose} maxW={520}>
+          <MHead eyebrow="Edit Akun" title="Edit Member" onClose={onClose} />
+          <MBody>
+            <SL>Informasi Member</SL>
+            <div style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 22 }}>
+              <div><FL>Nama</FL><GcInput value={form.name}        onChange={e => set("name",        e.target.value)} /></div>
+              <div><FL>Email</FL><GcInput type="email" value={form.email}  onChange={e => set("email",       e.target.value)} /></div>
+              <div><FL>No. HP</FL><GcInput value={form.phoneNumber} onChange={e => set("phoneNumber", e.target.value)} /></div>
+              <div>
+                <FL>Tier</FL>
+                <GcSelect value={form.tier} onChange={e => set("tier", e.target.value as UserTier)}>
+                  {["Silver","Gold","Platinum"].map(t => <option key={t}>{t}</option>)}
+                </GcSelect>
+              </div>
+              <div>
+                <FL>Role</FL>
+                <GcSelect value={form.role} onChange={e => set("role", e.target.value as UserRole)}>
+                  <option value="member">Member</option>
+                  <option value="admin">Admin</option>
+                </GcSelect>
+              </div>
+              <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <GcBtn variant="primary" onClick={() => setShowInject(true)} style={{ width: "100%" }}>
+                  <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2} style={{ marginRight: 7 }}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4"/>
+                  </svg>
+                  Suntik Voucher ke User
+                </GcBtn>
+                <GcBtn variant="blue" onClick={() => setShowEditPoints(true)} style={{ width: "100%" }}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" style={{ marginRight: 7 }}><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                  Edit Poin & Lifetime XP
+                </GcBtn>
+              </div>
             </div>
-            <div>
-              <FL>Role</FL>
-              <GcSelect value={form.role} onChange={e => set("role", e.target.value as UserRole)}>
-                <option value="member">Member</option>
-                <option value="admin">Admin</option>
-              </GcSelect>
-            </div>
-          </div>
-
-          {/* ── Points Section ── */}
-          <SL>Data Poin & XP</SL>
-          <div style={{ marginBottom: 20 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
-              {[
-                { label: "Poin Aktif",  value: (localPoints   ?? 0).toLocaleString("id"), color: C.blue   },
-                { label: "Lifetime XP", value: (localLifetime ?? 0).toLocaleString("id"), color: C.purple },
-              ].map(s => (
-                <div key={s.label} style={{ padding: "12px 14px", background: C.bg, border: `1px solid ${C.border2}`, borderRadius: 10 }}>
-                  <p style={{ fontSize: 10, fontWeight: 700, color: C.tx3, letterSpacing: ".08em", textTransform: "uppercase", marginBottom: 5 }}>{s.label}</p>
-                  <p style={{ fontSize: 20, fontWeight: 800, color: s.color }}>{s.value}</p>
-                </div>
-              ))}
-            </div>
-
-            {/* ✅ Selalu tampil — tidak ada isAdmin check */}
-            <GcBtn variant="ghost" onClick={() => setShowEditPoints(true)}
-              style={{ width: "100%", justifyContent: "center", borderStyle: "dashed" }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round">
-                <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
-                <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
-              </svg>
-              Edit Poin & Lifetime XP
-            </GcBtn>
-          </div>
-
-          {error && <ErrorBox message={error} />}
-        </MBody>
-        <MFoot>
-          <GcBtn variant="ghost" onClick={onClose} disabled={loading}>Batal</GcBtn>
-          <GcBtn variant="blue"  onClick={save}    disabled={loading}>{loading ? "Menyimpan…" : "Simpan"}</GcBtn>
-        </MFoot>
-      </Modal>
-
-      {showEditPoints && (
-        <EditPointsModal
-          user={{ ...user, currentPoints: localPoints ?? 0, lifetimePoints: localLifetime ?? 0 }}
-          onClose={() => setShowEditPoints(false)}
-          onSaved={patch => { setLocalPoints(patch.currentPoints); setLocalLifetime(patch.lifetimePoints); onSaved(patch); }}
-          toast={toast} confirm={confirm}
-        />
-      )}
-    </>
-  );
+            {/* ...existing code... */}
+          </MBody>
+          {/* ...existing code... */}
+        </Modal>
+        {/* ...existing code... */}
+        {showInject && (
+          <InjectVoucherModalForMember
+            uid={user.uid}
+            onClose={() => setShowInject(false)}
+            onSuccess={msg => { toast(msg, "success"); setShowInject(false); }}
+          />
+        )}
+        {showEditPoints && (
+          <EditPointsModal
+            user={user}
+            onClose={() => setShowEditPoints(false)}
+            onSaved={patch => {
+              if (patch.currentPoints !== undefined) setLocalPoints?.(patch.currentPoints);
+              if (patch.lifetimePoints !== undefined) setLocalLifetime?.(patch.lifetimePoints);
+            }}
+            toast={toast}
+            confirm={confirm}
+          />
+        )}
+      </>
+    );
 }
 
 // ── Edit Staff Modal ──────────────────────────────────────────────────────────
@@ -934,6 +935,22 @@ export default function MembersClient({ initialUsers, initialStaff, storeIds }: 
   const { confirm, dialog: confirmDialog } = useConfirm();
 
   const fUsers = useMemo(() => { const q = search.toLowerCase().trim(); return users.filter(u => (!q || u.name?.toLowerCase().includes(q) || u.email?.toLowerCase().includes(q) || u.phoneNumber?.includes(q)) && (tierF === "All" || u.tier === tierF)); }, [users, search, tierF]);
+
+useEffect(() => {
+  const unsubUsers = onSnapshot(query(collection(db, "users"), orderBy("name")), (snap) => {
+    const data = snap.docs.map(d => ({ uid: d.id, ...d.data() })) as UserWithUid[];
+    setUsers(data);
+  });
+  const unsubStaff = onSnapshot(query(collection(db, "staff"), orderBy("name")), (snap) => {
+    const data = snap.docs.map(d => ({ uid: d.id, ...d.data() })) as StaffWithUid[];
+    setStaff(data);
+  });
+  return () => {
+    unsubUsers();
+    unsubStaff();
+  };
+}, []);
+
   const fStaff = useMemo(() => { const q = search.toLowerCase().trim(); return staff.filter(s => !q || s.name?.toLowerCase().includes(q) || s.email?.toLowerCase().includes(q)); }, [staff, search]);
 
   function switchTab(t: TabType) { setTab(t); setSearch(""); setTierF("All"); setSelectedUsers(new Set()); setSelectedStaff(new Set()); }
@@ -999,6 +1016,10 @@ export default function MembersClient({ initialUsers, initialStaff, storeIds }: 
           <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".12em", textTransform: "uppercase", color: C.tx3, marginBottom: 5 }}>Gong Cha Admin</p>
           <h1 style={{ fontSize: 28, fontWeight: 800, letterSpacing: "-.025em", color: C.tx1, lineHeight: 1.1 }}>User & Staff Management</h1>
         </div>
+        <GcBtn variant="ghost" onClick={() => { /* refresh */ }} >
+          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+          Refresh
+        </GcBtn>
         <GcBtn variant="blue" onClick={() => setShowCreate(true)}>
           <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
           Tambah Akun
@@ -1106,7 +1127,8 @@ export default function MembersClient({ initialUsers, initialStaff, storeIds }: 
           user={editUser}
           onClose={() => setEditUser(null)}
           onSaved={patch => setUsers(p => p.map(u => u.uid === editUser.uid ? { ...u, ...patch } : u))}
-          toast={toast} confirm={confirm}
+          toast={(msg, type) => toast(msg, type as any)}
+          confirm={(msg, onYes) => confirm({ title: 'Konfirmasi', description: msg, onConfirm: onYes })}
         />
       )}
       {editStaff && <EditStaffModal staff={editStaff} storeIds={storeIds} onClose={() => setEditStaff(null)} onSaved={patch => setStaff(p => p.map(s => s.uid === editStaff.uid ? { ...s, ...patch } : s))} toast={toast} />}

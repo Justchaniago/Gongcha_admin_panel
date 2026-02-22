@@ -2,6 +2,7 @@
 // src/app/dashboard/rewards/RewardsClient.tsx
 
 import { useState, useMemo, useEffect, useCallback } from "react";
+import InjectVoucherModal from "./InjectVoucherModal";
 import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
 import { db } from "@/lib/firebaseClient";
 import { Reward } from "@/types/firestore";
@@ -92,7 +93,7 @@ function CategoryBadge({ category }: { category: Category }) {
   );
 }
 
-function FL({ children, required }: { children: React.ReactNode; required?: boolean }) {
+export function FL({ children, required }: { children: React.ReactNode; required?: boolean }) {
   return (
     <label style={{
       display: 'block', marginBottom: 6, fontSize: 11, fontWeight: 700,
@@ -103,7 +104,7 @@ function FL({ children, required }: { children: React.ReactNode; required?: bool
   );
 }
 
-function GcInput({ style, ...p }: React.InputHTMLAttributes<HTMLInputElement>) {
+export function GcInput({ style, ...p }: React.InputHTMLAttributes<HTMLInputElement>) {
   const [f, setF] = useState(false);
   return (
     <input
@@ -141,7 +142,7 @@ function GcTextarea({ style, ...p }: React.TextareaHTMLAttributes<HTMLTextAreaEl
   );
 }
 
-function GcSelect({ style, ...p }: React.SelectHTMLAttributes<HTMLSelectElement>) {
+export function GcSelect({ style, ...p }: React.SelectHTMLAttributes<HTMLSelectElement>) {
   const [f, setF] = useState(false);
   return (
     <select
@@ -794,6 +795,7 @@ export default function RewardsClient({
   showAddTrigger?: boolean;
 }) {
   const [rewards,      setRewards]      = useState<RewardWithId[]>(initialRewards);
+  const [showInject,   setShowInject]   = useState(false);
   const [syncStatus,   setSyncStatus]   = useState<SyncStatus>('connecting');
   const [search,       setSearch]       = useState('');
   const [filter,       setFilter]       = useState<'all' | 'active' | 'inactive'>('all');
@@ -967,12 +969,13 @@ export default function RewardsClient({
           }}>
             <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke={C.tx3} strokeWidth={2.2}>
               <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+            <button onClick={() => { /* refresh */ }} style={{ height: 34, padding: '0 12px', borderRadius: 8, background: C.bg, color: C.tx2, border: `1px solid ${C.border}`, fontFamily: font, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }} >
+              <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+              Refresh
+            </button>
             </svg>
             <input
               style={{ flex: 1, border: 'none', background: 'transparent', outline: 'none', fontFamily: font, fontSize: 13.5, color: C.tx1 }}
-              placeholder="Cari reward, ID…"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
               onFocus={() => setSearchFocus(true)}
               onBlur={() => setSearchFocus(false)}
             />
@@ -1039,6 +1042,32 @@ export default function RewardsClient({
             </svg>
             Tambah Voucher
           </button>
+          <button
+            onClick={() => setShowInject(true)}
+            style={{
+              height: 38, padding: '0 16px', borderRadius: 9, border: 'none',
+              background: `linear-gradient(135deg, ${C.purple}, #3A0CA3)`,
+              color: '#fff', fontFamily: font, fontSize: 12.5, fontWeight: 600,
+              cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6,
+              boxShadow: '0 2px 10px rgba(109,40,217,.18)', transition: 'all .15s',
+            }}
+            onMouseOver={e => (e.currentTarget.style.boxShadow = '0 4px 16px rgba(109,40,217,.25)')}
+            onMouseOut={e  => (e.currentTarget.style.boxShadow = '0 2px 10px rgba(109,40,217,.18)')}
+          >
+            <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4"/>
+            </svg>
+            Suntik Voucher ke User
+          </button>
+        {/* Modal Suntik Voucher ke User */}
+        {showInject && (
+          <InjectVoucherModal
+            rewards={rewards}
+            onClose={() => setShowInject(false)}
+            onSuccess={msg => { showToast(msg); setShowInject(false); }}
+          />
+        )}
+
         </div>
       </div>
 

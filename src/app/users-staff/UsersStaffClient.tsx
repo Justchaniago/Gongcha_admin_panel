@@ -8,8 +8,8 @@ async function getData() {
     adminDb.collection("staff").get(),
     adminDb.collection("stores").get(),
   ]);
-  const users    = usersSnap.docs.map(d => ({ uid: d.id, ...d.data() } as User  & { uid: string }));
-  const staff    = staffSnap.docs.map(d => ({ uid: d.id, ...d.data() } as Staff & { uid: string }));
+  const users    = usersSnap.docs.map(d => ({ ...d.data(), uid: d.id } as User  & { uid: string }));
+  const staff    = staffSnap.docs.map(d => ({ ...d.data(), uid: d.id } as Staff & { uid: string }));
   const storeIds = storesSnap.docs.map(d => d.id);
   return { users, staff, storeIds };
 }

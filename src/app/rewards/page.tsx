@@ -22,9 +22,11 @@ async function getRewards(): Promise<Array<{ id: string } & Reward>> {
 }
 
 export default async function RewardsPage() {
+
   let rewards: Array<{ id: string } & Reward> = [];
   try { rewards = await getRewards(); } catch { /* Firebase not configured */ }
-
+  // Filter hanya voucher katalog
+  rewards = rewards.filter(r => r.type === 'catalog');
   const active   = rewards.filter(r => r.isActive).length;
   const inactive = rewards.filter(r => !r.isActive).length;
 

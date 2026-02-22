@@ -71,7 +71,7 @@ export async function POST(req: NextRequest) {
     }
 
     const now = new Date().toISOString();
-    const userData: User = {
+    const userData: User & { uid: string } = {
       name:           body.name.trim(),
       email:          body.email.toLowerCase().trim(),
       phoneNumber:    body.phoneNumber?.trim() ?? "",
@@ -83,12 +83,13 @@ export async function POST(req: NextRequest) {
       joinedDate:     now,
       xpHistory:      [],
       vouchers:       [],
+      uid:            authUser.uid,
     };
 
     // Write Firestore doc with same UID as Auth user
     await adminDb.collection("users").doc(authUser.uid).set(userData);
 
-    return NextResponse.json({ uid: authUser.uid, ...userData }, { status: 201 });
+    return NextResponse.json(userData, { status: 201 });
   } catch (err) {
     console.error("[POST /api/members]", err);
     return NextResponse.json({ message: "Gagal membuat member." }, { status: 500 });

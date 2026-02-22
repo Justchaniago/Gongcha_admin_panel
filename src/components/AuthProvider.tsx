@@ -28,7 +28,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const unsub = onAuthStateChanged(auth, (u) => {
       setUser(u);
       setLoading(false);
-      if (!u && pathname?.startsWith("/dashboard")) {
+      if (!u && pathname?.startsWith("/dashboard") && window.location.pathname !== "/login") {
         router.replace("/login");
       }
     });

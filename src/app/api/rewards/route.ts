@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { rewardId, title, description, pointsCost, category, isActive } = body;
+    const { rewardId, title, description, pointsCost, category, isActive, type } = body;
 
     // Validation
     if (!rewardId?.trim())  return NextResponse.json({ message: "rewardId wajib diisi." },  { status: 400 });
@@ -79,6 +79,7 @@ export async function POST(req: NextRequest) {
       pointsCost:  typeof pointsCost === "number" ? pointsCost : 0,
       category,
       isActive:    isActive !== false,
+      type:        type === "personal" ? "personal" : "catalog", // default ke catalog
       createdAt:   FieldValue.serverTimestamp(),
       updatedAt:   FieldValue.serverTimestamp(),
     };
