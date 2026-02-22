@@ -229,58 +229,158 @@ function MemberDetailModal({ user, onClose, onEdit, onDelete }: { user: UserWith
 }
 
 function EditMemberModal({ user, onClose, onSaved }: { user: UserWithUid; onClose: () => void; onSaved: (msg: string) => void }) {
-  const [form, setForm] = useState({ name: user.name ?? '', tier: user.tier ?? 'Silver', currentPoints: user.currentPoints ?? 0, lifetimePoints: user.lifetimePoints ?? 0, role: user.role ?? 'member', phoneNumber: user.phoneNumber ?? '' });
+  const [form, setForm] = useState({
+    name:           user.name          ?? '',
+    phoneNumber:    user.phoneNumber   ?? '',
+    tier:           user.tier          ?? 'Silver',
+    currentPoints:  user.currentPoints  ?? 0,
+    lifetimePoints: user.lifetimePoints ?? 0,
+    role:           user.role          ?? 'member',
+  });
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error,   setError]   = useState('');
 
   async function save() {
     if (!form.name.trim()) { setError('Nama tidak boleh kosong.'); return; }
     setLoading(true); setError('');
     try {
+      // Coba client-side Firestore dulu (lebih cepat, realtime update)
       await updateDoc(doc(db, 'users', user.uid), {
-        name: form.name, phoneNumber: form.phoneNumber,
-        tier: form.tier, currentPoints: Number(form.currentPoints),
-        lifetimePoints: Number(form.lifetimePoints), role: form.role,
+        name:           form.name.trim(),
+        phoneNumber:    form.phoneNumber.trim(),
+        tier:           form.tier,
+        currentPoints:  Number(form.currentPoints),
+        lifetimePoints: Number(form.lifetimePoints),
+        role:           form.role,
       });
-      onSaved('Member berhasil diperbarui ✓'); onClose();
+      onSaved('Member berhasil diperbarui ✓');
+      onClose();
     } catch {
+      // Fallback ke API route
       try {
-        const r = await fetch(`/api/members/${user.uid}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
+        const r = await fetch(`/api/members/${user.uid}`, {
+          method:  'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({
+            name:           form.name.trim(),
+            phoneNumber:    form.phoneNumber.trim(),
+            tier:           form.tier,
+            currentPoints:  Number(form.currentPoints),
+            lifetimePoints: Number(form.lifetimePoints),
+            role:           form.role,
+          }),
+        });
         if (!r.ok) throw new Error((await r.json().catch(() => ({}))).message ?? 'Gagal menyimpan');
-        onSaved('Member berhasil diperbarui ✓'); onClose();
-      } catch (e2) { setError(String(e2)); }
-    } finally { setLoading(false); }
+        onSaved('Member berhasil diperbarui ✓');
+        onClose();
+      } catch (e2: any) {
+        setError(String(e2));
+      }
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
     <Modal onClose={onClose}>
       <MHead eyebrow="Edit Akun" title="Edit Member" onClose={onClose} />
       <MBody>
+
+        {/* ── Informasi Pribadi ── */}
         <SL>Informasi Pribadi</SL>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 22 }}>
-          <div><FL>Nama</FL><GcInput value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))}/></div>
-          <div><FL>No. HP</FL><GcInput value={form.phoneNumber} onChange={e => setForm(p => ({ ...p, phoneNumber: e.target.value }))}/></div>
+          <div>
+            <FL>Nama</FL>
+            <GcInput
+              placeholder="Nama lengkap"
+              value={form.name}
+              onChange={e => setForm(p => ({ ...p, name: e.target.value }))}
+            />
+          </div>
+          <div>
+            <FL>No. HP</FL>
+            <GcInput
+              placeholder="+62 812 xxxx xxxx"
+              value={form.phoneNumber}
+              onChange={e => setForm(p => ({ ...p, phoneNumber: e.target.value }))}
+            />
+          </div>
         </div>
-        <SL>Tier & Poin</SL>
+
+        {/* ── Tier ── */}
+        <SL>Tier & Role</SL>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 22 }}>
-          <div><FL>Tier</FL>
-            <GcSelect value={form.tier} onChange={e => setForm(p => ({ ...p, tier: e.target.value as UserTier }))}>
-              {['Silver','Gold','Platinum'].map(t => <option key={t}>{t}</option>)}
+          <div>
+            <FL>Tier</FL>
+            <GcSelect
+              value={form.tier}
+              onChange={e => setForm(p => ({ ...p, tier: e.target.value as UserTier }))}
+            >
+              {['Silver', 'Gold', 'Platinum'].map(t => <option key={t}>{t}</option>)}
             </GcSelect>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-            <div><FL>Poin Aktif</FL><GcInput type="number" value={form.currentPoints} onChange={e => setForm(p => ({ ...p, currentPoints: Number(e.target.value) }))}/></div>
-            <div><FL>Lifetime Points</FL><GcInput type="number" value={form.lifetimePoints} onChange={e => setForm(p => ({ ...p, lifetimePoints: Number(e.target.value) }))}/></div>
-          </div>
-          <div><FL>Role</FL>
-            <GcSelect value={form.role} onChange={e => setForm(p => ({ ...p, role: e.target.value as UserRole }))}>
-              {['member','admin','trial','master'].map(r => <option key={r}>{r}</option>)}
+          <div>
+            <FL>Role</FL>
+            <GcSelect
+              value={form.role}
+              onChange={e => setForm(p => ({ ...p, role: e.target.value as UserRole }))}
+            >
+              {['member', 'admin', 'trial', 'master'].map(r => <option key={r}>{r}</option>)}
             </GcSelect>
           </div>
         </div>
-        {error && <ErrBox msg={error}/>}
+
+        {/* ── Poin & XP — FULLY EDITABLE (admin dashboard) ── */}
+        <SL>Data Poin & XP</SL>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+          <div>
+            <FL>Poin Aktif</FL>
+            <GcInput
+              type="number"
+              min="0"
+              value={form.currentPoints}
+              onChange={e => setForm(p => ({ ...p, currentPoints: Number(e.target.value) }))}
+            />
+          </div>
+          <div>
+            <FL>Lifetime XP</FL>
+            <GcInput
+              type="number"
+              min="0"
+              value={form.lifetimePoints}
+              onChange={e => setForm(p => ({ ...p, lifetimePoints: Number(e.target.value) }))}
+            />
+          </div>
+        </div>
+
+        {/* Live preview */}
+        <div style={{
+          display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 4,
+          padding: '14px 16px', borderRadius: 12,
+          background: C.bg, border: `1.5px solid ${C.border}`,
+        }}>
+          <div style={{ textAlign: 'center' }}>
+            <p style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: C.tx3, marginBottom: 5 }}>Poin Aktif</p>
+            <p style={{ fontSize: 24, fontWeight: 800, color: C.blue, lineHeight: 1 }}>
+              {Number(form.currentPoints).toLocaleString('id')}
+            </p>
+          </div>
+          <div style={{ textAlign: 'center', borderLeft: `1px solid ${C.border2}` }}>
+            <p style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: C.tx3, marginBottom: 5 }}>Lifetime XP</p>
+            <p style={{ fontSize: 24, fontWeight: 800, color: C.purple, lineHeight: 1 }}>
+              {Number(form.lifetimePoints).toLocaleString('id')}
+            </p>
+          </div>
+        </div>
+
+        {error && <ErrBox msg={error}/>} 
       </MBody>
-      <MFoot><GcBtn variant="ghost" onClick={onClose}>Batal</GcBtn><GcBtn variant="primary" onClick={save} disabled={loading}>{loading ? 'Menyimpan…' : 'Simpan'}</GcBtn></MFoot>
+      <MFoot>
+        <GcBtn variant="ghost"   onClick={onClose}>Batal</GcBtn>
+        <GcBtn variant="primary" onClick={save} disabled={loading}>
+          {loading ? 'Menyimpan…' : 'Simpan Perubahan'}
+        </GcBtn>
+      </MFoot>
     </Modal>
   );
 }

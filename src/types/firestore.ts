@@ -99,6 +99,7 @@ export interface Staff {
 export type RewardCategory = "Drink" | "Topping" | "Discount";
 
 export interface Reward {
+  id: string;
   title:       string;
   description: string;
   pointsCost:  number;
@@ -106,3 +107,5 @@ export interface Reward {
   category:    RewardCategory;
   isActive:    boolean;
 }
+
+export type RewardItem = Reward;
