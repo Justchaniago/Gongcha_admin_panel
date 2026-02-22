@@ -1,6 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseServer";
 import { Account } from "@/types/firestore";
+import { getToken } from "next-auth/jwt";
+
+// Helper untuk validasi session
+async function validateSession(req: NextRequest) {
+  const token = await getToken({ 
+    req, 
+    secret: process.env.NEXTAUTH_SECRET,
+    secureCookie: process.env.NODE_ENV === "production"
+  });
+  
+  if (!token) {
+    return { error: "Session tidak ditemukan. Silakan login ulang.", status: 403 };
+  }
+  
+  const userRole = token.role as string;
+  // Hanya admin dan master yang bisa akses accounts
+  if (!['admin', 'master'].includes(userRole)) {
+    return { error: "Akses ditolak. Anda tidak memiliki izin.", status: 403 };
+  }
+  
+  return { token, userRole, error: null };
+}
 
 // ── Validation ────────────────────────────────────────────────────────────────
 function validateAccountPayload(body: Partial<Account>): string | null {
@@ -16,7 +38,13 @@ function validateAccountPayload(body: Partial<Account>): string | null {
 }
 
 // ── GET /api/accounts — list all (fallback if onSnapshot unavailable) ─────────
-export async function GET() {
+export async function GET(req: NextRequest) {
+  // Validasi session
+  const validation = await validateSession(req);
+  if (validation.error) {
+    return NextResponse.json({ message: validation.error }, { status: validation.status });
+  }
+
   try {
     const snap = await adminDb.collection("accounts").orderBy("createdAt", "desc").get();
     const accounts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -29,6 +57,12 @@ export async function GET() {
 
 // ── POST /api/accounts — create new account ───────────────────────────────────
 export async function POST(req: NextRequest) {
+  // Validasi session
+  const validation = await validateSession(req);
+  if (validation.error) {
+    return NextResponse.json({ message: validation.error }, { status: validation.status });
+  }
+
   try {
     const body: Partial<Account> = await req.json();
 

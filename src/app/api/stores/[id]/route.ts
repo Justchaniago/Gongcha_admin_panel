@@ -1,11 +1,39 @@
 // src/app/api/stores/[id]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseServer";
+import { getToken } from "next-auth/jwt";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
+// Helper untuk validasi session
+async function validateSession(req: NextRequest) {
+  const token = await getToken({ 
+    req, 
+    secret: process.env.NEXTAUTH_SECRET,
+    secureCookie: process.env.NODE_ENV === "production"
+  });
+  
+  if (!token) {
+    return { error: "Session tidak ditemukan. Silakan login ulang.", status: 403 };
+  }
+  
+  const userRole = token.role as string;
+  // Hanya admin dan master yang bisa akses stores
+  if (!['admin', 'master'].includes(userRole)) {
+    return { error: "Akses ditolak. Anda tidak memiliki izin.", status: 403 };
+  }
+  
+  return { token, userRole, error: null };
+}
+
 // PATCH — update store (semua field sesuai Firestore)
 export async function PATCH(req: NextRequest, ctx: RouteContext) {
+  // Validasi session
+  const validation = await validateSession(req);
+  if (validation.error) {
+    return NextResponse.json({ message: validation.error }, { status: validation.status });
+  }
+
   try {
     const { id } = await ctx.params;
     if (!id) return NextResponse.json({ message: "ID wajib diisi." }, { status: 400 });
@@ -44,7 +72,13 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
 }
 
 // DELETE — hapus store
-export async function DELETE(_req: NextRequest, ctx: RouteContext) {
+export async function DELETE(req: NextRequest, ctx: RouteContext) {
+  // Validasi session
+  const validation = await validateSession(req);
+  if (validation.error) {
+    return NextResponse.json({ message: validation.error }, { status: validation.status });
+  }
+
   try {
     const { id } = await ctx.params;
     if (!id) return NextResponse.json({ message: "ID wajib diisi." }, { status: 400 });

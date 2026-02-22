@@ -1,9 +1,37 @@
 // src/app/api/stores/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseServer";
+import { getToken } from "next-auth/jwt";
+
+// Helper untuk validasi session
+async function validateSession(req: NextRequest) {
+  const token = await getToken({ 
+    req, 
+    secret: process.env.NEXTAUTH_SECRET,
+    secureCookie: process.env.NODE_ENV === "production"
+  });
+  
+  if (!token) {
+    return { error: "Session tidak ditemukan. Silakan login ulang.", status: 403 };
+  }
+  
+  const userRole = token.role as string;
+  // Hanya admin dan master yang bisa akses stores
+  if (!['admin', 'master'].includes(userRole)) {
+    return { error: "Akses ditolak. Anda tidak memiliki izin.", status: 403 };
+  }
+  
+  return { token, userRole, error: null };
+}
 
 // GET — list all
-export async function GET() {
+export async function GET(req: NextRequest) {
+  // Validasi session
+  const validation = await validateSession(req);
+  if (validation.error) {
+    return NextResponse.json({ message: validation.error }, { status: validation.status });
+  }
+
   try {
     const snap = await adminDb.collection("stores").orderBy("name").get();
     const stores = snap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -15,6 +43,12 @@ export async function GET() {
 
 // POST — create store dengan custom document ID
 export async function POST(req: NextRequest) {
+  // Validasi session
+  const validation = await validateSession(req);
+  if (validation.error) {
+    return NextResponse.json({ message: validation.error }, { status: validation.status });
+  }
+
   try {
     const body = await req.json();
     const {

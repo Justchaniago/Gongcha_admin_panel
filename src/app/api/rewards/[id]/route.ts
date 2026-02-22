@@ -2,10 +2,32 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseServer";
 import { FieldValue } from "firebase-admin/firestore";
+import { getToken } from "next-auth/jwt";
 
 
 // Next.js 14+ App Router: params is a Promise
 type RouteContext = { params: Promise<{ id: string }> };
+
+// Helper untuk validasi session
+async function validateSession(req: NextRequest) {
+  const token = await getToken({ 
+    req, 
+    secret: process.env.NEXTAUTH_SECRET,
+    secureCookie: process.env.NODE_ENV === "production"
+  });
+  
+  if (!token) {
+    return { error: "Session tidak ditemukan. Silakan login ulang.", status: 403 };
+  }
+  
+  const userRole = token.role as string;
+  // Hanya admin dan master yang bisa akses rewards
+  if (!['admin', 'master'].includes(userRole)) {
+    return { error: "Akses ditolak. Anda tidak memiliki izin.", status: 403 };
+  }
+  
+  return { token, userRole, error: null };
+}
 
 function guardId(id: unknown): string | null {
   if (typeof id !== 'string' || !id.trim()) return null;
@@ -13,7 +35,13 @@ function guardId(id: unknown): string | null {
 }
 
 // ── GET /api/rewards/:id ───────────────────────────────────────────────────────
-export async function GET(_req: NextRequest, ctx: RouteContext) {
+export async function GET(req: NextRequest, ctx: RouteContext) {
+  // Validasi session
+  const validation = await validateSession(req);
+  if (validation.error) {
+    return NextResponse.json({ message: validation.error }, { status: validation.status });
+  }
+
   const { id } = await ctx.params;
   const safeId = guardId(id);
   if (!safeId) return NextResponse.json({ message: 'Reward ID tidak valid.' }, { status: 400 });
@@ -30,6 +58,12 @@ export async function GET(_req: NextRequest, ctx: RouteContext) {
 
 // ── PATCH /api/rewards/:id ────────────────────────────────────────────────────
 export async function PATCH(req: NextRequest, ctx: RouteContext) {
+  // Validasi session
+  const validation = await validateSession(req);
+  if (validation.error) {
+    return NextResponse.json({ message: validation.error }, { status: validation.status });
+  }
+
   const { id } = await ctx.params;
   const safeId = guardId(id);
   if (!safeId) return NextResponse.json({ message: 'Reward ID tidak valid.' }, { status: 400 });
@@ -42,7 +76,7 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
       return NextResponse.json({ message: `Reward "${safeId}" tidak ditemukan.` }, { status: 404 });
     }
 
-    // Validation — only validate fields that are present in body
+    // Validation that are present in — only validate fields body
     if ("category" in body && !["Drink", "Topping", "Discount"].includes(body.category)) {
       return NextResponse.json({ message: "category tidak valid. Gunakan: Drink, Topping, atau Discount." }, { status: 400 });
     }
@@ -78,7 +112,13 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
 }
 
 // ── DELETE /api/rewards/:id ───────────────────────────────────────────────────
-export async function DELETE(_req: NextRequest, ctx: RouteContext) {
+export async function DELETE(req: NextRequest, ctx: RouteContext) {
+  // Validasi session
+  const validation = await validateSession(req);
+  if (validation.error) {
+    return NextResponse.json({ message: validation.error }, { status: validation.status });
+  }
+
   const { id } = await ctx.params;
   const safeId = guardId(id);
   if (!safeId) return NextResponse.json({ message: 'Reward ID tidak valid.' }, { status: 400 });

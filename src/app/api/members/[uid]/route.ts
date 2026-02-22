@@ -2,13 +2,41 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseServer";
 import * as admin from "firebase-admin";
 import { User, UserRole, UserTier } from "@/types/firestore";
+import { getToken } from "next-auth/jwt";
 
 type Params = { params: Promise<{ uid: string }> };
+
+// Helper untuk validasi session
+async function validateSession(req: NextRequest) {
+  const token = await getToken({ 
+    req, 
+    secret: process.env.NEXTAUTH_SECRET,
+    secureCookie: process.env.NODE_ENV === "production"
+  });
+  
+  if (!token) {
+    return { error: "Session tidak ditemukan. Silakan login ulang.", status: 403 };
+  }
+  
+  const userRole = token.role as string;
+  // Hanya admin dan master yang bisa modify member
+  if (!['admin', 'master'].includes(userRole)) {
+    return { error: "Akses ditolak. Anda tidak memiliki izin.", status: 403 };
+  }
+  
+  return { token, userRole, error: null };
+}
 
 // ── PATCH /api/members/[uid] — update member ──────────────────────────────────
 export async function PATCH(req: NextRequest, { params }: Params) {
   const { uid } = await params;
   if (!uid) return NextResponse.json({ message: "UID diperlukan." }, { status: 400 });
+
+  // Validasi session
+  const validation = await validateSession(req);
+  if (validation.error) {
+    return NextResponse.json({ message: validation.error }, { status: validation.status });
+  }
 
   try {
     const body: Partial<User & { password?: string }> = await req.json();
@@ -73,6 +101,12 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 export async function DELETE(_req: NextRequest, { params }: Params) {
   const { uid } = await params;
   if (!uid) return NextResponse.json({ message: "UID diperlukan." }, { status: 400 });
+
+  // Validasi session
+  const validation = await validateSession(_req);
+  if (validation.error) {
+    return NextResponse.json({ message: validation.error }, { status: validation.status });
+  }
 
   try {
     const docRef = adminDb.collection("users").doc(uid);
