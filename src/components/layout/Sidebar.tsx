@@ -8,7 +8,7 @@ import { useAdminAuth } from "@/components/AuthProvider";
 const navItems = [
   { href: "/dashboard", label: "Dashboard", badge: false },
   { href: "/stores",    label: "Outlets",   badge: false },
-  { href: "/transactions", label: "Transaksi", badge: true },
+  { href: "/transactions", label: "Transaksi", badge: false },
   { href: "/users-staff",  label: "Member",    badge: false },
   { href: "/rewards",  label: "Rewards",   badge: false },
   { href: "/settings", label: "Settings",  badge: false },

@@ -29,3 +29,37 @@ NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=<your sender id>
 NEXT_PUBLIC_FIREBASE_APP_ID=<your app id>
 FIREBASE_SERVICE_ACCOUNT_JSON=<JSON string of serviceAccountKey.json>
 NEXTAUTH_URL=http://localhost:3000
+
+---
+
+# 🚀 Deployment to Vercel
+
+## Deployment Tasks
+
+- [ ] 1. Update `next.config.js` — added `output: 'standalone'` for Vercel
+- [ ] 2. Create `vercel.json` — Vercel deployment configuration
+- [ ] 3. Create `.env.example` — template for environment variables
+- [ ] 4. Create `DEPLOYMENT_GUIDE.md` — complete deployment documentation
+- [ ] 5. Create `scripts/prepare-deploy.sh` — deployment preparation script
+- [ ] 6. Setup environment variables in Vercel Dashboard
+- [ ] 7. Add Vercel domain to Firebase Auth authorized domains
+- [ ] 8. Deploy Firestore rules: `firebase deploy --only firestore:rules`
+- [ ] 9. Deploy Firestore indexes: `firebase deploy --only firestore:indexes`
+- [ ] 10. Push to Git and deploy to Vercel
+
+## Quick Deploy Commands
+
+```bash
+# Prepare deployment
+./scripts/prepare-deploy.sh
+
+# Deploy to Vercel
+vercel --prod
+```
+
+## Files Created for Deployment
+- `next.config.js` — Updated with production config
+- `vercel.json` — Vercel deployment settings
+- `.env.example` — Environment variables template
+- `DEPLOYMENT_GUIDE.md` — Complete deployment guide
+- `scripts/prepare-deploy.sh` — Deployment helper script
