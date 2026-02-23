@@ -1,16 +1,12 @@
 "use client";
-// src/components/AuthProvider.tsx
-// Wraps dashboard layout — redirects to /login if not authenticated
-
-import { createContext, useContext, useEffect, useState, ReactNode } from "react";
-import { onAuthStateChanged, signOut, User } from "firebase/auth";
-import { useRouter, usePathname } from "next/navigation";
-import { auth } from "@/lib/firebaseClient";
+import { createContext, useContext, ReactNode } from "react";
+import { useSession, signOut } from "next-auth/react";
+import { useRouter } from "next/navigation";
 
 interface AuthCtx {
-  user:    User | null;
+  user: { name?: string | null; email?: string | null; role?: string } | null;
   loading: boolean;
-  logout:  () => Promise<void>;
+  logout: () => Promise<void>;
 }
 
 const Ctx = createContext<AuthCtx>({ user: null, loading: true, logout: async () => {} });
@@ -19,28 +15,15 @@ export function useAdminAuth() { return useContext(Ctx); }
 const font = "'Plus Jakarta Sans', system-ui, sans-serif";
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user,    setUser]    = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
-  const router   = useRouter();
-  const pathname = usePathname();
-
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      setLoading(false);
-      if (!u && pathname?.startsWith("/dashboard") && window.location.pathname !== "/login") {
-        router.replace("/login");
-      }
-    });
-    return () => unsub();
-  }, [router, pathname]);
+  const { data: session, status } = useSession();
+  const router = useRouter();
 
   async function logout() {
-    await signOut(auth);
+    await signOut({ redirect: false });
     router.replace("/login");
   }
 
-  if (loading) {
+  if (status === "loading") {
     return (
       <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#F4F6FB", fontFamily: font }}>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
@@ -57,10 +40,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     );
   }
 
-  if (!user) return null;
+  // Middleware sudah handle redirect, jadi tidak perlu redirect di sini
+  if (!session) return null;
 
   return (
-    <Ctx.Provider value={{ user, loading, logout }}>
+    <Ctx.Provider value={{ user: session.user, loading: false, logout }}>
       {children}
     </Ctx.Provider>
   );
