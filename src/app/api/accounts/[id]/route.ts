@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseServer";
 import { Account } from "@/types/firestore";
