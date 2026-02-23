@@ -9,18 +9,7 @@ export const authOptions: NextAuthOptions = {
     maxAge:   60 * 60 * 8, // 8 jam
   },
 
-  cookies: {
-    sessionToken: {
-      name: `next-auth.session-token`,
-      options: {
-        httpOnly: true,
-        sameSite: "lax",
-        path: "/",
-        secure: process.env.NODE_ENV === "production",
-        maxAge: 60 * 60 * 8, // 8 jam
-      },
-    },
-  },
+  // cookies config dihapus, NextAuth akan handle otomatis
 
   pages: {
     signIn: "/login", // redirect ke halaman login custom kamu
