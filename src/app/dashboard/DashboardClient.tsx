@@ -140,7 +140,7 @@ export default function DashboardClient() {
   const hr       = now.getHours();
   const greeting = hr < 12 ? "Good morning" : hr < 17 ? "Good afternoon" : "Good evening";
   const dateStr  = now.toLocaleDateString("en-US", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
-  const userName = user?.displayName || user?.email?.split("@")[0] || "Admin";
+  const userName = user?.name || user?.email?.split("@")[0] || "Admin";
 
   // ── Firestore listeners ──────────────────────────────────────────────────
   useEffect(() => {
