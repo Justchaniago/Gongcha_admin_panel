@@ -49,30 +49,29 @@ export default function LoginPage() {
     setLoading(true); setError("");
 
     try {
-      // Use NextAuth credentials sign-in — this sets the session cookie atomically.
-      // The authorize() function in src/lib/auth.ts handles Firebase auth + role check.
-      const result = await nextAuthSignIn("credentials", {
-        email:    email.trim(),
-        password,
-        redirect: false,
+      // Firebase Auth sign-in
+      const { getAuth, signInWithEmailAndPassword } = await import("firebase/auth");
+      const { app } = await import("@/lib/firebaseClient");
+      const auth = getAuth(app);
+      const userCredential = await signInWithEmailAndPassword(auth, email.trim(), password);
+      const idToken = await userCredential.user.getIdToken();
+
+      // Set session cookie via API
+      const response = await fetch("/api/auth/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ idToken }),
       });
 
-      if (result?.error) {
-        // NextAuth passes the error message thrown in authorize()
-        setError(result.error === "CredentialsSignin"
-          ? "Email atau password salah."
-          : result.error);
+      if (response.ok) {
+        setSuccess(true);
+        window.location.href = "/dashboard";
+      } else {
+        setError("Gagal membuat sesi");
         setLoading(false);
-        return;
       }
-
-      setSuccess(true);
-      setTimeout(() => {
-        if (window.location.pathname !== "/dashboard") router.replace("/dashboard");
-      }, 800);
-
-    } catch (err: any) {
-      setError(`Login gagal: ${err.message ?? "Coba lagi."}`);
+    } catch (error: any) {
+      setError(`Login error: ${error?.message ?? "Coba lagi."}`);
       setLoading(false);
     }
   }
