@@ -277,14 +277,6 @@ function EmptyState({ query, type }: { query: string; type: TabType }) {
 }
 
 async function apiFetch(url: string, options?: RequestInit): Promise<any> {
-  const res = await fetch(url, options);
-  if (!res.ok) {
-    let msg = `HTTP ${res.status}`;
-    try { const j = await res.json(); msg = j.message ?? j.error ?? msg; } catch {}
-    throw new Error(msg);
-  }
-  try { return await res.json(); } catch { return null; }
-}
 
 // ── Edit Points Modal ─────────────────────────────────────────────────────────
 // ✅ No admin gate — available to all dashboard users
