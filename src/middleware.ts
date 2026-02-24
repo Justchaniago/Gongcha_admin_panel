@@ -1,17 +1,45 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
 
-export async function middleware(req: NextRequest) {
-  const session = req.cookies.get("session")?.value;
-  const { pathname } = req.nextUrl;
+export function middleware(request: NextRequest) {
+  const session = request.cookies.get('session');
+  const { pathname } = request.nextUrl;
 
-  if (!session && pathname !== "/login") {
-    const loginUrl = new URL("/login", req.url);
-    return NextResponse.redirect(loginUrl);
+  // 1. Pengecualian (File statis & aset)
+  const isAsset = 
+    pathname.startsWith('/_next') || 
+    pathname.startsWith('/assets') || 
+    pathname.startsWith('/favicon.ico');
+
+  if (isAsset) {
+    return NextResponse.next();
+  }
+
+  // 2. Rute Publik
+  const isLoginPage = pathname === '/login';
+  
+  // 🔥 PERBAIKAN DI SINI: Kita izinkan semua rute yang berawalan /api/auth
+  // agar API /api/auth/session (pembuat cookie) tidak diblokir!
+  const isPublicApi = pathname.startsWith('/api/auth'); 
+
+  if (isLoginPage || isPublicApi) {
+    if (session && isLoginPage) {
+      return NextResponse.redirect(new URL('/dashboard', request.url));
+    }
+    return NextResponse.next();
+  }
+
+  // 3. Proteksi Rute Private
+  if (!session) {
+    if (pathname.startsWith('/api')) {
+      return NextResponse.json({ error: 'Session Expired' }, { status: 401 });
+    }
+    return NextResponse.redirect(new URL('/login', request.url));
   }
 
   return NextResponse.next();
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/transactions/:path*", "/users-staff/:path*", "/stores/:path*", "/rewards/:path*", "/settings/:path*"],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|assets).*)'],
 };
