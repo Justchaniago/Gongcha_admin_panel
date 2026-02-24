@@ -1,36 +1,28 @@
-// src/middleware.ts — Next.js auth middleware using next-auth/jwt getToken
-import { NextRequest, NextResponse } from "next/server";
-import { getToken } from "next-auth/jwt";
+import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
 
-export async function middleware(req: NextRequest) {
-  const session = req.cookies.get('session');
-  const { pathname } = req.nextUrl;
+export function middleware(request: NextRequest) {
+  // Satpam baru kita hanya mengecek laci cookie ini
+  const session = request.cookies.get('session');
+  const { pathname } = request.nextUrl;
 
-  // Rute publik
+  // Rute publik (Login & file statis)
   if (pathname === '/login' || pathname.startsWith('/_next') || pathname.startsWith('/api') || pathname.startsWith('/assets')) {
+    // Kalau sudah punya tiket session tapi mau ke halaman login, usir ke dashboard
     if (session && pathname === '/login') {
-      return NextResponse.redirect(new URL('/dashboard', req.url));
+      return NextResponse.redirect(new URL('/dashboard', request.url));
     }
     return NextResponse.next();
   }
 
-  // Jika tidak ada session di rute private, tendang ke login
+  // Jika tidak ada tiket session di rute private, tendang kembali ke login
   if (!session) {
-    return NextResponse.redirect(new URL('/login', req.url));
+    return NextResponse.redirect(new URL('/login', request.url));
   }
 
   return NextResponse.next();
 }
 
-// Apply middleware to all admin routes
 export const config = {
-  matcher: [
-    "/dashboard/:path*",
-    "/transactions/:path*",
-    "/users-staff/:path*",
-    "/stores/:path*",
-    "/rewards/:path*",
-    "/settings/:path*",
-    "/accounts/:path*",
-  ],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
 };

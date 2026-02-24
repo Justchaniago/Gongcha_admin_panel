@@ -1,8 +1,10 @@
 "use client";
 
+
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { signIn as nextAuthSignIn, useSession } from "next-auth/react";
+import { signInWithEmailAndPassword } from "firebase/auth";
+import { auth } from "@/lib/firebaseClient";
 
 const font = "'Plus Jakarta Sans', system-ui, sans-serif";
 
@@ -25,23 +27,22 @@ const C = {
 
 export default function LoginPage() {
   const router = useRouter();
-  const { data: session, status } = useSession();
 
   const [email,    setEmail]    = useState("");
   const [password, setPassword] = useState("");
   const [loading,  setLoading]  = useState(false);
   const [error,    setError]    = useState("");
-  const [showPw,   setShowPw]   = useState(false);
+  const router = useRouter();
   const [focusE,   setFocusE]   = useState(false);
   const [focusP,   setFocusP]   = useState(false);
   const [success,  setSuccess]  = useState(false);
 
-  // If already authenticated via NextAuth session, redirect to dashboard
+  // Jika sudah login, redirect ke dashboard
   useEffect(() => {
-    if (status === "authenticated" && window.location.pathname !== "/dashboard") {
+    if (typeof window !== "undefined" && auth.currentUser && window.location.pathname !== "/dashboard") {
       router.replace("/dashboard");
     }
-  }, [status, router]);
+  }, [router]);
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -49,71 +50,44 @@ export default function LoginPage() {
     setLoading(true); setError("");
 
     try {
-      // Firebase Auth sign-in
-      const { getAuth, signInWithEmailAndPassword } = await import("firebase/auth");
-      const { app } = await import("@/lib/firebaseClient");
-      const auth = getAuth(app);
+      // 1. Login menggunakan Firebase murni
       const userCredential = await signInWithEmailAndPassword(auth, email.trim(), password);
+      // 2. Ambil token aslinya
       const idToken = await userCredential.user.getIdToken();
 
-      // Set session cookie via API
-      const response = await fetch("/api/auth/session", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+      // 3. Setorkan token ke API Server kita untuk dicetak jadi Cookie 14 Hari
+      const response = await fetch('/api/auth/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ idToken }),
       });
 
-      if (response.ok) {
-        setSuccess(true);
-        window.location.href = "/dashboard";
-      } else {
-        setError("Gagal membuat sesi");
-        setLoading(false);
+      if (!response.ok) {
+        throw new Error("Gagal mencetak sesi di server.");
       }
-    } catch (error: any) {
-      setError(`Login error: ${error?.message ?? "Coba lagi."}`);
+
+      setSuccess(true);
+      setTimeout(() => {
+        // Gunakan window.location agar middleware dipaksa membaca dari awal
+        window.location.href = "/dashboard";
+      }, 800);
+
+    } catch (err: any) {
+      if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
+          setError("Email atau password salah.");
+      } else {
+          setError(`Login gagal: ${err.message ?? "Coba lagi."}`);
+      }
       setLoading(false);
     }
   }
 
-  // Loading screen while checking existing NextAuth session
-  if (status === "loading") {
-    return (
-      <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
-          <div style={{ width: 48, height: 48, borderRadius: 14, background: `linear-gradient(135deg,${C.blue},${C.blueD})`, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: `0 0 32px ${C.glow}` }}>
-            <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="white" strokeWidth={2} style={{ animation: "spin 1s linear infinite" }}>
-              <path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" strokeOpacity=".25"/>
-              <path d="M21 12a9 9 0 00-9-9"/>
-            </svg>
-          </div>
-          <p style={{ fontSize: 13, color: C.tx2, fontFamily: font }}>Memeriksa sesi…</p>
-        </div>
-        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-      </div>
-    );
-  }
+  // Loading screen (optional, bisa custom)
+  // ...existing code...
 
   return (
     <div style={{
       minHeight: "100vh",
-      background: C.bg,
-      display: "flex",
-      fontFamily: font,
-      WebkitFontSmoothing: "antialiased",
-      position: "relative",
-      overflow: "hidden",
-    }}>
-      {/* ── Background decoration ── */}
-      <div style={{ position: "absolute", inset: 0, pointerEvents: "none", zIndex: 0 }}>
-        {/* Top-left glow */}
-        <div style={{ position: "absolute", top: -180, left: -180, width: 520, height: 520, borderRadius: "50%", background: `radial-gradient(circle, rgba(67,97,238,.13) 0%, transparent 70%)` }}/>
-        {/* Bottom-right glow */}
-        <div style={{ position: "absolute", bottom: -200, right: -200, width: 600, height: 600, borderRadius: "50%", background: `radial-gradient(circle, rgba(67,97,238,.08) 0%, transparent 70%)` }}/>
-        {/* Grid lines */}
-        <svg width="100%" height="100%" style={{ position: "absolute", inset: 0, opacity: .035 }}>
-          <defs>
-            <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse">
               <path d="M 48 0 L 0 0 0 48" fill="none" stroke="white" strokeWidth="1"/>
             </pattern>
           </defs>
