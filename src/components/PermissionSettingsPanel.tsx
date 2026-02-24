@@ -3,7 +3,7 @@
 // Check user registration status via API
 
 import { useState, useEffect } from "react";
-import { useSession } from "next-auth/react";
+import { useAuth } from "@/context/AuthContext";
 
 const font = "'Plus Jakarta Sans',system-ui,sans-serif";
 const C = {
@@ -16,7 +16,8 @@ const C = {
 } as const;
 
 export default function PermissionSettingsPanel() {
-  const { data: session } = useSession();
+  const { user, loading: authLoading, logout } = useAuth();
+  const role = user?.role;
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{type: "success" | "error"; message: string} | null>(null);
   const [isRegistered, setIsRegistered] = useState<boolean | null>(null);
@@ -25,7 +26,7 @@ export default function PermissionSettingsPanel() {
   // Check registration status via API
   useEffect(() => {
     const checkRegistration = async () => {
-      if (!session?.user?.email) {
+      if (!user?.email) {
         setChecking(false);
         return;
       }
@@ -45,7 +46,7 @@ export default function PermissionSettingsPanel() {
     };
 
     checkRegistration();
-  }, [session]);
+  }, [user]);
 
   const handleSetup = async () => {
     setLoading(true);
@@ -83,7 +84,7 @@ export default function PermissionSettingsPanel() {
     }
   };
 
-  if (!session) return null;
+  if (!user) return null;
   
   // Loading state
   if (checking) {
@@ -208,7 +209,7 @@ export default function PermissionSettingsPanel() {
                   margin: 0,
                   lineHeight: 1.5
                 }}>
-                  Akun <strong>{session.user?.email}</strong> sudah terdaftar di database 
+                  Akun <strong>{user.email}</strong> sudah terdaftar di database 
                   dan memiliki akses admin penuh ke semua fitur.
                 </p>
               </div>
@@ -312,7 +313,7 @@ export default function PermissionSettingsPanel() {
                 margin: 0,
                 lineHeight: 1.5
               }}>
-                Anda sudah login sebagai <strong>{session.user?.email}</strong>, tapi belum terdaftar 
+                Anda sudah login sebagai <strong>{user.email}</strong>, tapi belum terdaftar 
                 di database staff. Klik tombol di bawah untuk mengaktifkan akses admin penuh.
               </p>
             </div>

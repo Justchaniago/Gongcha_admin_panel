@@ -1,71 +1,45 @@
-// src/middleware.ts — Next.js auth middleware using next-auth/jwt getToken
-import { NextRequest, NextResponse } from "next/server";
-import { getToken } from "next-auth/jwt";
+import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
 
-export async function middleware(req: NextRequest) {
-  const { pathname } = req.nextUrl;
+export function middleware(request: NextRequest) {
+  const session = request.cookies.get('session');
+  const { pathname } = request.nextUrl;
 
-  // getToken handles NextAuth's JWE-encrypted session cookie correctly
-  const token = await getToken({
-    req,
-    secret: process.env.NEXTAUTH_SECRET,
-  });
+  // 1. Pengecualian (File statis & aset)
+  const isAsset = 
+    pathname.startsWith('/_next') || 
+    pathname.startsWith('/assets') || 
+    pathname.startsWith('/favicon.ico');
 
-  // ── Not authenticated → redirect to login ─────────────────────────────────
-  if (!token) {
-    const loginUrl = new URL("/login", req.url);
-    loginUrl.searchParams.set("callbackUrl", pathname);
-    return NextResponse.redirect(loginUrl);
+  if (isAsset) {
+    return NextResponse.next();
   }
 
-  const role = token.role as string | undefined;
+  // 2. Rute Publik
+  const isLoginPage = pathname === '/login';
+  
+  // 🔥 PERBAIKAN DI SINI: Kita izinkan semua rute yang berawalan /api/auth
+  // agar API /api/auth/session (pembuat cookie) tidak diblokir!
+  const isPublicApi = pathname.startsWith('/api/auth'); 
 
-  // ── Role helpers ──────────────────────────────────────────────────────────
-  const isAdmin = role === "admin" || role === "master";
-  const isStaff = ["admin", "master", "cashier", "store_manager"].includes(role ?? "");
-
-  // ── Route guards ──────────────────────────────────────────────────────────
-
-  // Settings & Accounts — admin/master only
-  if (pathname.startsWith("/settings") || pathname.startsWith("/accounts")) {
-    if (!isAdmin) {
-      return NextResponse.redirect(new URL("/unauthorized", req.url));
+  if (isLoginPage || isPublicApi) {
+    if (session && isLoginPage) {
+      return NextResponse.redirect(new URL('/dashboard', request.url));
     }
+    return NextResponse.next();
   }
 
-  // Stores & Rewards — admin/master only
-  if (pathname.startsWith("/stores") || pathname.startsWith("/rewards")) {
-    if (!isAdmin) {
-      return NextResponse.redirect(new URL("/unauthorized", req.url));
+  // 3. Proteksi Rute Private
+  if (!session) {
+    if (pathname.startsWith('/api')) {
+      return NextResponse.json({ error: 'Session Expired' }, { status: 401 });
     }
-  }
-
-  // Transactions — admin/master/cashier/store_manager
-  if (pathname.startsWith("/transactions")) {
-    if (!isStaff) {
-      return NextResponse.redirect(new URL("/unauthorized", req.url));
-    }
-  }
-
-  // Users & Staff — admin/master/cashier/store_manager
-  if (pathname.startsWith("/users-staff")) {
-    if (!isStaff) {
-      return NextResponse.redirect(new URL("/unauthorized", req.url));
-    }
+    return NextResponse.redirect(new URL('/login', request.url));
   }
 
   return NextResponse.next();
 }
 
-// Apply middleware to all admin routes
 export const config = {
-  matcher: [
-    "/dashboard/:path*",
-    "/transactions/:path*",
-    "/users-staff/:path*",
-    "/stores/:path*",
-    "/rewards/:path*",
-    "/settings/:path*",
-    "/accounts/:path*",
-  ],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|assets).*)'],
 };

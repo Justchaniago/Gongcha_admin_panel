@@ -10,8 +10,12 @@ import {
 type SyncStatus   = "idle"|"loading"|"live"|"error";
 type FilterStatus = "all"|"pending"|"verified"|"rejected";
 
-export default function TransactionsClient() {
-  const [txs,            setTxs]            = useState<Tx[]>([]);
+interface TransactionsClientProps {
+  initialTransactions: Tx[];
+}
+
+export default function TransactionsClient({ initialTransactions }: TransactionsClientProps) {
+  const [txs,            setTxs]            = useState<Tx[]>(initialTransactions);
   const [syncStatus,     setSyncStatus]     = useState<SyncStatus>("idle");
   const [search,         setSearch]         = useState("");
   const [filterStatus,   setFilterStatus]   = useState<FilterStatus>("all");

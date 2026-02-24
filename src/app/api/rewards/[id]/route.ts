@@ -2,7 +2,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseServer";
 import { FieldValue } from "firebase-admin/firestore";
-import { getToken } from "next-auth/jwt";
+import { cookies } from "next/headers";
+import { adminAuth } from "@/lib/firebaseAdmin";
 
 
 // Next.js 14+ App Router: params is a Promise
@@ -10,23 +11,25 @@ type RouteContext = { params: Promise<{ id: string }> };
 
 // Helper untuk validasi session
 async function validateSession(req: NextRequest) {
-  const token = await getToken({ 
-    req, 
-    secret: process.env.NEXTAUTH_SECRET,
-    secureCookie: process.env.NODE_ENV === "production"
-  });
-  
-  if (!token) {
+  const cookieStore = await cookies();
+  const sessionCookie = cookieStore.get("session")?.value;
+  if (!sessionCookie) {
     return { error: "Session tidak ditemukan. Silakan login ulang.", status: 403 };
   }
-  
-  const userRole = token.role as string;
-  // Hanya admin dan master yang bisa akses rewards
-  if (!['admin', 'master'].includes(userRole)) {
-    return { error: "Akses ditolak. Anda tidak memiliki izin.", status: 403 };
+  const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
+  const uid = decodedClaims.uid;
+
+  // Fresh Role Fetching
+  const userDoc = await adminDb.collection("users").doc(uid).get();
+  const staffDoc = await adminDb.collection("staff").doc(uid).get();
+  const profile = userDoc.exists ? userDoc.data() : staffDoc.exists ? staffDoc.data() : null;
+  const role = profile?.role?.toLowerCase(); // Case-insensitive
+
+  const allowedRoles = ["admin", "master", "manager", "store_manager"];
+  if (!role || !allowedRoles.includes(role)) {
+    return { error: "Akses ditolak. Role tidak diizinkan.", status: 403 };
   }
-  
-  return { token, userRole, error: null };
+  return { token: decodedClaims, userRole: role, error: null };
 }
 
 function guardId(id: unknown): string | null {

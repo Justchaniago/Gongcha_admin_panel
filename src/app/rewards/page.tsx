@@ -1,62 +1,71 @@
-// src/app/dashboard/rewards/page.tsx
-import { adminDb } from "@/lib/firebaseServer";
-import { Reward } from "@/types/firestore";
-import RewardsClient from "./RewardsClient";
 
-async function getRewards(): Promise<Array<{ id: string } & Reward>> {
-  const snap = await adminDb.collection("rewards_catalog").get();
-  return snap.docs.map(d => {
-    const data = d.data();
-    return {
-      id: d.id,
-      title: data.title,
-      description: data.description,
-      pointsCost: data.pointsCost,
-      imageURL: data.imageURL,
-      category: data.category,
-      isActive: data.isActive,
-      updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate().toISOString() : undefined,
-      createdAt: data.createdAt?.toDate ? data.createdAt.toDate().toISOString() : undefined,
-    };
-  });
-}
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
+import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
+import RewardsClient from "./RewardsClient";
+import UnauthorizedOverlay from "@/components/ui/UnauthorizedOverlay";
+
+export const dynamic = "force-dynamic";
 
 export default async function RewardsPage() {
+  const cookieStore = await cookies();
+  const sessionCookie = cookieStore.get("session")?.value;
 
-  let rewards: Array<{ id: string } & Reward> = [];
-  try { rewards = await getRewards(); } catch { /* Firebase not configured */ }
-  // Filter hanya voucher katalog
-  rewards = rewards.filter(r => r.type === 'catalog');
-  const active   = rewards.filter(r => r.isActive).length;
-  const inactive = rewards.filter(r => !r.isActive).length;
+  if (!sessionCookie) redirect("/login");
+
+  let uid = "";
+  try {
+    const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
+    uid = decodedClaims.uid;
+  } catch (error) {
+    console.error("Session error:", error);
+  }
+
+  if (!uid) redirect("/login");
+
+  // Cek Role
+  const userDoc = await adminDb.collection("users").doc(uid).get();
+  const staffDoc = await adminDb.collection("staff").doc(uid).get();
+  const profile = userDoc.exists ? userDoc.data() : staffDoc.exists ? staffDoc.data() : null;
+  const role = profile?.role;
+
+  const allowedRoles = ["admin", "master", "manager", "store_manager"];
+  if (!allowedRoles.includes(role)) {
+    return <UnauthorizedOverlay />;
+  }
+
+  // Fetch initial data
+  const rewardsSnap = await adminDb.collection("rewards_catalog").orderBy("title").get();
+  const initialRewards = rewardsSnap.docs.map(doc => {
+    const data = doc.data();
+    return {
+      id: doc.id,
+      title: data.title || "Untitled Reward",
+      pointsCost: data.pointsCost || 0,
+      imageURL: data.imageURL || "",
+      category: data.category || "General",
+      type: data.type || "discount",
+      description: data.description || "",
+      isActive: data.isActive !== undefined ? data.isActive : true,
+      createdAt: data.createdAt?.toDate ? data.createdAt.toDate().toISOString() : new Date().toISOString(),
+      updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate().toISOString() : new Date().toISOString(),
+    };
+  });
 
   return (
-    <div style={{
-      padding: '28px 32px',
-      maxWidth: 1400,
-      fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif",
-      WebkitFontSmoothing: 'antialiased',
-    }}>
-
-      {/* ── PAGE HEADER ── */}
-      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 28 }}>
-        <div>
-          <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.12em', textTransform: 'uppercase', color: '#9299B0', marginBottom: 5 }}>
-            Gong Cha Admin
-          </p>
-          <h1 style={{ fontSize: 28, fontWeight: 800, letterSpacing: '-.025em', color: '#0F1117', lineHeight: 1.1, margin: 0 }}>
-            Rewards Catalog
-          </h1>
-          <p style={{ fontSize: 14, color: '#4A5065', marginTop: 5 }}>
-            Kelola voucher dan biaya poin yang bisa di-redeem member.
-          </p>
-        </div>
-        {/* Add button with live badge — rendered client-side */}
-        <RewardsClient initialRewards={rewards} showAddTrigger />
+    <div style={{ padding: "28px 32px", maxWidth: "1200px", margin: "0 auto" }}>
+      {/* HEADER SECTION (Server-side) */}
+      <div style={{ marginBottom: "28px" }}>
+        <h1 style={{ fontSize: "24px", fontWeight: 700, color: "#0D0F17", fontFamily: "'Instrument Sans', sans-serif", margin: "0 0 6px 0", letterSpacing: "-.02em" }}>
+          Voucher & Rewards
+        </h1>
+        <p style={{ fontSize: "14px", color: "#8C91AC", fontFamily: "'Instrument Sans', sans-serif", margin: 0 }}>
+          Kelola katalog hadiah, harga poin, dan ketersediaan voucher untuk member.
+        </p>
       </div>
 
-      {/* ── CONTENT (full client) ── */}
-      <RewardsClient initialRewards={rewards} />
+      {/* CLIENT COMPONENT */}
+      <RewardsClient initialRewards={initialRewards} />
     </div>
   );
 }

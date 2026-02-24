@@ -1,19 +1,18 @@
 "use client";
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
-import { signOut } from "firebase/auth";
-import { auth } from "@/lib/firebaseClient";
+// import { signOut } from "firebase/auth";
+// import { auth } from "@/lib/firebaseClient";
 
 export default function LogoutButton() {
-  const { user, loading } = useAuth();
+  const { user, loading, logout } = useAuth();
   const router = useRouter();
 
   if (!user || loading) return null;
 
   async function handleLogout() {
     try {
-      router.push("/login"); // ✅ redirect DULU sebelum signOut
-      await signOut(auth);   // baru logout, listener keburu berhenti
+      await logout();
     } catch (error) {
       console.error("Logout error:", error);
     }

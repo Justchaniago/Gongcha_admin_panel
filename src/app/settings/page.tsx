@@ -1,6 +1,8 @@
 "use client";
 // src/app/settings/page.tsx
+
 import { useState, useEffect, useCallback } from "react";
+import UnauthorizedOverlay from "@/components/ui/UnauthorizedOverlay";
 
 const font = "'Plus Jakarta Sans',system-ui,sans-serif";
 const C = {
@@ -114,6 +116,7 @@ export default function SettingsPage() {
   const [dirty,     setDirty]     = useState(false);
   const [toast,     setToast]     = useState<{msg:string;type:"success"|"error"}|null>(null);
   const [dangerConfirm, setDangerConfirm] = useState<string|null>(null);
+  const [unauthorized, setUnauthorized] = useState(false);
 
   const showToast = (msg: string, type: "success"|"error" = "success") => setToast({ msg, type });
 
@@ -122,6 +125,11 @@ export default function SettingsPage() {
     setLoading(true);
     try {
       const res = await fetch("/api/settings");
+      if (res.status === 403) {
+        setUnauthorized(true);
+        setLoading(false);
+        return;
+      }
       if (!res.ok) throw new Error((await res.json()).message ?? "Gagal memuat pengaturan");
       setSettings(await res.json());
     } catch (e: any) {
@@ -190,6 +198,9 @@ export default function SettingsPage() {
     { key: "platinum" as const, icon: "💎", color: "#7C3AED" },
   ];
 
+  if (unauthorized) {
+    return <UnauthorizedOverlay />;
+  }
   if (loading) {
     return (
       <div style={{ padding:"32px", fontFamily:font, display:"flex", alignItems:"center", gap:12, color:C.tx2 }}>

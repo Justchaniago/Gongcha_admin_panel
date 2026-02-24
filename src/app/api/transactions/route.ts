@@ -1,22 +1,20 @@
 // src/app/api/transactions/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseServer";
-import { getToken } from "next-auth/jwt";
+import { cookies } from "next/headers";
+import { adminAuth } from "@/lib/firebaseAdmin";
 import * as admin from "firebase-admin";
 
 // ── Auth helper ───────────────────────────────────────────────────────────────
 async function validateSession(req: NextRequest) {
-  const token = await getToken({
-    req,
-    secret: process.env.NEXTAUTH_SECRET,
-    secureCookie: process.env.NODE_ENV === "production",
-  });
-
-  if (!token) {
+  const cookieStore = await cookies();
+  const sessionCookie = cookieStore.get("session")?.value;
+  if (!sessionCookie) {
     return { error: "Session tidak ditemukan. Silakan login ulang.", status: 403, token: null };
   }
-
-  return { token, userRole: token.role as string, error: null, status: 200 };
+  const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
+  const userRole = decodedClaims.role as string;
+  return { token: decodedClaims, userRole, error: null, status: 200 };
 }
 
 // ── Points disbursement helper ────────────────────────────────────────────────

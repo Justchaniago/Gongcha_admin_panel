@@ -1,10 +1,40 @@
 // src/app/dashboard/stores/page.tsx
-import { adminDb } from '@/lib/firebaseServer';
-import StoresClient from './StoresClient';
-import { Store } from '@/types/firestore';
+
+
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
+import { adminDb, adminAuth } from "@/lib/firebaseAdmin";
+import StoresClient from "./StoresClient";
+import { Store } from "@/types/firestore";
+import UnauthorizedOverlay from "@/components/ui/UnauthorizedOverlay";
+
+export const dynamic = "force-dynamic";
 
 export default async function StoresPage() {
-  const snapshot = await adminDb.collection('stores').get();
+  const cookieStore = await cookies();
+  const sessionCookie = cookieStore.get("session")?.value;
+  if (!sessionCookie) redirect("/login");
+
+  let uid = "";
+  try {
+    const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
+    uid = decodedClaims.uid;
+  } catch (error) {
+    redirect("/login");
+  }
+
+  // Fresh role fetch
+  const userDoc = await adminDb.collection("users").doc(uid).get();
+  const staffDoc = await adminDb.collection("staff").doc(uid).get();
+  const profile = userDoc.exists ? userDoc.data() : staffDoc.exists ? staffDoc.data() : null;
+  const role = profile?.role;
+
+  const allowedRoles = ["admin", "master", "manager", "store_manager"];
+  if (!allowedRoles.includes(role?.toLowerCase?.() || role)) {
+    return <UnauthorizedOverlay />;
+  }
+
+  const snapshot = await adminDb.collection("stores").get();
   const stores = snapshot.docs.map(doc => ({
     id: doc.id,
     ...doc.data(),

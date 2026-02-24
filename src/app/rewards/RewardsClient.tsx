@@ -1,8 +1,9 @@
 "use client";
-// src/app/dashboard/rewards/RewardsClient.tsx — TICKET REDESIGN
+// src/app/rewards/RewardsClient.tsx — TICKET REDESIGN (FIXED COLLECTION)
 
 import { useState, useMemo, useEffect, useCallback } from "react";
-import InjectVoucherModal from "./InjectVoucherModal";
+// Pastikan import ini tidak error jika file InjectVoucherModal tidak ada
+// import InjectVoucherModal from "./InjectVoucherModal"; 
 import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
 import { db } from "@/lib/firebaseClient";
 import { Reward } from "@/types/firestore";
@@ -640,8 +641,8 @@ function StatCard({ label, value, color, bg, icon }:
 }
 
 // ── Main ───────────────────────────────────────────────────────────────────────
-export default function RewardsClient({ initialRewards, showAddTrigger }:
-  { initialRewards:RewardWithId[]; showAddTrigger?:boolean }) {
+export default function RewardsClient({ initialRewards = [], showAddTrigger }:
+  { initialRewards?:RewardWithId[]; showAddTrigger?:boolean }) {
   const [rewards,      setRewards]      = useState<RewardWithId[]>(initialRewards);
   const [syncStatus,   setSyncStatus]   = useState<SyncStatus>('connecting');
   const [search,       setSearch]       = useState('');
@@ -656,6 +657,7 @@ export default function RewardsClient({ initialRewards, showAddTrigger }:
   const showToast = useCallback((msg:string, type:'success'|'error'='success') => setToast({msg,type}), []);
 
   useEffect(() => {
+    // Pastikan collection ini sama persis dengan yang ada di original code kamu
     const q = query(collection(db,'rewards_catalog'), orderBy('title'));
     const unsub = onSnapshot(q, snap => { setRewards(snap.docs.map(d=>({id:d.id,...d.data()} as RewardWithId))); setSyncStatus('live'); }, err => { console.error(err); setSyncStatus('error'); });
     return () => unsub();
@@ -749,11 +751,29 @@ export default function RewardsClient({ initialRewards, showAddTrigger }:
         </div>
 
         {/* Right */}
-        <div style={{ display:'flex', alignItems:'center', gap:10, flexShrink:0 }}>
-          <span style={{ fontSize:12, color:C.tx3, fontFamily:font }}>
-            {filtered.length}{filtered.length!==rewards.length?` / ${rewards.length}`:''} reward
-          </span>
-          <LiveBadge status={syncStatus}/>
+        <div style={{ display:'flex', alignItems:'center', gap:14, flexShrink:0 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+            <span style={{ fontSize:12, color:C.tx3, fontFamily:font, fontWeight: 500 }}>
+              {filtered.length}{filtered.length!==rewards.length?` / ${rewards.length}`:''} reward
+            </span>
+            <LiveBadge status={syncStatus}/>
+          </div>
+          {/* TOMBOL TAMBAH VOUCHER BARU */}
+          <button 
+            onClick={() => setShowAdd(true)} 
+            className="gc-btn-primary" 
+            style={{ 
+              height:36, padding:'0 16px', borderRadius:10, border:'none', 
+              background:C.blue, color:'#fff', fontFamily:font, fontSize:13, 
+              fontWeight:600, cursor:'pointer', display:'inline-flex', 
+              alignItems:'center', gap:6, boxShadow:'0 2px 10px rgba(58,86,232,.25)' 
+            }}
+          >
+            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round">
+              <path d="M12 4.5v15m7.5-7.5h-15"/>
+            </svg>
+            Tambah Voucher
+          </button>
         </div>
       </div>
 

@@ -1,27 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseServer";
 import * as admin from "firebase-admin";
-import { decode } from "next-auth/jwt";
 import { cookies } from "next/headers";
+import { adminAuth } from "@/lib/firebaseAdmin";
 import { UserVoucher, VoucherType } from "@/types/firestore";
 import { v4 as uuidv4 } from "uuid";
 
 // Helper validasi session admin/master
 async function validateSession() {
   const cookieStore = await cookies();
-  const sessionToken = cookieStore.get("next-auth.session-token")?.value;
-  if (!sessionToken) {
+  const sessionCookie = cookieStore.get("session")?.value;
+  if (!sessionCookie) {
     return { error: "Session tidak ditemukan. Silakan login ulang.", status: 403 };
   }
-  const token = await decode({ token: sessionToken, secret: process.env.NEXTAUTH_SECRET! });
-  if (!token) {
-    return { error: "Session tidak ditemukan. Silakan login ulang.", status: 403 };
-  }
-  const userRole = token.role as string;
+  const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
+  const userRole = decodedClaims.role as string;
   if (!["admin", "master"].includes(userRole)) {
     return { error: "Akses ditolak. Anda tidak memiliki izin.", status: 403 };
   }
-  return { token, userRole, error: null };
+  return { token: decodedClaims, userRole, error: null };
 }
 
 // POST /api/members/[uid]/vouchers — Suntik voucher ke user

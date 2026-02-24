@@ -122,15 +122,24 @@ function StatCard({ label, value, trend, trendLabel, iconBg, iconColor, icon, bo
   );
 }
 
-// ── Main Dashboard ────────────────────────────────────────────────────────────
-export default function DashboardClient() {
+
+// Props interface for initial data from server
+interface DashboardProps {
+  initialRole: string;
+  initialTransactions: any[];
+  initialUsers: any[];
+  initialStaff: any[];
+}
+
+export default function DashboardClient({ initialRole, initialTransactions, initialUsers, initialStaff }: DashboardProps) {
   const [mode, setMode] = useState<"realtime" | "range">("realtime");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
-  // Realtime state
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [members,      setMembers]      = useState<Member[]>([]);
-  const [stores,       setStores]       = useState<Store[]>([]);
+  // Use initial data from server as default state
+  const [transactions, setTransactions] = useState<any[]>(initialTransactions);
+  // Tetap gunakan state members dan stores agar seluruh logika lama tetap berjalan
+  const [members, setMembers] = useState<any[]>(initialUsers);
+  const [stores, setStores] = useState<any[]>(initialStaff);
   const [txStatus,     setTxStatus]     = useState<"connecting"|"live"|"error">("connecting");
   const [memberStatus, setMemberStatus] = useState<"connecting"|"live"|"error">("connecting");
 

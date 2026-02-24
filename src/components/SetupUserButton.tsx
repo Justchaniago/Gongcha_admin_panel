@@ -1,15 +1,14 @@
 "use client";
 // src/components/SetupUserButton.tsx
-// Button untuk setup user yang sudah login sebagai admin
-// Hanya muncul jika user belum terdaftar di staff collection
 
 import { useState } from "react";
-import { useSession } from "next-auth/react";
-import { getAuth, reload } from "firebase/auth";
-import { app } from "../lib/firebaseClient";
+import { reload, getIdToken } from "firebase/auth";
+import { auth } from "@/lib/firebaseClient"; // Gunakan auth dari lib kita
+import { useAuth } from "@/context/AuthContext"; // Gunakan hook baru kita
 
 export default function SetupUserButton() {
-  const { data: session } = useSession();
+  // PERBAIKAN: Destructuring user (role ada di dalam user)
+  const { user, loading: authLoading } = useAuth();
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -31,17 +30,15 @@ export default function SetupUserButton() {
         throw new Error(data.error || "Setup failed");
       }
 
-      setResult(data.message || "Setup complete! Refreshing token...");
+      setResult(data.message || "Setup berhasil! Memperbarui hak akses...");
       
-      // Force Firebase token refresh to get new custom claims
-      const auth = getAuth(app);
+      // Force Firebase token refresh untuk mendapatkan custom claims (role) baru
       if (auth.currentUser) {
         await reload(auth.currentUser);
-        // Force token refresh
-        await auth.currentUser.getIdToken(true);
+        await getIdToken(auth.currentUser, true); // Force refresh token
       }
       
-      // Reload page after token refresh
+      // Reload halaman agar Middleware membaca cookie baru
       setTimeout(() => {
         window.location.reload();
       }, 1500);
@@ -53,49 +50,54 @@ export default function SetupUserButton() {
     }
   };
 
-  if (!session) return null;
+  // PERBAIKAN: Gunakan 'user' sebagai pengganti 'session'
+  if (authLoading || !user) return null;
 
+  // Hanya tampilkan jika user belum punya role (untuk jaga-jaga)
+  // atau jika Anda ingin tombol ini tetap ada sebagai sekoci penyelamat
   return (
     <div style={{ 
       padding: "16px", 
       background: "#FEF3F2", 
       border: "1px solid #FECACA",
-      borderRadius: "8px",
-      marginBottom: "16px"
+      borderRadius: "12px",
+      marginBottom: "16px",
+      fontFamily: "'Plus Jakarta Sans', sans-serif"
     }}>
-      <h3 style={{ margin: "0 0 8px 0", color: "#991B1B", fontSize: "16px" }}>
-        ⚠️ Permission Error
+      <h3 style={{ margin: "0 0 8px 0", color: "#991B1B", fontSize: "16px", fontWeight: 700 }}>
+        ⚠️ Hak Akses Belum Terkonfigurasi
       </h3>
-      <p style={{ margin: "0 0 12px 0", color: "#7F1D1D", fontSize: "14px" }}>
-        Anda sudah login tapi belum terdaftar sebagai staff/admin. 
-        Klik tombol di bawah untuk setup akses admin.
+      <p style={{ margin: "0 0 12px 0", color: "#7F1D1D", fontSize: "13.5px", lineHeight: 1.5 }}>
+        Anda berhasil login, namun sistem belum mendeteksi peran (role) Anda sebagai staf atau admin. 
+        Klik tombol di bawah untuk mendaftarkan akun Anda secara otomatis.
       </p>
       
       <button
         onClick={handleSetup}
         disabled={loading}
         style={{
-          padding: "8px 16px",
+          padding: "10px 20px",
           background: loading ? "#9CA3AF" : "#C8102E",
           color: "white",
           border: "none",
-          borderRadius: "6px",
+          borderRadius: "8px",
           cursor: loading ? "not-allowed" : "pointer",
-          fontSize: "14px",
-          fontWeight: "500"
+          fontSize: "13.5px",
+          fontWeight: "600",
+          transition: "all .2s"
         }}
       >
-        {loading ? "Setting up..." : "Setup Admin Access"}
+        {loading ? "Sedang Memproses..." : "Konfigurasi Akses Admin"}
       </button>
 
       {result && (
-        <p style={{ margin: "12px 0 0 0", color: "#059669", fontSize: "14px" }}>
-          ✅ {result} Reloading...
+        <p style={{ margin: "12px 0 0 0", color: "#059669", fontSize: "13px", fontWeight: 600 }}>
+          ✅ {result} Segera memuat ulang...
         </p>
       )}
       
       {error && (
-        <p style={{ margin: "12px 0 0 0", color: "#DC2626", fontSize: "14px" }}>
+        <p style={{ margin: "12px 0 0 0", color: "#DC2626", fontSize: "13px", fontWeight: 600 }}>
           ❌ Error: {error}
         </p>
       )}

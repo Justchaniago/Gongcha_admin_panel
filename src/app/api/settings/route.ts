@@ -1,7 +1,8 @@
 // src/app/api/settings/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseServer";
-import { getToken } from "next-auth/jwt";
+import { cookies } from "next/headers";
+import { adminAuth } from "@/lib/firebaseAdmin";
 
 const SETTINGS_DOC = "settings/global";
 
@@ -26,17 +27,23 @@ const DEFAULTS = {
 
 // ── Auth helper ───────────────────────────────────────────────────────────────
 async function validateAdmin(req: NextRequest) {
-  const token = await getToken({
-    req,
-    secret: process.env.NEXTAUTH_SECRET,
-    secureCookie: process.env.NODE_ENV === "production",
-  });
-  if (!token) return { error: "Unauthorized", status: 401, token: null };
-  const role = token.role as string;
-  if (!["admin", "master"].includes(role)) {
-    return { error: "Hanya admin yang dapat mengakses pengaturan.", status: 403, token: null };
+  const cookieStore = await cookies();
+  const sessionCookie = cookieStore.get("session")?.value;
+  if (!sessionCookie) return { error: "Unauthorized", status: 401, token: null };
+  const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
+  const uid = decodedClaims.uid;
+
+  // Fresh Role Fetching
+  const userDoc = await adminDb.collection("users").doc(uid).get();
+  const staffDoc = await adminDb.collection("staff").doc(uid).get();
+  const profile = userDoc.exists ? userDoc.data() : staffDoc.exists ? staffDoc.data() : null;
+  const role = profile?.role?.toLowerCase(); // Case-insensitive
+
+  const allowedRoles = ["admin", "master"];
+  if (!role || !allowedRoles.includes(role)) {
+    return { error: "Akses ditolak. Role tidak diizinkan.", status: 403, token: null };
   }
-  return { token, error: null, status: 200 };
+  return { token: decodedClaims, error: null, status: 200 };
 }
 
 // ── GET — read settings ───────────────────────────────────────────────────────

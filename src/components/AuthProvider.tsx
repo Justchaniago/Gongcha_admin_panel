@@ -1,10 +1,12 @@
 "use client";
-import { createContext, useContext, ReactNode } from "react";
-import { useSession, signOut } from "next-auth/react";
+import { createContext, useContext, ReactNode, useEffect, useState } from "react";
+import { onAuthStateChanged } from "firebase/auth";
+import { doc, getDoc } from "firebase/firestore";
+import { auth, db } from "@/lib/firebaseClient";
 import { useRouter } from "next/navigation";
 
 interface AuthCtx {
-  user: { name?: string | null; email?: string | null; role?: string } | null;
+  user: { name?: string | null; email?: string | null; role?: string; uid?: string } | null;
   loading: boolean;
   logout: () => Promise<void>;
 }
@@ -15,15 +17,61 @@ export function useAdminAuth() { return useContext(Ctx); }
 const font = "'Plus Jakarta Sans', system-ui, sans-serif";
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const { data: session, status } = useSession();
+  const [user, setUser] = useState<AuthCtx['user']>(null);
+  const [loading, setLoading] = useState(true);
   const router = useRouter();
 
-  async function logout() {
-    await signOut({ redirect: false });
-    router.replace("/login");
+  // 1. Membaca session langsung dari Firebase (Cepat & Sinkron)
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        let role = "staff"; // Default
+        let name = firebaseUser.displayName || "User";
+        
+        try {
+          const userDoc = await getDoc(doc(db, "users", firebaseUser.uid));
+          if (userDoc.exists()) {
+            role = userDoc.data().role || "staff";
+            name = userDoc.data().name || name;
+          } else {
+             const staffDoc = await getDoc(doc(db, "staff", firebaseUser.uid));
+             if (staffDoc.exists()) {
+                 role = staffDoc.data().role || "staff";
+                 name = staffDoc.data().name || name;
+             }
+          }
+        } catch (error) {
+          console.error("Gagal mengambil role dari Firestore:", error);
+        }
+
+        setUser({
+          name: name,
+          email: firebaseUser.email,
+          role: role,
+          uid: firebaseUser.uid,
+        });
+      } else {
+        setUser(null);
+      }
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // 2. Fungsi Logout Firebase (Anti Bentrok)
+  async function handleLogout() {
+    try {
+      await auth.signOut(); // Logout client
+      await fetch('/api/auth/logout', { method: 'POST' }); // Hapus cookie server
+      router.replace("/login");
+    } catch (error) {
+      console.error("Logout error:", error);
+    }
   }
 
-  if (status === "loading") {
+  // 3. UI Loading (100% desain asli milikmu, tidak disentuh)
+  if (loading) {
     return (
       <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#F4F6FB", fontFamily: font }}>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
@@ -40,11 +88,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     );
   }
 
-  // Middleware sudah handle redirect, jadi tidak perlu redirect di sini
-  if (!session) return null;
+  // Middleware sudah handle redirect untuk rute private, aman
+  if (!user) return null;
 
   return (
-    <Ctx.Provider value={{ user: session.user, loading: false, logout }}>
+    <Ctx.Provider value={{ user, loading: false, logout: handleLogout }}>
       {children}
     </Ctx.Provider>
   );

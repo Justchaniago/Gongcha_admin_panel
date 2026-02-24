@@ -3,21 +3,22 @@
 // POST: Register authenticated user to staff collection
 
 import { NextRequest, NextResponse } from "next/server";
-import { getToken } from "next-auth/jwt";
-import { adminDb } from "../../../lib/firebaseServer";
+import { cookies } from "next/headers";
+import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 
-export async function GET(req: NextRequest) {
+export async function GET(request: Request) {
   try {
-    const token = await getToken({ req });
-    if (!token?.sub) {
+    const cookieStore = await cookies();
+    const sessionCookie = cookieStore.get("session")?.value;
+    if (!sessionCookie) {
       return NextResponse.json(
         { error: "Unauthorized - No session found" },
         { status: 401 }
       );
     }
-
-    const userId = token.sub;
-    const email = token.email || "";
+    const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
+    const userId = decodedClaims.uid;
+    const email = decodedClaims.email || "";
 
     // Check if user exists in staff collection
     const staffDoc = await adminDb.collection("staff").doc(userId).get();
@@ -33,7 +34,6 @@ export async function GET(req: NextRequest) {
       inUsers: userDoc.exists,
       message: exists ? "User is registered" : "User is not registered"
     });
-
   } catch (error) {
     console.error("Error checking user registration:", error);
     return NextResponse.json(
@@ -43,19 +43,20 @@ export async function GET(req: NextRequest) {
   }
 }
 
-export async function POST(req: NextRequest) {
+export async function POST(request: Request) {
   try {
-    const token = await getToken({ req });
-    if (!token?.sub) {
+    const cookieStore = await cookies();
+    const sessionCookie = cookieStore.get("session")?.value;
+    if (!sessionCookie) {
       return NextResponse.json(
         { error: "Unauthorized - No session found" },
         { status: 401 }
       );
     }
-
-    const userId = token.sub;
-    const email = token.email || "";
-    const name = token.name || email.split("@")[0];
+    const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
+    const userId = decodedClaims.uid;
+    const email = decodedClaims.email || "";
+    const name = decodedClaims.name || email.split("@")[0];
 
     // Check if user already exists
     const staffDoc = await adminDb.collection("staff").doc(userId).get();

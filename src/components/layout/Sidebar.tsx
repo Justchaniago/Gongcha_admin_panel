@@ -3,7 +3,7 @@ import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import LogoutButton from "@/components/LogoutButton";
-import { useAdminAuth } from "@/components/AuthProvider";
+import { useAuth } from "@/context/AuthContext";
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard", badge: false },
@@ -26,7 +26,7 @@ const icons: Record<string, React.ReactNode> = {
 
 export default function Sidebar() {
   const pathname = usePathname();
-  const { user } = useAdminAuth();
+  const { user } = useAuth();
 
   return (
     <aside className="fixed top-0 left-0 h-screen w-[72px] flex flex-col items-center py-6 z-50 bg-white" style={{ borderRight: "1px solid #E2E8F0" }}>

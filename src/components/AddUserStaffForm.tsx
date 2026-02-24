@@ -1,9 +1,13 @@
 "use client";
+
 import { useState } from "react";
 import { useAuth } from "@/context/AuthContext";
+import { createAccountAction } from "@/actions/userStaffActions";
 
 export default function AddUserStaffForm() {
-  const { user: currentUser, role: currentUserRole } = useAuth();
+  // Ambil user dari context. Role sekarang ada di dalam user: user.role
+  const { user: currentUser } = useAuth();
+  
   const [type, setType] = useState<"user" | "staff">("user");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -11,11 +15,14 @@ export default function AddUserStaffForm() {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<{ text: string; isError: boolean } | null>(null);
 
-  const hasPermission = currentUserRole === "admin" || currentUserRole === "manager";
+  // Pengecekan permission dari currentUser?.role
+  const currentUserRole = currentUser?.role;
+  const hasPermission = currentUserRole === "admin" || currentUserRole === "master" || currentUserRole === "manager";
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setMsg(null);
+    
     if (!hasPermission || !currentUser) {
       setMsg({ text: "❌ Akses ditolak: Hanya Admin/Manager.", isError: true });
       return;
@@ -24,28 +31,25 @@ export default function AddUserStaffForm() {
       setMsg({ text: "Email, Password, dan Role wajib diisi.", isError: true });
       return;
     }
-    if (password.length < 6) {
-      setMsg({ text: "Password minimal 6 karakter.", isError: true });
+    if (password.length < 8) {
+      setMsg({ text: "Password minimal 8 karakter.", isError: true });
       return;
     }
+
     setLoading(true);
     try {
-      const response = await fetch("/api/accounts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email,
-          password,
-          role: roleInput,
-          type,
-          adminUid: currentUser.uid // Kirim UID Admin untuk validasi keamanan di backend
-        }),
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || "Gagal menghubungi server.");
-      }
-      setMsg({ text: `✅ Berhasil membuat akun ${type}. UID Baru: ${data.uid}`, isError: false });
+      // Gunakan Server Action yang kita buat di Fase 2.2
+      // Kita map 'user' ke 'member' agar sesuai dengan payload action
+      const payload = {
+        email,
+        password,
+        name: email.split('@')[0], // Nama default dari email
+        role: roleInput,
+      };
+
+      await createAccountAction(payload, type === "user" ? "member" : "staff");
+
+      setMsg({ text: `✅ Berhasil membuat akun ${type}.`, isError: false });
       setEmail(""); setPassword(""); setRoleInput("");
     } catch (err: any) {
       setMsg({ text: "❌ Error: " + err.message, isError: true });
@@ -59,12 +63,14 @@ export default function AddUserStaffForm() {
       className="w-full max-w-md mx-auto my-8 p-6 border border-slate-200 rounded-2xl bg-white shadow-sm"
     >
       <h3 className="text-xl font-bold mb-5 text-slate-800">Manajemen Akses Sistem</h3>
+      
       {!hasPermission && (
         <div className="mb-5 p-4 bg-red-50 text-red-600 text-sm rounded-xl border border-red-200 flex items-start gap-3">
           <span className="text-lg">🔒</span>
-          <p>Login sebagai: <b className="capitalize">{currentUserRole || "Staff"}</b>. Pembuatan akun dikunci.</p>
+          <p>Login sebagai: <b className="capitalize">{currentUserRole || "Guest"}</b>. Pembuatan akun dikunci.</p>
         </div>
       )}
+
       <div className="flex gap-6 mb-5">
         <label className="flex items-center gap-2 text-sm font-semibold text-slate-700 cursor-pointer">
           <input 
@@ -79,6 +85,7 @@ export default function AddUserStaffForm() {
           /> Staff Data
         </label>
       </div>
+
       <div className="mb-4">
         <input 
           value={email} onChange={e=>setEmail(e.target.value)}
@@ -86,6 +93,7 @@ export default function AddUserStaffForm() {
           className="w-full p-3.5 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-50 disabled:cursor-not-allowed"
         />
       </div>
+
       <div className="mb-4">
         <input 
           value={password} onChange={e=>setPassword(e.target.value)}
@@ -93,6 +101,7 @@ export default function AddUserStaffForm() {
           className="w-full p-3.5 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-50 disabled:cursor-not-allowed"
         />
       </div>
+
       <div className="mb-6">
         <input 
           value={roleInput} onChange={e=>setRoleInput(e.target.value)}
@@ -100,12 +109,14 @@ export default function AddUserStaffForm() {
           className="w-full p-3.5 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-slate-50 disabled:cursor-not-allowed"
         />
       </div>
+
       <button 
         type="submit" disabled={loading || !hasPermission}
         className="w-full py-3.5 rounded-xl bg-blue-600 text-white font-bold text-sm mb-3 hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors"
       >
         {loading ? "Memproses Pembuatan Akun..." : `Buat Akun ${type} Baru`}
       </button>
+
       {msg && (
         <div className={`mt-5 text-sm p-4 rounded-xl ${!msg.isError ? "bg-green-50 text-green-700 border-green-200" : "bg-red-50 text-red-700 border-red-200"} border`}>
           {msg.text}

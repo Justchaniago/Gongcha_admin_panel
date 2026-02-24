@@ -5,6 +5,7 @@ import { useState, useMemo, useEffect, useCallback } from "react";
 import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
 import { db } from "@/lib/firebaseClient";
 import { Store } from "@/types/firestore";
+import { createStore, updateStore, deleteStore } from "@/actions/storeActions";
 
 type StoreWithId = Store & { id: string };
 type SyncStatus  = "connecting" | "live" | "error";
@@ -109,8 +110,7 @@ function DeleteModal({ store, onClose, onDeleted }: { store: StoreWithId; onClos
   async function confirm() {
     setLoading(true); setError('');
     try {
-      const r = await fetch(`/api/stores/${store.id}`, { method: 'DELETE' });
-      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).message ?? 'Gagal menghapus.');
+      await deleteStore(store.id); // Memanggil Server Action
       onDeleted(`"${store.name}" berhasil dihapus.`);
       onClose();
     } catch (e: any) { setError(e.message); setLoading(false); }
@@ -199,22 +199,22 @@ function StoreModal({ store, onClose, onSaved }: {
 
     setLoading(true); setError('');
     try {
-      const method = isNew ? 'POST' : 'PATCH';
-      const url    = isNew ? '/api/stores' : `/api/stores/${store!.id}`;
-
       const payload = {
-        ...(isNew ? { storeId: form.storeId.trim() } : {}),
-        name:           form.name.trim(),
-        address:        form.address.trim(),
-        latitude:       form.latitude  !== '' ? Number(form.latitude)  : null,
-        longitude:      form.longitude !== '' ? Number(form.longitude) : null,
-        openHours:      form.openHours.trim(),
+        storeId: form.storeId.trim(),
+        name: form.name.trim(),
+        address: form.address.trim(),
+        latitude: form.latitude !== '' ? form.latitude : null,
+        longitude: form.longitude !== '' ? form.longitude : null,
+        openHours: form.openHours.trim(),
         statusOverride: form.statusOverride,
-        isActive:       form.isActive,
+        isActive: form.isActive,
       };
 
-      const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).message ?? 'Gagal menyimpan.');
+      if (isNew) {
+        await createStore(payload);
+      } else {
+        await updateStore(store!.id, payload);
+      }
 
       onSaved(isNew ? `Outlet "${form.name}" berhasil ditambahkan!` : `"${form.name}" berhasil diperbarui.`);
       onClose();
