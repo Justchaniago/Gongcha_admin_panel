@@ -511,10 +511,7 @@ function EditMemberModal({
       if (!form.name.trim()) { setError("Nama tidak boleh kosong."); return; }
       setLoading(true); setError("");
       try {
-        await apiFetch(`/api/members/${user.uid}`, {
-          method: "PATCH", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(form),
-        });
+        await updateAccountAction(user.uid, form, "users");
         toast(`${form.name} berhasil diperbarui.`, "success");
         onSaved({ name: form.name, email: form.email, phoneNumber: form.phoneNumber, tier: form.tier as UserTier, role: form.role as UserRole });
         onClose();
@@ -604,7 +601,7 @@ function EditStaffModal({ staff, storeIds, onClose, onSaved, toast }: {
     if (!canSave) { setError("Pilih minimal satu toko atau aktifkan akses semua toko."); return; }
     setLoading(true); setError("");
     try {
-      await apiFetch(`/api/staff/${staff.uid}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: form.name, role: form.role, isActive: form.isActive, storeLocations: form.storeLocations, accessAllStores: form.accessAllStores, storeLocation: form.accessAllStores ? "" : (form.storeLocations[0] ?? "") }) });
+      await updateAccountAction(staff.uid, form, "staff");
       toast(`${form.name} berhasil diperbarui.`, "success");
       onSaved({ name: form.name, role: form.role as StaffRole, storeLocations: form.storeLocations, accessAllStores: form.accessAllStores, isActive: form.isActive });
       onClose();
@@ -976,7 +973,8 @@ useEffect(() => {
       onConfirm: async () => {
         setBatchDeleting(true);
         const endpoint = tab === "member" ? "members" : "staff";
-        const results = await Promise.allSettled(ids.map(uid => apiFetch(`/api/${endpoint}/${uid}`, { method: "DELETE" })));
+        const collection = tab === "member" ? "users" : "staff";
+        const results = await Promise.allSettled(ids.map(uid => deleteAccountAction(uid, collection)));
         const failed = results.filter(r => r.status === "rejected").length;
         const success = results.filter(r => r.status === "fulfilled").length;
         if (tab === "member") { const failedIds = new Set(ids.filter((_, i) => results[i].status === "rejected")); setUsers(p => p.filter(u => failedIds.has(u.uid) || !ids.includes(u.uid))); setSelectedUsers(new Set()); }
@@ -990,7 +988,8 @@ useEffect(() => {
   async function handleBatchEditSave(payload: Record<string, any>) {
     const ids = tab === "member" ? selUsers : selStaff;
     const endpoint = tab === "member" ? "members" : "staff";
-    const results = await Promise.allSettled(ids.map(uid => apiFetch(`/api/${endpoint}/${uid}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })));
+    const collection = tab === "member" ? "users" : "staff";
+    const results = await Promise.allSettled(ids.map(uid => updateAccountAction(uid, payload, collection)));
     const failed = results.filter(r => r.status === "rejected").length;
     const success = results.filter(r => r.status === "fulfilled").length;
     if (failed > 0) throw new Error(`${failed} akun gagal diperbarui.`);
