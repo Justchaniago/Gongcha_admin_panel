@@ -10,6 +10,7 @@ import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { User, Staff, UserTier, UserRole, StaffRole } from "@/types/firestore";
 import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
 import { db } from "@/lib/firebaseClient";
+import { createAccountAction, updateAccountAction, deleteAccountAction, updatePointsAction } from "@/actions/userStaffActions";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type UserWithUid  = User  & { uid: string };
@@ -313,12 +314,7 @@ function EditPointsModal({
       onConfirm: async () => {
         setLoading(true); setError("");
         try {
-          await apiFetch(`/api/members/${user.uid}/points`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ currentPoints: pointsNum, lifetimePoints: lifetimeNum }),
-            credentials: "include", // <--- PENTING
-          });
+          await updatePointsAction(user.uid, pointsNum, lifetimeNum);
           toast(`Poin ${user.name} berhasil diperbarui.`, "success");
           onSaved({ currentPoints: pointsNum, lifetimePoints: lifetimeNum });
           onClose();
@@ -406,7 +402,7 @@ function MemberDetailModal({
       description: `Akun "${localUser.name}" akan dihapus permanen. Data poin, voucher, dan riwayat XP tidak dapat dikembalikan.`,
       confirmLabel: "Hapus Akun", danger: true,
       onConfirm: async () => {
-        await apiFetch(`/api/members/${localUser.uid}`, { method: "DELETE" });
+        await deleteAccountAction(localUser.uid, 'users');
         toast(`Akun ${localUser.name} berhasil dihapus.`, "success");
         onDeleted(localUser.uid); onClose();
       },
@@ -733,7 +729,7 @@ function CreateModal({ storeIds, onClose, toast }: { storeIds: string[]; onClose
     try {
       const url = type === "member" ? "/api/members" : "/api/staff";
       const payload = type === "member" ? { name: form.name, email: form.email, phoneNumber: form.phoneNumber, tier: form.tier, role: form.role, password: form.password } : { name: form.name, email: form.email, role: form.staffRole, storeLocations, accessAllStores, password: form.password };
-      await apiFetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      await createAccountAction(payload, 'member');
       toast(`Akun ${form.name} berhasil dibuat.`, "success"); onClose();
     } catch (e: any) { setError(e.message ?? "Gagal membuat akun."); } finally { setLoading(false); }
   }

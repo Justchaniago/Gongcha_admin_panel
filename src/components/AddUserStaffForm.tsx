@@ -30,22 +30,11 @@ export default function AddUserStaffForm() {
     }
     setLoading(true);
     try {
-      const response = await fetch("/api/accounts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email,
-          password,
-          role: roleInput,
-          type,
-          adminUid: currentUser.uid // Kirim UID Admin untuk validasi keamanan di backend
-        }),
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || "Gagal menghubungi server.");
-      }
-      setMsg({ text: `✅ Berhasil membuat akun ${type}. UID Baru: ${data.uid}`, isError: false });
+      // Server Action
+      const payload = { email, password, role: roleInput };
+      const { createAccountAction } = await import("@/actions/userStaffActions");
+      const result = await createAccountAction(payload, type === "user" ? "member" : "staff");
+      setMsg({ text: `✅ Berhasil membuat akun ${type}. UID Baru: ${result.uid}`, isError: false });
       setEmail(""); setPassword(""); setRoleInput("");
     } catch (err: any) {
       setMsg({ text: "❌ Error: " + err.message, isError: true });
