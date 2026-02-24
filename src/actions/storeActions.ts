@@ -1,26 +1,35 @@
 "use server";
 
-import { adminDb, adminAuth } from "@/lib/firebaseAdmin";
-import { cookies } from "next/headers";
+// ...existing code...
 
-// Helper untuk verifikasi admin dari session cookie
+import { cookies } from "next/headers";
+import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
+
 async function verifyAdmin() {
- const sessionCookie = (await cookies()).get("session")?.value;
-  if (!sessionCookie) throw new Error("Unauthorized: No session cookie");
+  const cookieStore = await cookies();
+  const session = cookieStore.get("session")?.value;
+
+  if (!session) {
+    throw new Error("Unauthorized: No session found");
+  }
 
   try {
-    const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
+    const decodedClaims = await adminAuth.verifySessionCookie(session, true);
     const uid = decodedClaims.uid;
-    
-    // Cek role di Firestore (hanya admin/master yang boleh mengedit store)
+
+    // Fresh Role Check
     const userDoc = await adminDb.collection("users").doc(uid).get();
-    const role = userDoc.exists ? userDoc.data()?.role : null;
-    
-    if (role !== "admin" && role !== "master") {
-      throw new Error("Forbidden: Insufficient privileges");
+    const staffDoc = await adminDb.collection("staff").doc(uid).get();
+    const profile = userDoc.exists ? userDoc.data() : staffDoc.exists ? staffDoc.data() : null;
+    const role = profile?.role?.toLowerCase();
+
+    if (!["admin", "master"].includes(role)) {
+      throw new Error("Forbidden: Insufficient permissions");
     }
+
     return uid;
   } catch (error) {
+    console.error("verifyAdmin Error:", error);
     throw new Error("Unauthorized: Invalid session");
   }
 }

@@ -31,9 +31,17 @@ async function validateAdmin(req: NextRequest) {
   const sessionCookie = cookieStore.get("session")?.value;
   if (!sessionCookie) return { error: "Unauthorized", status: 401, token: null };
   const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
-  const role = decodedClaims.role as string;
-  if (!["admin", "master"].includes(role)) {
-    return { error: "Hanya admin yang dapat mengakses pengaturan.", status: 403, token: null };
+  const uid = decodedClaims.uid;
+
+  // Fresh Role Fetching
+  const userDoc = await adminDb.collection("users").doc(uid).get();
+  const staffDoc = await adminDb.collection("staff").doc(uid).get();
+  const profile = userDoc.exists ? userDoc.data() : staffDoc.exists ? staffDoc.data() : null;
+  const role = profile?.role?.toLowerCase(); // Case-insensitive
+
+  const allowedRoles = ["admin", "master"];
+  if (!role || !allowedRoles.includes(role)) {
+    return { error: "Akses ditolak. Role tidak diizinkan.", status: 403, token: null };
   }
   return { token: decodedClaims, error: null, status: 200 };
 }

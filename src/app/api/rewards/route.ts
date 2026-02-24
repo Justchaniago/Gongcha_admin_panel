@@ -13,11 +13,19 @@ async function validateSession(req: NextRequest) {
     return { error: "Session tidak ditemukan. Silakan login ulang.", status: 403 };
   }
   const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
-  const userRole = decodedClaims.role as string;
-  if (!['admin', 'master'].includes(userRole)) {
-    return { error: "Akses ditolak. Anda tidak memiliki izin.", status: 403 };
+  const uid = decodedClaims.uid;
+
+  // Fresh Role Fetching
+  const userDoc = await adminDb.collection("users").doc(uid).get();
+  const staffDoc = await adminDb.collection("staff").doc(uid).get();
+  const profile = userDoc.exists ? userDoc.data() : staffDoc.exists ? staffDoc.data() : null;
+  const role = profile?.role?.toLowerCase(); // Case-insensitive
+
+  const allowedRoles = ["admin", "master", "manager", "store_manager"];
+  if (!role || !allowedRoles.includes(role)) {
+    return { error: "Akses ditolak. Role tidak diizinkan.", status: 403 };
   }
-  return { token: decodedClaims, userRole, error: null };
+  return { token: decodedClaims, userRole: role, error: null };
 }
 
 // ── GET /api/rewards ───────────────────────────────────────────────────────────
