@@ -1,10 +1,12 @@
 // src/app/dashboard/stores/page.tsx
 
+
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { adminDb, adminAuth } from "@/lib/firebaseAdmin";
 import StoresClient from "./StoresClient";
 import { Store } from "@/types/firestore";
+import UnauthorizedOverlay from "@/components/ui/UnauthorizedOverlay";
 
 export const dynamic = "force-dynamic";
 
@@ -26,8 +28,11 @@ export default async function StoresPage() {
   const staffDoc = await adminDb.collection("staff").doc(uid).get();
   const profile = userDoc.exists ? userDoc.data() : staffDoc.exists ? staffDoc.data() : null;
   const role = profile?.role;
+
   const allowedRoles = ["admin", "master", "manager", "store_manager"];
-  if (!allowedRoles.includes(role?.toLowerCase?.() || role)) redirect("/unauthorized");
+  if (!allowedRoles.includes(role?.toLowerCase?.() || role)) {
+    return <UnauthorizedOverlay />;
+  }
 
   const snapshot = await adminDb.collection("stores").get();
   const stores = snapshot.docs.map(doc => ({

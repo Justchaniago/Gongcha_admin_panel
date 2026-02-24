@@ -102,12 +102,18 @@ rewards_catalog/{rewardId}
 
 ---
 
+
+## 🔒 Authentication & Security
+
+- **Authentication**: Seluruh sistem kini menggunakan **Firebase Admin Session Cookies** untuk autentikasi dan otorisasi. Session cookie disimpan secara aman di browser, diverifikasi di setiap request server (API & Server Actions), dan role user selalu diambil fresh dari Firestore (users/staff) untuk memastikan RBAC (Role-Based Access Control) yang kuat dan up-to-date.
+- **RBAC**: Hanya user dengan role `admin` atau `master` yang dapat mengakses fitur administrasi sensitif (CRUD Stores, Users, Rewards, Settings, dll). Semua pengecekan role dilakukan di server, bukan di client.
+
 ## 🛠 Tech Stack
 
 - **Framework**: Next.js 14 (App Router)
 - **Styling**: Tailwind CSS
 - **Database**: Firebase Firestore
-- **Auth**: Firebase Auth
+- **Auth**: Firebase Auth + Firebase Admin Session Cookies
 - **Seeder**: Firebase Admin SDK + ts-node
 
 ---

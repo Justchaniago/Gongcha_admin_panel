@@ -1,7 +1,9 @@
+
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import MembersClient from "./MembersClient";
+import UnauthorizedOverlay from "@/components/ui/UnauthorizedOverlay";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +28,9 @@ export default async function UsersStaffPage() {
   const role = profile?.role;
 
   const allowedRoles = ["admin", "master", "manager", "store_manager"];
-  if (!allowedRoles.includes(role)) redirect("/unauthorized");
+  if (!allowedRoles.includes(role)) {
+    return <UnauthorizedOverlay />;
+  }
 
   // Tarik data Users, Staff, dan Stores secara paralel
   const [usersSnap, staffSnap, storesSnap] = await Promise.all([

@@ -23,8 +23,9 @@ export default async function TransactionsPage() {
   const staffDoc = await adminDb.collection("staff").doc(uid).get();
   const profile = userDoc.exists ? userDoc.data() : staffDoc.exists ? staffDoc.data() : null;
   const role = profile?.role;
-  const allowedRoles = ["admin", "master", "manager", "store_manager"];
-  if (!allowedRoles.includes(role)) redirect("/unauthorized");
+  // Kasir juga boleh akses transaksi
+  // const allowedRoles = ["admin", "master", "manager", "store_manager"];
+  // if (!allowedRoles.includes(role)) redirect("/unauthorized");
 
   // Fetch transactions (limit 50, order by createdAt desc)
   const txSnap = await adminDb.collection("transactions").orderBy("createdAt", "desc").limit(50).get();

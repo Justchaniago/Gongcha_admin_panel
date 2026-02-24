@@ -1,7 +1,9 @@
+
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import RewardsClient from "./RewardsClient";
+import UnauthorizedOverlay from "@/components/ui/UnauthorizedOverlay";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +30,9 @@ export default async function RewardsPage() {
   const role = profile?.role;
 
   const allowedRoles = ["admin", "master", "manager", "store_manager"];
-  if (!allowedRoles.includes(role)) redirect("/unauthorized");
+  if (!allowedRoles.includes(role)) {
+    return <UnauthorizedOverlay />;
+  }
 
   // Fetch initial data
   const rewardsSnap = await adminDb.collection("rewards_catalog").orderBy("title").get();
