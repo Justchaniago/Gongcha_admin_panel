@@ -2,27 +2,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseServer";
 import { FieldValue } from "firebase-admin/firestore";
-import { getToken } from "next-auth/jwt";
+import { cookies } from "next/headers";
+import { adminAuth } from "@/lib/firebaseAdmin";
 
 // Helper untuk validasi session
 async function validateSession(req: NextRequest) {
-  const token = await getToken({ 
-    req, 
-    secret: process.env.NEXTAUTH_SECRET,
-    secureCookie: process.env.NODE_ENV === "production"
-  });
-  
-  if (!token) {
+  const cookieStore = await cookies();
+  const sessionCookie = cookieStore.get("session")?.value;
+  if (!sessionCookie) {
     return { error: "Session tidak ditemukan. Silakan login ulang.", status: 403 };
   }
-  
-  const userRole = token.role as string;
-  // Hanya admin dan master yang bisa akses rewards
+  const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
+  const userRole = decodedClaims.role as string;
   if (!['admin', 'master'].includes(userRole)) {
     return { error: "Akses ditolak. Anda tidak memiliki izin.", status: 403 };
   }
-  
-  return { token, userRole, error: null };
+  return { token: decodedClaims, userRole, error: null };
 }
 
 // ── GET /api/rewards ───────────────────────────────────────────────────────────

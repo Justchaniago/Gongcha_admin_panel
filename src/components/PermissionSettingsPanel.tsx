@@ -16,7 +16,8 @@ const C = {
 } as const;
 
 export default function PermissionSettingsPanel() {
-  const { user, role, loading: authLoading, logout } = useAuth();
+  const { user, loading: authLoading, logout } = useAuth();
+  const role = user?.role;
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{type: "success" | "error"; message: string} | null>(null);
   const [isRegistered, setIsRegistered] = useState<boolean | null>(null);

@@ -5,7 +5,7 @@ import { cookies } from "next/headers";
 
 // Helper untuk verifikasi admin dari session cookie
 async function verifyAdmin() {
-  const sessionCookie = cookies().get("session")?.value;
+ const sessionCookie = (await cookies()).get("session")?.value;
   if (!sessionCookie) throw new Error("Unauthorized: No session cookie");
 
   try {
