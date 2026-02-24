@@ -4,12 +4,12 @@
 // Hanya muncul jika user belum terdaftar di staff collection
 
 import { useState } from "react";
-import { useSession } from "next-auth/react";
+import { useAuth } from "@/context/AuthContext";
 import { getAuth, reload } from "firebase/auth";
 import { app } from "../lib/firebaseClient";
 
 export default function SetupUserButton() {
-  const { data: session } = useSession();
+  const { user, role, loading: authLoading, logout } = useAuth();
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -53,7 +53,7 @@ export default function SetupUserButton() {
     }
   };
 
-  if (!session) return null;
+  if (!user) return null;
 
   return (
     <div style={{ 

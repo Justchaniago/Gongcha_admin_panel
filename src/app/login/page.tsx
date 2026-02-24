@@ -1,10 +1,9 @@
 "use client";
 
-
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { signInWithEmailAndPassword } from "firebase/auth";
-import { auth } from "@/lib/firebaseClient";
+import { auth } from "@/lib/firebaseClient"; // Memanggil instance Firebase Client
 
 const font = "'Plus Jakarta Sans', system-ui, sans-serif";
 
@@ -32,17 +31,13 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [loading,  setLoading]  = useState(false);
   const [error,    setError]    = useState("");
-  const router = useRouter();
+  const [showPw,   setShowPw]   = useState(false);
   const [focusE,   setFocusE]   = useState(false);
   const [focusP,   setFocusP]   = useState(false);
   const [success,  setSuccess]  = useState(false);
 
-  // Jika sudah login, redirect ke dashboard
-  useEffect(() => {
-    if (typeof window !== "undefined" && auth.currentUser && window.location.pathname !== "/dashboard") {
-      router.replace("/dashboard");
-    }
-  }, [router]);
+  // Jika user sudah memiliki cookie, middleware otomatis melempar mereka, 
+  // jadi kita tidak butuh useEffect useSession lagi.
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -50,12 +45,13 @@ export default function LoginPage() {
     setLoading(true); setError("");
 
     try {
-      // 1. Login menggunakan Firebase murni
+      // 1. Eksekusi Login Firebase
       const userCredential = await signInWithEmailAndPassword(auth, email.trim(), password);
-      // 2. Ambil token aslinya
+      
+      // 2. Ambil token ID asli
       const idToken = await userCredential.user.getIdToken();
 
-      // 3. Setorkan token ke API Server kita untuk dicetak jadi Cookie 14 Hari
+      // 3. Kirim Token ke Server untuk dijadikan Session Cookie 14 hari
       const response = await fetch('/api/auth/session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -68,7 +64,7 @@ export default function LoginPage() {
 
       setSuccess(true);
       setTimeout(() => {
-        // Gunakan window.location agar middleware dipaksa membaca dari awal
+        // Redirect paksa dengan window.location agar middleware mendeteksi cookie
         window.location.href = "/dashboard";
       }, 800);
 
@@ -82,12 +78,23 @@ export default function LoginPage() {
     }
   }
 
-  // Loading screen (optional, bisa custom)
-  // ...existing code...
-
   return (
     <div style={{
       minHeight: "100vh",
+      background: C.bg,
+      display: "flex",
+      fontFamily: font,
+      WebkitFontSmoothing: "antialiased",
+      position: "relative",
+      overflow: "hidden",
+    }}>
+      {/* ── Background decoration ── */}
+      <div style={{ position: "absolute", inset: 0, pointerEvents: "none", zIndex: 0 }}>
+        <div style={{ position: "absolute", top: -180, left: -180, width: 520, height: 520, borderRadius: "50%", background: `radial-gradient(circle, rgba(67,97,238,.13) 0%, transparent 70%)` }}/>
+        <div style={{ position: "absolute", bottom: -200, right: -200, width: 600, height: 600, borderRadius: "50%", background: `radial-gradient(circle, rgba(67,97,238,.08) 0%, transparent 70%)` }}/>
+        <svg width="100%" height="100%" style={{ position: "absolute", inset: 0, opacity: .035 }}>
+          <defs>
+            <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse">
               <path d="M 48 0 L 0 0 0 48" fill="none" stroke="white" strokeWidth="1"/>
             </pattern>
           </defs>
@@ -97,7 +104,6 @@ export default function LoginPage() {
 
       {/* ── Left panel — branding ── */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "space-between", padding: "48px 64px", position: "relative", zIndex: 1 }}>
-        {/* Logo */}
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ width: 40, height: 40, borderRadius: 11, background: `linear-gradient(135deg,${C.blue},${C.blueD})`, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: `0 0 20px ${C.glow}` }}>
             <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="white" strokeWidth={2.2}>
@@ -108,7 +114,6 @@ export default function LoginPage() {
           <span style={{ fontSize: 11, fontWeight: 600, color: C.tx3, background: C.border, padding: "3px 8px", borderRadius: 6, letterSpacing: ".06em", textTransform: "uppercase" }}>Admin</span>
         </div>
 
-        {/* Center copy */}
         <div>
           <p style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".16em", textTransform: "uppercase", color: C.blue, marginBottom: 18 }}>
             Management Dashboard
@@ -123,7 +128,6 @@ export default function LoginPage() {
             Platform terpadu untuk manajemen member, transaksi, poin loyalitas, dan performa seluruh outlet Gong Cha.
           </p>
 
-          {/* Feature pills */}
           <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 36 }}>
             {[
               { icon: "👥", label: "Member & Tier" },
@@ -138,15 +142,12 @@ export default function LoginPage() {
           </div>
         </div>
 
-        {/* Footer */}
         <p style={{ fontSize: 12, color: C.tx3 }}>© 2025 Gong Cha Indonesia. All rights reserved.</p>
       </div>
 
       {/* ── Right panel — login form ── */}
       <div style={{ width: 460, display: "flex", alignItems: "center", justifyContent: "center", padding: "48px 40px", position: "relative", zIndex: 1 }}>
         <div style={{ width: "100%", maxWidth: 380 }}>
-
-          {/* Card */}
           <div style={{
             background: C.card,
             border: `1px solid ${C.border2}`,
@@ -165,8 +166,6 @@ export default function LoginPage() {
 
             {!success && (
               <form onSubmit={handleLogin} style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-
-                {/* Email */}
                 <div>
                   <label style={{ display: "block", fontSize: 11, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: C.tx2, marginBottom: 8 }}>
                     Email
@@ -194,7 +193,6 @@ export default function LoginPage() {
                   </div>
                 </div>
 
-                {/* Password */}
                 <div>
                   <label style={{ display: "block", fontSize: 11, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: C.tx2, marginBottom: 8 }}>
                     Password
@@ -230,7 +228,6 @@ export default function LoginPage() {
                   </div>
                 </div>
 
-                {/* Error */}
                 {error && (
                   <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "12px 14px", background: C.redDim, border: `1px solid rgba(240,68,56,.25)`, borderRadius: 10, fontSize: 13, color: "#FF8A80", lineHeight: 1.5 }}>
                     <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} style={{ flexShrink: 0, marginTop: 1 }}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
@@ -238,7 +235,6 @@ export default function LoginPage() {
                   </div>
                 )}
 
-                {/* Submit */}
                 <button
                   type="submit" disabled={loading}
                   style={{
@@ -251,8 +247,6 @@ export default function LoginPage() {
                     transition: "all .15s",
                     letterSpacing: "-.01em",
                   }}
-                  onMouseOver={e => { if (!loading) (e.currentTarget as HTMLButtonElement).style.transform = "translateY(-1px)"; }}
-                  onMouseOut={e  => { (e.currentTarget as HTMLButtonElement).style.transform = "none"; }}
                 >
                   {loading ? (
                     <><svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} style={{ animation: "spin 1s linear infinite" }}><path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" strokeOpacity=".3"/><path d="M21 12a9 9 0 00-9-9"/></svg>Masuk…</>
@@ -263,7 +257,6 @@ export default function LoginPage() {
               </form>
             )}
 
-            {/* Success state */}
             {success && (
               <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16, padding: "24px 0" }}>
                 <div style={{ width: 56, height: 56, borderRadius: "50%", background: "rgba(18,183,106,.15)", border: "2px solid rgba(18,183,106,.3)", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -274,7 +267,6 @@ export default function LoginPage() {
             )}
           </div>
 
-          {/* Role hint */}
           <div style={{ marginTop: 20, padding: "14px 18px", borderRadius: 12, border: `1px solid ${C.border}`, background: "rgba(255,255,255,.02)" }}>
             <p style={{ fontSize: 11.5, color: C.tx3, margin: 0, lineHeight: 1.6 }}>
               🔐 Akses tersedia untuk <strong style={{ color: C.tx2 }}>Admin</strong> dan <strong style={{ color: C.tx2 }}>Staff</strong> yang terdaftar. Hubungi superadmin jika tidak bisa masuk.

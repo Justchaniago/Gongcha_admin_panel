@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
-import NextAuthProvider from "@/components/NextAuthProvider";
+// NextAuthProvider sudah resmi dibakar dari sini 🔥
 import { AuthProvider } from "@/context/AuthContext";
 import ProtectedRoute from "@/components/layout/ProtectedRoute";
 import UserProfileHeader from "@/components/layout/UserProfileHeader";
@@ -23,16 +23,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="id" className={jakarta.variable}>
       <body>
-        <NextAuthProvider>
-          <AuthProvider>
-            <UserProfileHeader />
-            <ProtectedRoute>
-              <AdminShell>
-                {children}
-              </AdminShell>
-            </ProtectedRoute>
-          </AuthProvider>
-        </NextAuthProvider>
+        <AuthProvider>
+          <UserProfileHeader />
+          <ProtectedRoute>
+            <AdminShell>
+              {children}
+            </AdminShell>
+          </ProtectedRoute>
+        </AuthProvider>
       </body>
     </html>
   );
