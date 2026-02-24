@@ -1,21 +1,34 @@
 "use client";
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
-import { getAuth, onAuthStateChanged, User } from "firebase/auth";
+import { getAuth, onAuthStateChanged, signOut as firebaseSignOut, User } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
+import { signOut as nextAuthSignOut } from "next-auth/react";
 import { app, db } from "@/lib/firebaseClient";
 
 type AuthContextType = {
   user: User | null;
   role: "admin" | "manager" | "staff" | "cashier" | null;
   loading: boolean;
+  logout: () => Promise<void>;
 };
 
-const AuthContext = createContext<AuthContextType>({ user: null, role: null, loading: true });
+const AuthContext = createContext<AuthContextType>({ user: null, role: null, loading: true, logout: async () => {} });
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [role, setRole] = useState<"admin" | "manager" | "staff" | "cashier" | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // Sinkron logout NextAuth & Firebase Auth
+  const logout = async () => {
+    const auth = getAuth(app);
+    try {
+      await firebaseSignOut(auth);
+    } catch (e) {
+      // ignore
+    }
+    await nextAuthSignOut({ callbackUrl: "/login" });
+  };
 
   useEffect(() => {
     const auth = getAuth(app);
@@ -26,7 +39,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         try {
           const userDocRef = doc(db, "users", firebaseUser.uid);
           const userDocSnap = await getDoc(userDocRef);
-          
           if (userDocSnap.exists()) {
             setRole(userDocSnap.data().role);
           } else {
@@ -41,12 +53,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       setLoading(false);
     });
-    
     return () => unsub();
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, role, loading }}>
+    <AuthContext.Provider value={{ user, role, loading, logout }}>
       {children}
     </AuthContext.Provider>
   );

@@ -6,7 +6,7 @@ import {
   collection, onSnapshot, query, orderBy, limit,
   where, Timestamp,
 } from "firebase/firestore";
-import { db } from "@/lib/firebaseClient";
+import { db } from "../../lib/firebaseClient";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface Transaction {
