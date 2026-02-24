@@ -1,16 +1,18 @@
-
 "use client";
-// Label kecil untuk form field
-export function FL({ children }: { children: React.ReactNode }) {
-  return <label style={{ display: "block", marginBottom: 6, fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: C.tx3 }}>{children}</label>;
-}
-import InjectVoucherModalForMember from "./InjectVoucherModalForMember";
 
-import { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { User, Staff, UserTier, UserRole, StaffRole } from "@/types/firestore";
 import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
 import { db } from "@/lib/firebaseClient";
-import { createAccountAction, updateAccountAction, deleteAccountAction, updatePointsAction } from "@/actions/userStaffActions";
+import { 
+  createAccountAction, 
+  updateAccountAction, 
+  deleteAccountAction, 
+  updatePointsAction 
+} from "@/actions/userStaffActions";
+
+// Import komponen modal suntik voucher
+import InjectVoucherModalForMember from "./InjectVoucherModalForMember";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type UserWithUid  = User  & { uid: string };
@@ -34,6 +36,7 @@ interface ConfirmOptions {
   danger?: boolean; onConfirm: () => void | Promise<void>;
 }
 
+// ── Configuration & Design System ─────────────────────────────────────────────
 const C = {
   bg: "#F4F6FB", white: "#FFFFFF", border: "#EAECF2", border2: "#F0F2F7",
   tx1: "#0F1117", tx2: "#4A5065", tx3: "#9299B0", tx4: "#BCC1D3",
@@ -63,7 +66,7 @@ const STAFF_CFG: Record<string, { bg: string; color: string; label: string; code
 const TIER_OPTIONS = ["All", "Silver", "Gold", "Platinum"] as const;
 
 const GLOBAL_CSS = `
-  @keyframes gcFadeIn  { from{opacity:0}             to{opacity:1} }
+  @keyframes gcFadeIn  { from{opacity:0} to{opacity:1} }
   @keyframes gcRise    { from{opacity:0;transform:translateY(18px) scale(.97)} to{opacity:1;transform:none} }
   @keyframes gcSlideUp { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:none} }
   @keyframes gcShake   { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-4px)} 75%{transform:translateX(4px)} }
@@ -73,82 +76,14 @@ const GLOBAL_CSS = `
   ::-webkit-scrollbar-track{background:transparent}
   ::-webkit-scrollbar-thumb{background:${C.border};border-radius:99px}
 `;
+
 function GlobalStyle() { return <style dangerouslySetInnerHTML={{ __html: GLOBAL_CSS }} />; }
 
-// ── Toast ─────────────────────────────────────────────────────────────────────
-function useToast() {
-  const [toasts, setToasts] = useState<Toast[]>([]);
-  const show = useCallback((message: string, type: ToastType = "info") => {
-    const id = `${Date.now()}-${Math.random()}`;
-    setToasts(p => [...p, { id, type, message }]);
-    setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), 4000);
-  }, []);
-  const dismiss = useCallback((id: string) => setToasts(p => p.filter(t => t.id !== id)), []);
-  return { toasts, show, dismiss };
+// ── UI Primitives ─────────────────────────────────────────────────────────────
+export function FL({ children }: { children: React.ReactNode }) {
+  return <label style={{ display: "block", marginBottom: 6, fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: C.tx3 }}>{children}</label>;
 }
 
-function ToastContainer({ toasts, dismiss }: { toasts: Toast[]; dismiss: (id: string) => void }) {
-  const ICONS: Record<ToastType, string> = { success: "✓", error: "✕", info: "i" };
-  const COLORS: Record<ToastType, { bg: string; icon: string; border: string }> = {
-    success: { bg: C.greenBg, icon: "#027A48", border: "#A7F3D0" },
-    error:   { bg: C.redBg,   icon: C.red,     border: "#FECDD3" },
-    info:    { bg: C.blueL,   icon: C.blue,    border: "rgba(67,97,238,.2)" },
-  };
-  return (
-    <div style={{ position: "fixed", bottom: 24, right: 24, zIndex: 9999, display: "flex", flexDirection: "column", gap: 10, pointerEvents: "none" }}>
-      {toasts.map(t => {
-        const col = COLORS[t.type];
-        return (
-          <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", background: col.bg, border: `1px solid ${col.border}`, borderRadius: 12, boxShadow: C.shadowLg, fontFamily: font, fontSize: 13.5, color: C.tx1, pointerEvents: "all", maxWidth: 360, animation: "gcSlideUp .22s ease" }}>
-            <span style={{ width: 22, height: 22, borderRadius: 99, background: col.icon, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 900, flexShrink: 0 }}>{ICONS[t.type]}</span>
-            <span style={{ flex: 1, fontWeight: 500 }}>{t.message}</span>
-            <button onClick={() => dismiss(t.id)} style={{ background: "none", border: "none", cursor: "pointer", color: C.tx3, fontSize: 16, lineHeight: 1, flexShrink: 0 }}>×</button>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-// ── Confirm Dialog ────────────────────────────────────────────────────────────
-function ConfirmDialog({ opts, onCancel }: { opts: ConfirmOptions; onCancel: () => void }) {
-  const [loading, setLoading] = useState(false);
-  async function handleConfirm() { setLoading(true); await opts.onConfirm(); setLoading(false); }
-  return (
-    <div onClick={e => { if (e.target === e.currentTarget && !loading) onCancel(); }}
-      style={{ position: "fixed", inset: 0, zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, background: "rgba(10,12,20,.52)", backdropFilter: "blur(8px)", animation: "gcFadeIn .18s ease", fontFamily: font }}>
-      <div style={{ background: C.white, borderRadius: 18, width: "100%", maxWidth: 400, boxShadow: C.shadowLg, animation: "gcRise .24s cubic-bezier(.22,.68,0,1.15) both", overflow: "hidden" }}>
-        <div style={{ padding: "24px 28px 20px" }}>
-          {opts.danger && (
-            <div style={{ width: 44, height: 44, borderRadius: 12, background: C.redBg, border: `1px solid #FECDD3`, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={C.red} strokeWidth={2.2} strokeLinecap="round"><path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
-            </div>
-          )}
-          <h3 style={{ fontSize: 17, fontWeight: 800, color: C.tx1, marginBottom: 8 }}>{opts.title}</h3>
-          <p style={{ fontSize: 13.5, color: C.tx2, lineHeight: 1.6 }}>{opts.description}</p>
-        </div>
-        <div style={{ padding: "16px 28px 24px", display: "flex", gap: 10, justifyContent: "flex-end", borderTop: `1px solid ${C.border2}` }}>
-          <GcBtn variant="ghost" onClick={onCancel} disabled={loading}>Batal</GcBtn>
-          <GcBtn variant={opts.danger ? "danger" : "blue"} onClick={handleConfirm} disabled={loading}>
-            {loading ? "Memproses…" : (opts.confirmLabel ?? "Konfirmasi")}
-          </GcBtn>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function useConfirm() {
-  const [confirmOpts, setConfirmOpts] = useState<ConfirmOptions | null>(null);
-  const confirm = useCallback((opts: ConfirmOptions) => setConfirmOpts(opts), []);
-  const cancel  = useCallback(() => setConfirmOpts(null), []);
-  const dialog  = confirmOpts
-    ? <ConfirmDialog opts={{ ...confirmOpts, onConfirm: async () => { await confirmOpts.onConfirm(); setConfirmOpts(null); } }} onCancel={cancel} />
-    : null;
-  return { confirm, dialog };
-}
-
-// ── Primitives ────────────────────────────────────────────────────────────────
 function Avatar({ name, size = 36 }: { name?: string; size?: number }) {
   const char = (name ?? "?")[0].toUpperCase();
   const code = (name ?? "A").charCodeAt(0);
@@ -161,14 +96,12 @@ function Avatar({ name, size = 36 }: { name?: string; size?: number }) {
   );
 }
 
-
 interface GcInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   hasError?: boolean;
 }
 
 export function GcInput({ style, hasError, ...p }: GcInputProps) {
   const [f, setF] = useState(false);
-  // Tentukan warna border. Prioritas: 1. Focus -> 2. Error -> 3. Default
   const currentBorderColor = f ? C.blue : (hasError ? "#F04438" : C.border);
   return (
     <input 
@@ -228,7 +161,7 @@ function ActionBtn({ onClick, label, danger }: { onClick: () => void; label: str
   );
 }
 
-// ── Modal Shell ───────────────────────────────────────────────────────────────
+// ── Modal Components ──────────────────────────────────────────────────────────
 function Modal({ children, onClose, maxW = 520 }: { children: React.ReactNode; onClose: () => void; maxW?: number }) {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -276,10 +209,80 @@ function EmptyState({ query, type }: { query: string; type: TabType }) {
   );
 }
 
-async function apiFetch(url: string, options?: RequestInit): Promise<any> {
+// ── Hooks ─────────────────────────────────────────────────────────────────────
+function useToast() {
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const show = useCallback((message: string, type: ToastType = "info") => {
+    const id = `${Date.now()}-${Math.random()}`;
+    setToasts(p => [...p, { id, type, message }]);
+    setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), 4000);
+  }, []);
+  const dismiss = useCallback((id: string) => setToasts(p => p.filter(t => t.id !== id)), []);
+  return { toasts, show, dismiss };
+}
 
-// ── Edit Points Modal ─────────────────────────────────────────────────────────
-// ✅ No admin gate — available to all dashboard users
+function ToastContainer({ toasts, dismiss }: { toasts: Toast[]; dismiss: (id: string) => void }) {
+  const ICONS: Record<ToastType, string> = { success: "✓", error: "✕", info: "i" };
+  const COLORS: Record<ToastType, { bg: string; icon: string; border: string }> = {
+    success: { bg: C.greenBg, icon: "#027A48", border: "#A7F3D0" },
+    error:   { bg: C.redBg,   icon: C.red,     border: "#FECDD3" },
+    info:    { bg: C.blueL,   icon: C.blue,    border: "rgba(67,97,238,.2)" },
+  };
+  return (
+    <div style={{ position: "fixed", bottom: 24, right: 24, zIndex: 9999, display: "flex", flexDirection: "column", gap: 10, pointerEvents: "none" }}>
+      {toasts.map(t => {
+        const col = COLORS[t.type];
+        return (
+          <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", background: col.bg, border: `1px solid ${col.border}`, borderRadius: 12, boxShadow: C.shadowLg, fontFamily: font, fontSize: 13.5, color: C.tx1, pointerEvents: "all", maxWidth: 360, animation: "gcSlideUp .22s ease" }}>
+            <span style={{ width: 22, height: 22, borderRadius: 99, background: col.icon, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 900, flexShrink: 0 }}>{ICONS[t.type]}</span>
+            <span style={{ flex: 1, fontWeight: 500 }}>{t.message}</span>
+            <button onClick={() => dismiss(t.id)} style={{ background: "none", border: "none", cursor: "pointer", color: C.tx3, fontSize: 16, lineHeight: 1, flexShrink: 0 }}>×</button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ConfirmDialog({ opts, onCancel }: { opts: ConfirmOptions; onCancel: () => void }) {
+  const [loading, setLoading] = useState(false);
+  async function handleConfirm() { setLoading(true); await opts.onConfirm(); setLoading(false); }
+  return (
+    <div onClick={e => { if (e.target === e.currentTarget && !loading) onCancel(); }}
+      style={{ position: "fixed", inset: 0, zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, background: "rgba(10,12,20,.52)", backdropFilter: "blur(8px)", animation: "gcFadeIn .18s ease", fontFamily: font }}>
+      <div style={{ background: C.white, borderRadius: 18, width: "100%", maxWidth: 400, boxShadow: C.shadowLg, animation: "gcRise .24s cubic-bezier(.22,.68,0,1.15) both", overflow: "hidden" }}>
+        <div style={{ padding: "24px 28px 20px" }}>
+          {opts.danger && (
+            <div style={{ width: 44, height: 44, borderRadius: 12, background: C.redBg, border: `1px solid #FECDD3`, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={C.red} strokeWidth={2.2} strokeLinecap="round"><path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+            </div>
+          )}
+          <h3 style={{ fontSize: 17, fontWeight: 800, color: C.tx1, marginBottom: 8 }}>{opts.title}</h3>
+          <p style={{ fontSize: 13.5, color: C.tx2, lineHeight: 1.6 }}>{opts.description}</p>
+        </div>
+        <div style={{ padding: "16px 28px 24px", display: "flex", gap: 10, justifyContent: "flex-end", borderTop: `1px solid ${C.border2}` }}>
+          <GcBtn variant="ghost" onClick={onCancel} disabled={loading}>Batal</GcBtn>
+          <GcBtn variant={opts.danger ? "danger" : "blue"} onClick={handleConfirm} disabled={loading}>
+            {loading ? "Memproses…" : (opts.confirmLabel ?? "Konfirmasi")}
+          </GcBtn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function useConfirm() {
+  const [confirmOpts, setConfirmOpts] = useState<ConfirmOptions | null>(null);
+  const confirm = useCallback((opts: ConfirmOptions) => setConfirmOpts(opts), []);
+  const cancel  = useCallback(() => setConfirmOpts(null), []);
+  const dialog  = confirmOpts
+    ? <ConfirmDialog opts={{ ...confirmOpts, onConfirm: async () => { await confirmOpts.onConfirm(); setConfirmOpts(null); } }} onCancel={cancel} />
+    : null;
+  return { confirm, dialog };
+}
+
+// ── Modal Components Logic ────────────────────────────────────────────────────
+
 function EditPointsModal({
   user, onClose, onSaved, toast, confirm,
 }: {
@@ -348,9 +351,6 @@ function EditPointsModal({
             <GcInput type="number" min="0" value={lifetime} onChange={e => setLifetime(e.target.value)}
               hasError={!isNaN(lifetimeNum) && lifetimeNum < pointsNum} 
             />
-            {!isNaN(lifetimeNum) && !isNaN(pointsNum) && lifetimeNum < pointsNum && (
-              <p style={{ fontSize: 11.5, color: "#B42318", marginTop: 5 }}>Lifetime XP tidak boleh lebih kecil dari Poin Aktif.</p>
-            )}
           </div>
         </div>
         {isValid && (deltaPoints !== 0 || deltaLifetime !== 0) && (
@@ -374,8 +374,6 @@ function EditPointsModal({
   );
 }
 
-// ── Member Detail Modal ───────────────────────────────────────────────────────
-// ✅ isAdmin prop REMOVED — edit poin selalu tersedia
 function MemberDetailModal({
   user, onClose, onEdit, onDeleted, toast, confirm,
 }: {
@@ -430,7 +428,6 @@ function MemberDetailModal({
               ))}
             </div>
 
-            {/* ✅ Edit poin button selalu tampil — tidak ada gate */}
             <button type="button" onClick={() => setShowEditPoints(true)}
               style={{ width: "100%", height: 34, borderRadius: 8, border: `1.5px dashed ${C.blue}`, background: C.blueL, color: C.blue, fontFamily: font, fontSize: 12.5, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, transition: "all .13s" }}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
@@ -472,16 +469,14 @@ function MemberDetailModal({
   );
 }
 
-// ── Edit Member Modal ─────────────────────────────────────────────────────────
-// ✅ isAdmin prop REMOVED — edit poin selalu tersedia
 function EditMemberModal({
   user, onClose, onSaved, toast, confirm
 }: {
   user: UserWithUid;
   onClose: () => void;
   onSaved: (patch: Partial<UserWithUid>) => void;
-  toast: (msg: string, type?: string) => void;
-  confirm: (msg: string, onYes: () => void) => void;
+  toast: (msg: string, type?: ToastType) => void;
+  confirm: ReturnType<typeof useConfirm>["confirm"];
 }) {
     const [showInject, setShowInject] = useState(false);
     const [form, setForm] = useState({
@@ -493,9 +488,6 @@ function EditMemberModal({
     });
     const [loading,       setLoading]       = useState(false);
     const [error,         setError]         = useState("");
-    const [showEditPoints, setShowEditPoints] = useState(false);
-    const [localPoints,   setLocalPoints]   = useState<number | undefined>(user.currentPoints);
-    const [localLifetime, setLocalLifetime] = useState<number | undefined>(user.lifetimePoints);
 
     const set = <K extends keyof typeof form>(k: K, v: typeof form[K]) => setForm(p => ({ ...p, [k]: v }));
 
@@ -505,7 +497,7 @@ function EditMemberModal({
       try {
         await updateAccountAction(user.uid, form, "users");
         toast(`${form.name} berhasil diperbarui.`, "success");
-        onSaved({ name: form.name, email: form.email, phoneNumber: form.phoneNumber, tier: form.tier as UserTier, role: form.role as UserRole });
+        onSaved({ ...form, tier: form.tier as UserTier, role: form.role as UserRole });
         onClose();
       } catch (e: any) {
         setError(e.message ?? "Gagal menyimpan perubahan.");
@@ -542,17 +534,15 @@ function EditMemberModal({
                   </svg>
                   Suntik Voucher ke User
                 </GcBtn>
-                <GcBtn variant="blue" onClick={() => setShowEditPoints(true)} style={{ width: "100%" }}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" style={{ marginRight: 7 }}><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                  Edit Poin & Lifetime XP
-                </GcBtn>
               </div>
             </div>
-            {/* ...existing code... */}
+            {error && <ErrorBox message={error} />}
           </MBody>
-          {/* ...existing code... */}
+          <MFoot>
+            <GcBtn variant="ghost" onClick={onClose} disabled={loading}>Batal</GcBtn>
+            <GcBtn variant="blue" onClick={save} disabled={loading}>Simpan Perubahan</GcBtn>
+          </MFoot>
         </Modal>
-        {/* ...existing code... */}
         {showInject && (
           <InjectVoucherModalForMember
             uid={user.uid}
@@ -560,23 +550,10 @@ function EditMemberModal({
             onSuccess={msg => { toast(msg, "success"); setShowInject(false); }}
           />
         )}
-        {showEditPoints && (
-          <EditPointsModal
-            user={user}
-            onClose={() => setShowEditPoints(false)}
-            onSaved={patch => {
-              if (patch.currentPoints !== undefined) setLocalPoints?.(patch.currentPoints);
-              if (patch.lifetimePoints !== undefined) setLocalLifetime?.(patch.lifetimePoints);
-            }}
-            toast={toast}
-            confirm={confirm}
-          />
-        )}
       </>
     );
 }
 
-// ── Edit Staff Modal ──────────────────────────────────────────────────────────
 function EditStaffModal({ staff, storeIds, onClose, onSaved, toast }: {
   staff: StaffWithUid; storeIds: string[]; onClose: () => void;
   onSaved: (u: Partial<StaffWithUid>) => void;
@@ -619,7 +596,7 @@ function EditStaffModal({ staff, storeIds, onClose, onSaved, toast }: {
         </div>
         <SL>Akses Outlet</SL>
         <div style={{ marginBottom: 22 }}>
-<StoreAccessPicker storeIds={storeIds} selected={form.storeLocations} accessAll={form.accessAllStores} onChangeSelected={v => setForm(p => ({ ...p, storeLocations: v }))} onChangeAccessAll={v => { setForm(p => ({ ...p, accessAllStores: v })); if (v) setForm(p => ({ ...p, storeLocations: [] })); }} />
+          <StoreAccessPicker storeIds={storeIds} selected={form.storeLocations} accessAll={form.accessAllStores} onChangeSelected={v => setForm(p => ({ ...p, storeLocations: v }))} onChangeAccessAll={v => { setForm(p => ({ ...p, accessAllStores: v })); if (v) setForm(p => ({ ...p, storeLocations: [] })); }} />
         </div>
         <SL>Status Akun</SL>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", borderRadius: 12, background: C.bg, border: `1.5px solid ${C.border}` }}>
@@ -644,7 +621,6 @@ function EditStaffModal({ staff, storeIds, onClose, onSaved, toast }: {
   );
 }
 
-// ── Batch Edit Modal ──────────────────────────────────────────────────────────
 function BatchEditModal({ type, count, storeIds, onClose, onSaved }: { type: TabType; count: number; storeIds: string[]; onClose: () => void; onSaved: (data: Record<string, any>) => Promise<void>; }) {
   const [tierChange, setTierChange] = useState("");
   const [statusChange, setStatusChange] = useState<boolean | undefined>(undefined);
@@ -696,7 +672,6 @@ function BatchEditModal({ type, count, storeIds, onClose, onSaved }: { type: Tab
   );
 }
 
-// ── Create Modal ──────────────────────────────────────────────────────────────
 function CreateModal({ storeIds, onClose, toast }: { storeIds: string[]; onClose: () => void; toast: ReturnType<typeof useToast>["show"]; }) {
   const [type, setType] = useState<TabType>("member");
   const [form, setForm] = useState({ name: "", email: "", phoneNumber: "", tier: "Silver", role: "member", staffRole: "cashier", password: "", confirm: "" });
@@ -716,9 +691,11 @@ function CreateModal({ storeIds, onClose, toast }: { storeIds: string[]; onClose
     if (!storeValid) { setError("Pilih minimal satu toko atau aktifkan akses semua toko."); return; }
     setLoading(true);
     try {
-      const url = type === "member" ? "/api/members" : "/api/staff";
-      const payload = type === "member" ? { name: form.name, email: form.email, phoneNumber: form.phoneNumber, tier: form.tier, role: form.role, password: form.password } : { name: form.name, email: form.email, role: form.staffRole, storeLocations, accessAllStores, password: form.password };
-      await createAccountAction(payload, 'member');
+      const payload = type === "member" 
+        ? { name: form.name, email: form.email, phoneNumber: form.phoneNumber, tier: form.tier, role: form.role, password: form.password } 
+        : { name: form.name, email: form.email, role: form.staffRole, storeLocations, accessAllStores, password: form.password };
+      
+      await createAccountAction(payload, type);
       toast(`Akun ${form.name} berhasil dibuat.`, "success"); onClose();
     } catch (e: any) { setError(e.message ?? "Gagal membuat akun."); } finally { setLoading(false); }
   }
@@ -770,7 +747,7 @@ function CreateModal({ storeIds, onClose, toast }: { storeIds: string[]; onClose
   );
 }
 
-// ── Table Rows ────────────────────────────────────────────────────────────────
+// ── Table Row Components ──────────────────────────────────────────────────────
 function UserRow({ u, isLast, onDetail, onEdit, checked, onCheck }: { u: UserWithUid; isLast: boolean; onDetail: () => void; onEdit: () => void; checked: boolean; onCheck: (checked: boolean) => void; }) {
   const [hovered, setHovered] = useState(false);
   const tier = TIER_CFG[u.tier] ?? TIER_CFG.Silver;
@@ -840,7 +817,6 @@ function StaffRow({ s, isLast, onEdit, checked, onCheck }: { s: StaffWithUid; is
   );
 }
 
-// ── Store Access Picker ───────────────────────────────────────────────────────
 function StoreAccessPicker({ storeIds, selected, accessAll, onChangeSelected, onChangeAccessAll }: { storeIds: string[]; selected: string[]; accessAll: boolean; onChangeSelected: (ids: string[]) => void; onChangeAccessAll: (v: boolean) => void; }) {
   function toggleStore(id: string) { onChangeSelected(selected.includes(id) ? selected.filter(x => x !== id) : [...selected, id]); }
   return (
@@ -869,8 +845,6 @@ function StoreAccessPicker({ storeIds, selected, accessAll, onChangeSelected, on
           </div>
         );
       })}
-      {!accessAll && selected.length === 0 && <p style={{ fontSize: 11.5, color: C.amber, fontWeight: 600, marginTop: 2 }}>⚠ Pilih minimal satu toko, atau aktifkan "Semua Toko".</p>}
-      {!accessAll && selected.length > 0 && <p style={{ fontSize: 11.5, color: "#027A48", fontWeight: 600, marginTop: 2 }}>✓ {selected.length} toko dipilih: {selected.join(", ")}</p>}
     </div>
   );
 }
@@ -893,18 +867,17 @@ function TierFilter({ value, onChange }: { value: string; onChange: (v: string) 
 }
 
 // ── Main Component ────────────────────────────────────────────────────────────
-// ✅ currentUserRole prop REMOVED — tidak ada role-based restriction di halaman ini
 export default function MembersClient({ initialUsers, initialStaff, storeIds }: {
   initialUsers: UserWithUid[];
   initialStaff: StaffWithUid[];
   storeIds: string[];
 }) {
-  const [users,   setUsers]   = useState(initialUsers);
-  const [staff,   setStaff]   = useState(initialStaff);
-  const [tab,     setTab]     = useState<TabType>("member");
-  const [search,  setSearch]  = useState("");
-  const [tierF,   setTierF]   = useState("All");
-  const [sfFocus, setSFocus]  = useState(false);
+  const [users,    setUsers]   = useState(initialUsers);
+  const [staff,    setStaff]   = useState(initialStaff);
+  const [tab,      setTab]     = useState<TabType>("member");
+  const [search,   setSearch]  = useState("");
+  const [tierF,    setTierF]   = useState("All");
+  const [sfFocus,  setSFocus]  = useState(false);
 
   const [detailUser,    setDetailUser]    = useState<UserWithUid  | null>(null);
   const [editUser,      setEditUser]      = useState<UserWithUid  | null>(null);
@@ -919,33 +892,35 @@ export default function MembersClient({ initialUsers, initialStaff, storeIds }: 
   const { toasts, show: toast, dismiss } = useToast();
   const { confirm, dialog: confirmDialog } = useConfirm();
 
-  const fUsers = useMemo(() => { const q = search.toLowerCase().trim(); return users.filter(u => (!q || u.name?.toLowerCase().includes(q) || u.email?.toLowerCase().includes(q) || u.phoneNumber?.includes(q)) && (tierF === "All" || u.tier === tierF)); }, [users, search, tierF]);
+  // 1. Realtime Data Sync
+  useEffect(() => {
+    const unsubUsers = onSnapshot(query(collection(db, "users"), orderBy("name")), (snap) => {
+      setUsers(snap.docs.map(d => ({ uid: d.id, ...d.data() })) as UserWithUid[]);
+    });
+    const unsubStaff = onSnapshot(query(collection(db, "staff"), orderBy("name")), (snap) => {
+      setStaff(snap.docs.map(d => ({ uid: d.id, ...d.data() })) as StaffWithUid[]);
+    });
+    return () => { unsubUsers(); unsubStaff(); };
+  }, []);
 
-useEffect(() => {
-  const unsubUsers = onSnapshot(query(collection(db, "users"), orderBy("name")), (snap) => {
-    const data = snap.docs.map(d => ({ uid: d.id, ...d.data() })) as UserWithUid[];
-    setUsers(data);
-  });
-  const unsubStaff = onSnapshot(query(collection(db, "staff"), orderBy("name")), (snap) => {
-    const data = snap.docs.map(d => ({ uid: d.id, ...d.data() })) as StaffWithUid[];
-    setStaff(data);
-  });
-  return () => {
-    unsubUsers();
-    unsubStaff();
-  };
-}, []);
+  // 2. Computed Filters
+  const fUsers = useMemo(() => { 
+    const q = search.toLowerCase().trim(); 
+    return users.filter(u => (!q || u.name?.toLowerCase().includes(q) || u.email?.toLowerCase().includes(q) || u.phoneNumber?.includes(q)) && (tierF === "All" || u.tier === tierF)); 
+  }, [users, search, tierF]);
 
-  const fStaff = useMemo(() => { const q = search.toLowerCase().trim(); return staff.filter(s => !q || s.name?.toLowerCase().includes(q) || s.email?.toLowerCase().includes(q)); }, [staff, search]);
+  const fStaff = useMemo(() => { 
+    const q = search.toLowerCase().trim(); 
+    return staff.filter(s => !q || s.name?.toLowerCase().includes(q) || s.email?.toLowerCase().includes(q)); 
+  }, [staff, search]);
 
+  // 3. Selection Handlers
   function switchTab(t: TabType) { setTab(t); setSearch(""); setTierF("All"); setSelectedUsers(new Set()); setSelectedStaff(new Set()); }
 
-  const selUsers = Array.from(selectedUsers);
-  const selStaff = Array.from(selectedStaff);
-  const selectedCount = tab === "member" ? selUsers.length : selStaff.length;
+  const selectedCount = tab === "member" ? selectedUsers.size : selectedStaff.size;
   const hasSelection  = selectedCount > 0;
   const isAllSelected = tab === "member" ? fUsers.length > 0 && fUsers.every(u => selectedUsers.has(u.uid)) : fStaff.length > 0 && fStaff.every(s => selectedStaff.has(s.uid));
-  const isIndeterminate = tab === "member" ? selUsers.some(uid => fUsers.some(u => u.uid === uid)) && !isAllSelected : selStaff.some(uid => fStaff.some(s => s.uid === uid)) && !isAllSelected;
+  const isIndeterminate = tab === "member" ? (selectedUsers.size > 0 && !isAllSelected) : (selectedStaff.size > 0 && !isAllSelected);
 
   const headCheckRef = useRef<HTMLInputElement>(null);
   useEffect(() => { if (headCheckRef.current) headCheckRef.current.indeterminate = isIndeterminate; }, [isIndeterminate]);
@@ -954,41 +929,40 @@ useEffect(() => {
     if (tab === "member") setSelectedUsers(e.target.checked ? new Set(fUsers.map(u => u.uid)) : new Set());
     else setSelectedStaff(e.target.checked ? new Set(fStaff.map(s => s.uid)) : new Set());
   }
+
   function toggleUser(uid: string, v: boolean) { setSelectedUsers(p => { const n = new Set(p); v ? n.add(uid) : n.delete(uid); return n; }); }
   function toggleStaff(uid: string, v: boolean) { setSelectedStaff(p => { const n = new Set(p); v ? n.add(uid) : n.delete(uid); return n; }); }
 
+  // 4. Batch Actions
   function handleBatchDelete() {
-    const ids = tab === "member" ? selUsers : selStaff;
+    const ids = Array.from(tab === "member" ? selectedUsers : selectedStaff);
     confirm({
-      title: `Hapus ${ids.length} Akun`, description: `${ids.length} akun akan dihapus secara permanen. Tindakan ini tidak dapat dibatalkan.`,
+      title: `Hapus ${ids.length} Akun`, 
+      description: `${ids.length} akun akan dihapus secara permanen. Tindakan ini tidak dapat dibatalkan.`,
       confirmLabel: `Hapus ${ids.length} Akun`, danger: true,
       onConfirm: async () => {
         setBatchDeleting(true);
-        const endpoint = tab === "member" ? "members" : "staff";
-        const collection = tab === "member" ? "users" : "staff";
-        const results = await Promise.allSettled(ids.map(uid => deleteAccountAction(uid, collection)));
-        const failed = results.filter(r => r.status === "rejected").length;
-        const success = results.filter(r => r.status === "fulfilled").length;
-        if (tab === "member") { const failedIds = new Set(ids.filter((_, i) => results[i].status === "rejected")); setUsers(p => p.filter(u => failedIds.has(u.uid) || !ids.includes(u.uid))); setSelectedUsers(new Set()); }
-        else { const failedIds = new Set(ids.filter((_, i) => results[i].status === "rejected")); setStaff(p => p.filter(s => failedIds.has(s.uid) || !ids.includes(s.uid))); setSelectedStaff(new Set()); }
-        setBatchDeleting(false);
-        if (failed === 0) toast(`${success} akun berhasil dihapus.`, "success"); else toast(`${success} berhasil, ${failed} gagal dihapus.`, "error");
+        try {
+          const col = tab === "member" ? "users" : "staff";
+          await Promise.all(ids.map(uid => deleteAccountAction(uid, col)));
+          toast(`${ids.length} akun berhasil dihapus.`, "success");
+          tab === "member" ? setSelectedUsers(new Set()) : setSelectedStaff(new Set());
+        } catch (e: any) {
+          toast(e.message ?? "Sebagian akun gagal dihapus.", "error");
+        } finally { setBatchDeleting(false); }
       },
     });
   }
 
   async function handleBatchEditSave(payload: Record<string, any>) {
-    const ids = tab === "member" ? selUsers : selStaff;
-    const endpoint = tab === "member" ? "members" : "staff";
-    const collection = tab === "member" ? "users" : "staff";
-    const results = await Promise.allSettled(ids.map(uid => updateAccountAction(uid, payload, collection)));
-    const failed = results.filter(r => r.status === "rejected").length;
-    const success = results.filter(r => r.status === "fulfilled").length;
-    if (failed > 0) throw new Error(`${failed} akun gagal diperbarui.`);
-    if (tab === "member") { setUsers(p => p.map(u => ids.includes(u.uid) ? { ...u, ...payload } : u)); setSelectedUsers(new Set()); }
-    else { setStaff(p => p.map(s => ids.includes(s.uid) ? { ...s, ...payload } : s)); setSelectedStaff(new Set()); }
-    toast(`${success} akun berhasil diperbarui.`, "success");
-    setShowBatchEdit(false);
+    const ids = Array.from(tab === "member" ? selectedUsers : selectedStaff);
+    try {
+      const col = tab === "member" ? "users" : "staff";
+      await Promise.all(ids.map(uid => updateAccountAction(uid, payload, col)));
+      toast(`${ids.length} akun berhasil diperbarui.`, "success");
+      setShowBatchEdit(false);
+      tab === "member" ? setSelectedUsers(new Set()) : setSelectedStaff(new Set());
+    } catch (e: any) { throw new Error(e.message ?? "Gagal memperbarui akun."); }
   }
 
   const stats = useMemo(() => ({ totalMembers: users.length, platinum: users.filter(u => u.tier === "Platinum").length, gold: users.filter(u => u.tier === "Gold").length, activeStaff: staff.filter(s => s.isActive).length }), [users, staff]);
@@ -1003,14 +977,16 @@ useEffect(() => {
           <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".12em", textTransform: "uppercase", color: C.tx3, marginBottom: 5 }}>Gong Cha Admin</p>
           <h1 style={{ fontSize: 28, fontWeight: 800, letterSpacing: "-.025em", color: C.tx1, lineHeight: 1.1 }}>User & Staff Management</h1>
         </div>
-        <GcBtn variant="ghost" onClick={() => { /* refresh */ }} >
-          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-          Refresh
-        </GcBtn>
-        <GcBtn variant="blue" onClick={() => setShowCreate(true)}>
-          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
-          Tambah Akun
-        </GcBtn>
+        <div style={{ display: "flex", gap: 10 }}>
+          <GcBtn variant="ghost" onClick={() => window.location.reload()} >
+            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+            Refresh
+          </GcBtn>
+          <GcBtn variant="blue" onClick={() => setShowCreate(true)}>
+            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+            Tambah Akun
+          </GcBtn>
+        </div>
       </div>
 
       {/* Stats */}
@@ -1058,67 +1034,65 @@ useEffect(() => {
 
       {tab === "member" && !hasSelection && <div style={{ marginBottom: 14 }}><TierFilter value={tierF} onChange={v => { setTierF(v); setSelectedUsers(new Set()); }} /></div>}
 
-      {/* Member Table */}
-      {tab === "member" && (
-        <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 18, boxShadow: C.shadow, overflow: "hidden" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: font }}>
-            <thead><tr style={{ background: "#F8F9FC" }}>
-              <th style={{ padding: "11px 20px", textAlign: "left", borderBottom: `1px solid ${C.border2}` }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  <input ref={headCheckRef} type="checkbox" checked={isAllSelected} onChange={handleSelectAll} style={{ width: 16, height: 16, cursor: "pointer", accentColor: C.blue }} />
-                  <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: C.tx3 }}>Member</span>
-                </div>
-              </th>
-              {["Email","Tier","Poin","Lifetime","Role","Aksi"].map(h => <th key={h} style={{ padding: "11px 20px", textAlign: "left", fontSize: 11, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: C.tx3, borderBottom: `1px solid ${C.border2}` }}>{h}</th>)}
-            </tr></thead>
-            <tbody>
-              {fUsers.length === 0 ? <EmptyState query={search} type="member" /> : fUsers.map((u, i) => <UserRow key={u.uid} u={u} isLast={i === fUsers.length - 1} checked={selectedUsers.has(u.uid)} onCheck={v => toggleUser(u.uid, v)} onDetail={() => setDetailUser(u)} onEdit={() => setEditUser(u)} />)}
-            </tbody>
-          </table>
-        </div>
-      )}
+      {/* Table Container */}
+      <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 18, boxShadow: C.shadow, overflow: "hidden" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: font }}>
+          <thead><tr style={{ background: "#F8F9FC" }}>
+            <th style={{ padding: "11px 20px", textAlign: "left", borderBottom: `1px solid ${C.border2}` }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <input ref={headCheckRef} type="checkbox" checked={isAllSelected} onChange={handleSelectAll} style={{ width: 16, height: 16, cursor: "pointer", accentColor: C.blue }} />
+                <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: C.tx3 }}>{tab === "member" ? "Member" : "Staff"}</span>
+              </div>
+            </th>
+            {tab === "member" ? (
+              ["Email","Tier","Poin","Lifetime","Role","Aksi"].map(h => <th key={h} style={{ padding: "11px 20px", textAlign: "left", fontSize: 11, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: C.tx3, borderBottom: `1px solid ${C.border2}` }}>{h}</th>)
+            ) : (
+              ["Email","Role","Outlet","Status","Aksi"].map(h => <th key={h} style={{ padding: "11px 20px", textAlign: "left", fontSize: 11, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: C.tx3, borderBottom: `1px solid ${C.border2}` }}>{h}</th>)
+            )}
+          </tr></thead>
+          <tbody>
+            {tab === "member" ? (
+              fUsers.length === 0 ? <EmptyState query={search} type="member" /> : fUsers.map((u, i) => <UserRow key={u.uid} u={u} isLast={i === fUsers.length - 1} checked={selectedUsers.has(u.uid)} onCheck={v => toggleUser(u.uid, v)} onDetail={() => setDetailUser(u)} onEdit={() => setEditUser(u)} />)
+            ) : (
+              fStaff.length === 0 ? <EmptyState query={search} type="staff" /> : fStaff.map((s, i) => <StaffRow key={s.uid} s={s} isLast={i === fStaff.length - 1} checked={selectedStaff.has(s.uid)} onCheck={v => toggleStaff(s.uid, v)} onEdit={() => setEditStaff(s)} />)
+            )}
+          </tbody>
+        </table>
+      </div>
 
-      {/* Staff Table */}
-      {tab === "staff" && (
-        <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 18, boxShadow: C.shadow, overflow: "hidden" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: font }}>
-            <thead><tr style={{ background: "#F8F9FC" }}>
-              <th style={{ padding: "11px 20px", textAlign: "left", borderBottom: `1px solid ${C.border2}` }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  <input ref={headCheckRef} type="checkbox" checked={isAllSelected} onChange={handleSelectAll} style={{ width: 16, height: 16, cursor: "pointer", accentColor: C.blue }} />
-                  <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: C.tx3 }}>Staff</span>
-                </div>
-              </th>
-              {["Email","Role","Outlet","Status","Aksi"].map(h => <th key={h} style={{ padding: "11px 20px", textAlign: "left", fontSize: 11, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: C.tx3, borderBottom: `1px solid ${C.border2}` }}>{h}</th>)}
-            </tr></thead>
-            <tbody>
-              {fStaff.length === 0 ? <EmptyState query={search} type="staff" /> : fStaff.map((s, i) => <StaffRow key={s.uid} s={s} isLast={i === fStaff.length - 1} checked={selectedStaff.has(s.uid)} onCheck={v => toggleStaff(s.uid, v)} onEdit={() => setEditStaff(s)} />)}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/* Modals */}
+      {/* Modals Rendering */}
       {showBatchEdit && <BatchEditModal type={tab} count={selectedCount} storeIds={storeIds} onClose={() => setShowBatchEdit(false)} onSaved={handleBatchEditSave} />}
+      
       {detailUser && !editUser && (
         <MemberDetailModal
           user={detailUser}
           onClose={() => setDetailUser(null)}
           onEdit={() => { setEditUser(detailUser); setDetailUser(null); }}
-          onDeleted={uid => setUsers(p => p.filter(u => u.uid !== uid))}
+          onDeleted={uid => { setDetailUser(null); setSelectedUsers(new Set()); }}
           toast={toast} confirm={confirm}
         />
       )}
+
       {editUser && (
         <EditMemberModal
           user={editUser}
           onClose={() => setEditUser(null)}
-          onSaved={patch => setUsers(p => p.map(u => u.uid === editUser.uid ? { ...u, ...patch } : u))}
-          toast={(msg, type) => toast(msg, type as any)}
-          confirm={(msg, onYes) => confirm({ title: 'Konfirmasi', description: msg, onConfirm: onYes })}
+          onSaved={() => setEditUser(null)}
+          toast={toast}
+          confirm={confirm}
         />
       )}
-      {editStaff && <EditStaffModal staff={editStaff} storeIds={storeIds} onClose={() => setEditStaff(null)} onSaved={patch => setStaff(p => p.map(s => s.uid === editStaff.uid ? { ...s, ...patch } : s))} toast={toast} />}
+
+      {editStaff && (
+        <EditStaffModal 
+          staff={editStaff} 
+          storeIds={storeIds} 
+          onClose={() => setEditStaff(null)} 
+          onSaved={() => setEditStaff(null)} 
+          toast={toast} 
+        />
+      )}
+
       {showCreate && <CreateModal storeIds={storeIds} onClose={() => setShowCreate(false)} toast={toast} />}
 
       {confirmDialog}
