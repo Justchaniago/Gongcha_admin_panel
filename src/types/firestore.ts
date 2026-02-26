@@ -112,3 +112,22 @@ export interface Reward {
 }
 
 export type RewardItem = Reward;
+
+// ─── products/{productId} ───────────────────────────────────────────────────
+export type ProductCategory = 
+  "Signature" | "MilkTea" | "Coffee" | "Matcha" | "Mint" | "BrownSugar" | "CreativeMix" | "BrewedTea" | "Topping";
+
+export interface ProductItem {
+  id?: string;
+  name: string;
+  category: ProductCategory | string;
+  mediumPrice: number;
+  availableLarge: boolean;
+  availableHot: boolean;
+  description: string;
+  image: string;
+  rating: number;
+  isAvailable: boolean; // Tetap ada untuk fitur "Kosong/Tersedia" di Admin
+  createdAt?: string;
+  updatedAt?: string;
+}
