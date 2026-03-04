@@ -122,11 +122,11 @@ export async function POST(req: NextRequest) {
     const log: AdminNotificationLog = {
       type,
       title,
-      body:           bodyText,
+      body:       bodyText,
       targetType,
-      targetUid:      targetUid ?? undefined,
-      targetName:     targetName ?? undefined,
-      sentAt:         now,
+      ...(targetUid  ? { targetUid }  : {}),
+      ...(targetName ? { targetName } : {}),
+      sentAt:     now,
       sentBy,
       recipientCount,
     };
