@@ -12,9 +12,20 @@ async function validateSession() {
   if (!sessionCookie) return { error: "Session not found.", status: 403, token: null };
   try {
     const decoded = await adminAuth.verifySessionCookie(sessionCookie, true);
-    if (!["admin", "master"].includes(decoded.role as string))
+    const uid = decoded.uid as string;
+
+    // Role is stored in Firestore, not JWT claims — always do Firestore lookup
+    let role = (decoded.role as string) ?? "";
+    if (!role) {
+      const userDoc  = await adminDb.collection("users").doc(uid).get();
+      const staffDoc = await adminDb.collection("staff").doc(uid).get();
+      const profile  = userDoc.exists ? userDoc.data() : staffDoc.exists ? staffDoc.data() : null;
+      role = profile?.role ?? "";
+    }
+
+    if (!["admin", "master"].includes(role))
       return { error: "Access denied.", status: 403, token: null };
-    return { error: null, status: 200, token: decoded };
+    return { error: null, status: 200, token: { ...decoded, uid } };
   } catch {
     return { error: "Invalid session.", status: 401, token: null };
   }
