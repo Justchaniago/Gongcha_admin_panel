@@ -4,6 +4,58 @@ import { adminDb } from "@/lib/firebaseServer";
 import { cookies } from "next/headers";
 import { adminAuth } from "@/lib/firebaseAdmin";
 import * as admin from "firebase-admin";
+import { v4 as uuidv4 } from "uuid";
+import type { AdminNotificationLog, UserNotification } from "@/types/firestore";
+
+// ── Notification helper ───────────────────────────────────────────────────────
+async function createTxNotification(
+  memberId: string,
+  action: "verified" | "rejected",
+  txData: FirebaseFirestore.DocumentData,
+  adminUid: string,
+) {
+  if (!memberId) return;
+  try {
+    const notifId = uuidv4();
+    const now     = new Date().toISOString();
+    const txId    = txData.posTransactionId ?? txData.transactionId ?? "";
+    const amount  = `Rp ${(txData.amount ?? 0).toLocaleString("id-ID")}`;
+
+    const title = action === "verified"
+      ? "✅ Transaksi Kamu Diverifikasi!"
+      : "❌ Transaksi Ditolak";
+    const body  = action === "verified"
+      ? `Transaksi ${txId} (${amount}) telah diverifikasi. Poin kamu sudah bertambah!`
+      : `Transaksi ${txId} (${amount}) ditolak. Hubungi kasir jika ada pertanyaan.`;
+
+    const userNotif: UserNotification = {
+      id:        notifId,
+      type:      action === "verified" ? "tx_verified" : "tx_rejected",
+      title,
+      body,
+      isRead:    false,
+      createdAt: now,
+      data:      { txId, amount: txData.amount ?? 0 },
+    };
+    const adminLog: AdminNotificationLog = {
+      type:           action === "verified" ? "tx_verified" : "tx_rejected",
+      title,
+      body,
+      targetType:     "user",
+      targetUid:      memberId,
+      sentAt:         now,
+      sentBy:         adminUid,
+      recipientCount: 1,
+    };
+    await Promise.all([
+      adminDb.collection("users").doc(memberId).collection("notifications").doc(notifId).set(userNotif),
+      adminDb.collection("notifications_log").doc(notifId).set(adminLog),
+    ]);
+  } catch (err) {
+    console.error("[createTxNotification]", err);
+    // Non-fatal — don't let notif failure break the main action
+  }
+}
 
 // ── Auth helper ───────────────────────────────────────────────────────────────
 async function validateSession(req: NextRequest) {
@@ -166,6 +218,9 @@ export async function PATCH(req: NextRequest) {
         verifiedBy
       );
 
+      // 3. Auto-notification to member
+      await createTxNotification(txData.memberId, "verified", txData, verifiedBy);
+
       return NextResponse.json({
         success: true,
         action:  "verified",
@@ -174,6 +229,10 @@ export async function PATCH(req: NextRequest) {
     } else {
       // Reject — just update status, no points
       await txRef.update({ status: "rejected", verifiedAt: now, verifiedBy });
+
+      // Auto-notification to member
+      await createTxNotification(txData.memberId, "rejected", txData, verifiedBy);
+
       return NextResponse.json({ success: true, action: "rejected" });
     }
   } catch (e: any) {
@@ -228,8 +287,10 @@ export async function POST(req: NextRequest) {
             txData.posTransactionId ?? txData.transactionId ?? txSnap.id,
             verifiedBy
           );
+          await createTxNotification(txData.memberId, "verified", txData, verifiedBy);
         } else {
           await txRef.update({ status: "rejected", verifiedAt: now, verifiedBy });
+          await createTxNotification(txData.memberId, "rejected", txData, verifiedBy);
         }
 
         successCount++;

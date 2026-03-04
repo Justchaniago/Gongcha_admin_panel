@@ -3,7 +3,7 @@ import { adminDb } from "@/lib/firebaseServer";
 import * as admin from "firebase-admin";
 import { cookies } from "next/headers";
 import { adminAuth } from "@/lib/firebaseAdmin";
-import { UserVoucher, VoucherType } from "@/types/firestore";
+import { UserVoucher, VoucherType, AdminNotificationLog, UserNotification } from "@/types/firestore";
 import { v4 as uuidv4 } from "uuid";
 
 // Helper validasi session admin/master
@@ -56,6 +56,47 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ uid
     };
     const userRef = adminDb.collection("users").doc(uid);
     await userRef.update({ vouchers: admin.firestore.FieldValue.arrayUnion(voucher) });
+
+    // ── Auto-notification: voucher injected ──────────────────────────────────
+    const now         = new Date().toISOString();
+    const notifId     = uuidv4();
+    const adminUid    = validation.token!.uid as string;
+
+    // Fetch user display name for log
+    let targetName = uid;
+    try {
+      const userSnap = await userRef.get();
+      targetName = userSnap.data()?.name ?? userSnap.data()?.email ?? uid;
+    } catch { /* ignore */ }
+
+    const userNotif: UserNotification = {
+      id:        notifId,
+      type:      "voucher_injected",
+      title:     "🎁 Voucher Baru Untukmu!",
+      body:      `Voucher "${title}" (${code}) telah ditambahkan ke akun kamu. Berlaku hingga ${new Date(expiresAt).toLocaleDateString("id-ID")}.`,
+      isRead:    false,
+      createdAt: now,
+      data:      { voucherId: voucher.id, code, expiresAt },
+    };
+
+    const adminLog: AdminNotificationLog = {
+      type:           "voucher_injected",
+      title:          "🎁 Voucher Baru Untukmu!",
+      body:           userNotif.body,
+      targetType:     "user",
+      targetUid:      uid,
+      targetName,
+      sentAt:         now,
+      sentBy:         adminUid,
+      recipientCount: 1,
+    };
+
+    // Write both in parallel
+    await Promise.all([
+      adminDb.collection("users").doc(uid).collection("notifications").doc(notifId).set(userNotif),
+      adminDb.collection("notifications_log").doc(notifId).set(adminLog),
+    ]);
+
     return NextResponse.json({ success: true, voucher });
   } catch (err: any) {
     console.error("[POST /api/members/[uid]/vouchers]", err);

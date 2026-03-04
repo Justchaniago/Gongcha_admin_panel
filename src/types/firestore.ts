@@ -111,6 +111,39 @@ export interface Reward {
 
 export type RewardItem = Reward;
 
+// ─── notifications_log/{id} + users/{uid}/notifications/{id} ────────────────
+export type NotificationType =
+  | "voucher_injected"
+  | "tx_verified"
+  | "tx_rejected"
+  | "broadcast"
+  | "targeted";
+
+export type NotificationTargetType = "all" | "user";
+
+export interface AdminNotificationLog {
+  id?: string;
+  type: NotificationType;
+  title: string;
+  body: string;
+  targetType: NotificationTargetType;
+  targetUid?: string;
+  targetName?: string;
+  sentAt: string;          // ISO timestamp
+  sentBy: string;          // admin UID
+  recipientCount: number;
+}
+
+export interface UserNotification {
+  id: string;
+  type: NotificationType;
+  title: string;
+  body: string;
+  isRead: boolean;
+  createdAt: string;       // ISO timestamp
+  data?: Record<string, unknown>;
+}
+
 // ─── products/{productId} ───────────────────────────────────────────────────
 export type ProductCategory = 
   "Signature" | "MilkTea" | "Coffee" | "Matcha" | "Mint" | "BrownSugar" | "CreativeMix" | "BrewedTea" | "Topping";
