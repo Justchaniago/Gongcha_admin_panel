@@ -21,6 +21,14 @@ export default async function NotificationsPage() {
     redirect("/login");
   }
 
+  // If token claim missing, fallback to Firestore profile (same pattern as dashboard)
+  if (!role) {
+    const userDoc  = await adminDb.collection("users").doc(uid).get();
+    const staffDoc = await adminDb.collection("staff").doc(uid).get();
+    const profile  = userDoc.exists ? userDoc.data() : staffDoc.exists ? staffDoc.data() : null;
+    role = profile?.role ?? "";
+  }
+
   // Admin + master only
   if (!["admin", "master"].includes(role)) {
     return <UnauthorizedOverlay />;
