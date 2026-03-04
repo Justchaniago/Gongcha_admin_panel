@@ -89,6 +89,26 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // ── /notifications ─────────────────────────────────────────────────────
+    // Flat collection written by Admin SDK; customer app reads its own docs.
+    // Admin panel reads via Admin SDK (bypasses rules).
+    match /notifications/{notifId} {
+      // Customer users can only read their own notifications
+      allow read:   if isSignedIn() && resource.data.userId == request.auth.uid;
+      // Users can mark their own notification as read (update isRead only)
+      allow update: if isSignedIn() &&
+                       resource.data.userId == request.auth.uid &&
+                       request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead']);
+      allow create: if false; // Must use Admin SDK (API route)
+      allow delete: if false;
+    }
+
+    // ── /notifications_log ─────────────────────────────────────────────────
+    // Admin-only log; all access via Admin SDK (API routes).
+    match /notifications_log/{logId} {
+      allow read, write: if false; // Admin SDK only
+    }
+
     // ── Deny everything else ───────────────────────────────────────────────
     match /{document=**} {
       allow read, write: if false;

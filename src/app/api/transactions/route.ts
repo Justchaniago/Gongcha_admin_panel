@@ -48,7 +48,16 @@ async function createTxNotification(
       recipientCount: 1,
     };
     await Promise.all([
-      adminDb.collection("users").doc(memberId).collection("notifications").doc(notifId).set(userNotif),
+      // Write to flat 'notifications' collection — customer app reads from here
+      adminDb.collection("notifications").doc(notifId).set({
+        userId:    memberId,
+        type:      action === "verified" ? "points" : "system", // customer app types
+        title,
+        body,
+        isRead:    false,
+        createdAt: now,
+        data:      userNotif.data,
+      }),
       adminDb.collection("notifications_log").doc(notifId).set(adminLog),
     ]);
   } catch (err) {

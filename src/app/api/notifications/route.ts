@@ -3,7 +3,16 @@ import { adminDb } from "@/lib/firebaseServer";
 import { adminAuth } from "@/lib/firebaseAdmin";
 import { cookies } from "next/headers";
 import { v4 as uuidv4 } from "uuid";
-import type { AdminNotificationLog, NotificationType, UserNotification } from "@/types/firestore";
+import type { AdminNotificationLog, NotificationType } from "@/types/firestore";
+
+// Map admin-side NotificationType to the type values the customer app expects
+function toCustomerType(t: NotificationType): 'gift' | 'points' | 'promo' | 'order' | 'system' {
+  if (t === 'voucher_injected') return 'gift';
+  if (t === 'tx_verified')      return 'points';
+  if (t === 'tx_rejected')      return 'system';
+  if (t === 'broadcast')        return 'promo';
+  return 'system'; // targeted
+}
 
 // Helper: session validation (admin / master only)
 async function validateSession() {
@@ -73,15 +82,7 @@ export async function POST(req: NextRequest) {
     const sentBy   = validation.token!.uid as string;
     const notifId  = uuidv4();
     const type: NotificationType = targetType === "all" ? "broadcast" : "targeted";
-
-    const userNotif: UserNotification = {
-      id:        notifId,
-      type,
-      title,
-      body:      bodyText,
-      isRead:    false,
-      createdAt: now,
-    };
+    const customerType = toCustomerType(type);
 
     let recipientCount = 0;
 
@@ -90,7 +91,7 @@ export async function POST(req: NextRequest) {
       const usersSnap = await adminDb.collection("users").get();
       recipientCount = usersSnap.size;
 
-      // Batch write (Firestore max 500/batch)
+      // Batch write to flat 'notifications' collection (max 400/batch)
       const chunks: FirebaseFirestore.QueryDocumentSnapshot[][] = [];
       for (let i = 0; i < usersSnap.docs.length; i += 400) {
         chunks.push(usersSnap.docs.slice(i, i + 400));
@@ -98,24 +99,30 @@ export async function POST(req: NextRequest) {
       for (const chunk of chunks) {
         const batch = adminDb.batch();
         for (const userDoc of chunk) {
-          const ref = adminDb
-            .collection("users")
-            .doc(userDoc.id)
-            .collection("notifications")
-            .doc(notifId);
-          batch.set(ref, userNotif);
+          // Use composite key so each user gets their own document
+          const ref = adminDb.collection("notifications").doc(`${notifId}_${userDoc.id}`);
+          batch.set(ref, {
+            userId:    userDoc.id,
+            type:      customerType,
+            title,
+            body:      bodyText,
+            isRead:    false,
+            createdAt: now,
+          });
         }
         await batch.commit();
       }
     } else {
-      // Targeted: single user
+      // Targeted: single user — write to flat 'notifications' with userId field
       recipientCount = 1;
-      await adminDb
-        .collection("users")
-        .doc(targetUid)
-        .collection("notifications")
-        .doc(notifId)
-        .set(userNotif);
+      await adminDb.collection("notifications").doc(notifId).set({
+        userId:    targetUid,
+        type:      customerType,
+        title,
+        body:      bodyText,
+        isRead:    false,
+        createdAt: now,
+      });
     }
 
     // Write admin log

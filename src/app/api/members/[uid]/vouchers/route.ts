@@ -91,9 +91,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ uid
       recipientCount: 1,
     };
 
-    // Write both in parallel
+    // Write both in parallel — user notif to flat 'notifications' collection (customer app reads here)
     await Promise.all([
-      adminDb.collection("users").doc(uid).collection("notifications").doc(notifId).set(userNotif),
+      adminDb.collection("notifications").doc(notifId).set({
+        userId:    uid,
+        type:      "gift",             // matches customer app NotificationType
+        title:     userNotif.title,
+        body:      userNotif.body,
+        isRead:    false,
+        createdAt: now,
+        data:      userNotif.data,
+      }),
       adminDb.collection("notifications_log").doc(notifId).set(adminLog),
     ]);
 
