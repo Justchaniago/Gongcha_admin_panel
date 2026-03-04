@@ -130,10 +130,10 @@ export default function SettingsPage() {
         setLoading(false);
         return;
       }
-      if (!res.ok) throw new Error((await res.json()).message ?? "Gagal memuat pengaturan");
+      if (!res.ok) throw new Error((await res.json()).message ?? "Failed to load settings");
       setSettings(await res.json());
     } catch (e: any) {
-      showToast(e.message ?? "Gagal memuat pengaturan", "error");
+      showToast(e.message ?? "Failed to load settings", "error");
     } finally {
       setLoading(false);
     }
@@ -157,12 +157,12 @@ export default function SettingsPage() {
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.message ?? "Gagal menyimpan");
+      if (!res.ok) throw new Error(data.message ?? "Failed to save");
       setSettings(data);
       setDirty(false);
-      showToast("✓ Pengaturan berhasil disimpan!", "success");
+      showToast("✓ Settings saved successfully!", "success");
     } catch (e: any) {
-      showToast(e.message ?? "Gagal menyimpan pengaturan", "error");
+      showToast(e.message ?? "Failed to save settings", "error");
     } finally {
       setSaving(false);
     }
@@ -205,7 +205,7 @@ export default function SettingsPage() {
     return (
       <div style={{ padding:"32px", fontFamily:font, display:"flex", alignItems:"center", gap:12, color:C.tx2 }}>
         <div style={{ width:20, height:20, borderRadius:"50%", border:`2px solid ${C.blue}`, borderTopColor:"transparent", animation:"spin .7s linear infinite" }}/>
-        Memuat pengaturan…
+        Loading settings…
         <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
       </div>
     );
@@ -220,11 +220,11 @@ export default function SettingsPage() {
           <div>
             <h1 style={{ fontSize:24, fontWeight:800, color:C.tx1, margin:0, letterSpacing:"-.02em" }}>Global Settings</h1>
             <p style={{ fontSize:13.5, color:C.tx2, marginTop:6, marginBottom:0 }}>
-              Konfigurasi sistem poin, tier member, dan preferensi notifikasi.
+              Points system, member tiers, and notification preferences configuration.
             </p>
             {settings.updatedAt && (
               <p style={{ fontSize:11, color:C.tx3, marginTop:4, marginBottom:0 }}>
-                Terakhir diperbarui: {new Date(settings.updatedAt).toLocaleString("id-ID")}
+                Last updated: {new Date(settings.updatedAt).toLocaleString("en-US")}
               </p>
             )}
           </div>
@@ -247,7 +247,7 @@ export default function SettingsPage() {
                 cursor: !dirty || saving ? "not-allowed" : "pointer", transition:"all .2s",
               }}
             >
-              {saving ? "Menyimpan…" : dirty ? "💾 Simpan Perubahan" : "✓ Tersimpan"}
+              {saving ? "Saving…" : dirty ? "💾 Save Changes" : "✓ Saved"}
             </button>
           </div>
         </div>
@@ -255,8 +255,8 @@ export default function SettingsPage() {
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
 
           {/* ── Point Config ── */}
-          <Card title="💎 Konfigurasi Poin">
-            <Field label="Poin per Rp 1.000" hint="Setiap Rp 1.000 transaksi = X poin">
+          <Card title="💎 Points Configuration">
+            <Field label="Points per Rp 1,000" hint="Every Rp 1,000 transaction = X points">
               <input
                 type="number" min={1} max={1000}
                 value={settings.pointsPerThousand}
@@ -264,7 +264,7 @@ export default function SettingsPage() {
                 style={inputStyle}
               />
             </Field>
-            <Field label="Minimum Transaksi (Rp)" hint="Transaksi di bawah ini tidak mendapat poin">
+            <Field label="Minimum Transaction (Rp)" hint="Transactions below this amount do not earn points">
               <input
                 type="number" min={0} step={1000}
                 value={settings.minimumTransaction}
@@ -272,32 +272,32 @@ export default function SettingsPage() {
                 style={inputStyle}
               />
             </Field>
-            <Field label="Masa Berlaku Poin">
+            <Field label="Points Validity">
               <select
                 value={settings.pointsExpiry}
                 onChange={e => update("pointsExpiry", e.target.value)}
                 style={{ ...inputStyle, cursor:"pointer" }}
               >
-                <option value="3_months">3 Bulan</option>
-                <option value="6_months">6 Bulan</option>
-                <option value="12_months">12 Bulan</option>
-                <option value="24_months">24 Bulan</option>
-                <option value="never">Tidak Kedaluwarsa</option>
+                <option value="3_months">3 Months</option>
+                <option value="6_months">6 Months</option>
+                <option value="12_months">12 Months</option>
+                <option value="24_months">24 Months</option>
+                <option value="never">Never Expires</option>
               </select>
             </Field>
             <div style={{ padding:"12px 14px", borderRadius:10, background:C.blueL, border:`1px solid #C7D2FE` }}>
-              <p style={{ fontSize:12, fontWeight:700, color:C.blue, margin:0 }}>Preview Kalkulasi</p>
+              <p style={{ fontSize:12, fontWeight:700, color:C.blue, margin:0 }}>Calculation Preview</p>
               <p style={{ fontSize:11.5, color:C.tx2, marginTop:4, marginBottom:0 }}>
-                Transaksi Rp 50.000 → <strong>{Math.floor(50000 / 1000) * settings.pointsPerThousand} poin</strong>
+                Transaction Rp 50,000 → <strong>{Math.floor(50000 / 1000) * settings.pointsPerThousand} points</strong>
               </p>
               <p style={{ fontSize:11.5, color:C.tx2, marginTop:2, marginBottom:0 }}>
-                Minimum transaksi: <strong>Rp {settings.minimumTransaction.toLocaleString("id-ID")}</strong>
+                Minimum transaction: <strong>Rp {settings.minimumTransaction.toLocaleString("en-US")}</strong>
               </p>
             </div>
           </Card>
 
           {/* ── Tier Config ── */}
-          <Card title="🏆 Konfigurasi Tier Member">
+          <Card title="🏆 Member Tier Configuration">
             {tierList.map(({ key, icon, color }) => (
               <div key={key} style={{ marginBottom:16, padding:14, borderRadius:12, border:`1px solid ${C.border}`, background:C.bg }}>
                 <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10 }}>
@@ -306,7 +306,7 @@ export default function SettingsPage() {
                 </div>
                 <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
                   <div>
-                    <label style={{ fontSize:11, fontWeight:600, color:C.tx2, display:"block", marginBottom:4 }}>Min. Lifetime Poin</label>
+                    <label style={{ fontSize:11, fontWeight:600, color:C.tx2, display:"block", marginBottom:4 }}>Min. Lifetime Points</label>
                     <input
                       type="number" min={0}
                       value={settings.tiers[key].minPoints}
@@ -315,12 +315,12 @@ export default function SettingsPage() {
                     />
                   </div>
                   <div>
-                    <label style={{ fontSize:11, fontWeight:600, color:C.tx2, display:"block", marginBottom:4 }}>Bonus Poin</label>
+                    <label style={{ fontSize:11, fontWeight:600, color:C.tx2, display:"block", marginBottom:4 }}>Bonus Points</label>
                     <input
                       type="text"
                       value={settings.tiers[key].bonus}
                       onChange={e => updateTier(key, "bonus", e.target.value)}
-                      placeholder="mis. 10%"
+                      placeholder="e.g. 10%"
                       style={{ ...inputStyle, height:34, fontSize:12.5 }}
                     />
                   </div>
@@ -330,11 +330,11 @@ export default function SettingsPage() {
           </Card>
 
           {/* ── Notifications ── */}
-          <Card title="🔔 Notifikasi Admin">
+          <Card title="🔔 Admin Notifications">
             {([
-              { key:"email"  as const, label:"Email saat ada transaksi pending", sub:"Notifikasi ke email admin" },
-              { key:"push"   as const, label:"Push alert outlet non-aktif",       sub:"Browser notification" },
-              { key:"weekly" as const, label:"Laporan mingguan otomatis",          sub:"Setiap Senin 08:00 WIB" },
+              { key:"email"  as const, label:"Email on pending transaction", sub:"Notification to admin email" },
+              { key:"push"   as const, label:"Push alert inactive outlet",       sub:"Browser notification" },
+              { key:"weekly" as const, label:"Weekly automated report",          sub:"Every Monday 08:00 WIB" },
             ]).map(n => (
               <div key={n.key} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"14px 0", borderBottom:`1px solid ${C.border2}` }}>
                 <div>
@@ -345,7 +345,7 @@ export default function SettingsPage() {
               </div>
             ))}
             <p style={{ fontSize:11, color:C.tx3, marginTop:14, marginBottom:0 }}>
-              Perubahan notifikasi akan aktif setelah disimpan.
+              Notification changes will be active after saving.
             </p>
           </Card>
 
@@ -355,15 +355,15 @@ export default function SettingsPage() {
               {[
                 {
                   id:    "reset_points",
-                  title: "Reset Semua Poin Member",
-                  desc:  "Mengatur ulang currentPoints semua user ke 0. Tidak dapat dibatalkan.",
-                  label: "Reset Poin",
+                  title: "Reset All Member Points",
+                  desc:  "Reset all user currentPoints to 0. Cannot be undone.",
+                  label: "Reset Points",
                 },
                 {
                   id:    "delete_transactions",
-                  title: "Hapus Riwayat Transaksi",
-                  desc:  "Menghapus semua dokumen di subcollection transactions. Permanen.",
-                  label: "Hapus Riwayat",
+                  title: "Delete Transaction History",
+                  desc:  "Deletes all documents in transactions subcollection. Permanent.",
+                  label: "Delete History",
                 },
               ].map((d, i) => (
                 <div key={d.id} style={{ padding:16, borderTop: i > 0 ? "1px solid #FEE2E2" : "none" }}>
@@ -371,12 +371,12 @@ export default function SettingsPage() {
                   <p style={{ fontSize:12, color:"#EF4444", margin:"4px 0 12px" }}>{d.desc}</p>
                   {dangerConfirm === d.id ? (
                     <div style={{ display:"flex", gap:8, alignItems:"center" }}>
-                      <p style={{ fontSize:12, fontWeight:700, color:C.red, margin:0 }}>Yakin? Tindakan ini permanen.</p>
+                      <p style={{ fontSize:12, fontWeight:700, color:C.red, margin:0 }}>Are you sure? This action is permanent.</p>
                       <button
-                        onClick={() => { showToast("Fitur ini memerlukan konfirmasi tambahan dari super admin.", "error"); setDangerConfirm(null); }}
+                        onClick={() => { showToast("This feature requires additional confirmation from super admin.", "error"); setDangerConfirm(null); }}
                         style={{ height:30, padding:"0 12px", borderRadius:8, border:"none", background:C.red, color:"#fff", fontFamily:font, fontSize:12, fontWeight:700, cursor:"pointer" }}
                       >
-                        Ya, Lanjutkan
+                        Yes, Continue
                       </button>
                       <button
                         onClick={() => setDangerConfirm(null)}

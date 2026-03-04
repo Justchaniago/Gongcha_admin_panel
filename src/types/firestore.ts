@@ -90,9 +90,7 @@ export interface Staff {
   isActive:        boolean;
 
   // Lama (tetap ada untuk compat)
-  storeLocation?:  string;
-
-  // Baru (multi-store)
+  // Multi-store
   storeLocations?: string[];
   accessAllStores?: boolean;
 }

@@ -33,8 +33,8 @@ export default async function TransactionsPage() {
     const data = d.data() || {};
     return {
       docId: d.id,
-      docPath: data.docPath ?? "",
-      transactionId: data.transactionId ?? "",
+      docPath: d.ref.path,
+      transactionId: data.posTransactionId ?? data.transactionId ?? "",
       memberName: data.memberName ?? "",
       memberId: data.memberId ?? "",
       staffId: data.staffId ?? "",
@@ -48,5 +48,5 @@ export default async function TransactionsPage() {
     };
   });
 
-  return <TransactionsClient initialTransactions={initialTransactions} />;
+  return <TransactionsClient initialTransactions={initialTransactions} initialRole={role ?? ""} />;
 }

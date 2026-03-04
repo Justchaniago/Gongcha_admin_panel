@@ -30,7 +30,7 @@ export default function LoginPage() {
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
-    if (!email.trim() || !password) { setError("Email dan password wajib diisi."); return; }
+    if (!email.trim() || !password) { setError("Email and password are required."); return; }
     setLoading(true); setError("");
 
     try {
@@ -43,7 +43,7 @@ export default function LoginPage() {
         body: JSON.stringify({ idToken }),
       });
 
-      if (!response.ok) throw new Error("Gagal mencetak sesi di server.");
+      if (!response.ok) throw new Error("Failed to create session on server.");
 
       setSuccess(true);
       setTimeout(() => {
@@ -52,9 +52,9 @@ export default function LoginPage() {
 
     } catch (err: any) {
       if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
-          setError("Email atau password salah.");
+          setError("Incorrect email or password.");
       } else {
-          setError(`Login gagal: ${err.message ?? "Coba lagi."}`);
+          setError(`Login failed: ${err.message ?? "Try again."}`);
       }
       setLoading(false);
     }
@@ -69,7 +69,7 @@ export default function LoginPage() {
               <path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" strokeOpacity=".25"/><path d="M21 12a9 9 0 00-9-9"/>
             </svg>
           </div>
-          <p style={{ fontSize: 13, color: "#4A5065", fontFamily: font, fontWeight: 500 }}>Memeriksa sesi…</p>
+          <p style={{ fontSize: 13, color: "#4A5065", fontFamily: font, fontWeight: 500 }}>Checking session…</p>
         </div>
         <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
       </div>
@@ -119,10 +119,10 @@ export default function LoginPage() {
             <img src="/assets/images/logo1.webp" alt="Gong Cha Logo" style={{ width: 48, height: 48, borderRadius: "12px", objectFit: "cover" }} />
           </div>
           <h1 style={{ fontSize: "26px", fontWeight: 800, color: "#0F1117", letterSpacing: "-.03em", margin: 0, marginBottom: "8px" }}>
-            {success ? "Berhasil masuk! ✓" : "Selamat Datang"}
+            {success ? "Login successful! ✓" : "Welcome"}
           </h1>
           <p style={{ fontSize: "14px", color: "#4A5065", margin: 0, fontWeight: 500 }}>
-            {success ? "Mengalihkan ke dashboard…" : "Masuk ke Dashboard Admin Gong Cha"}
+            {success ? "Redirecting to dashboard…" : "Sign in to Gong Cha Admin Dashboard"}
           </p>
         </div>
 
@@ -193,7 +193,7 @@ export default function LoginPage() {
 
             {/* Submit Button */}
             <button type="submit" disabled={loading} style={{ height: "52px", borderRadius: "14px", border: "none", marginTop: "8px", background: loading ? "#9CA3AF" : "#4361EE", color: "#fff", fontFamily: font, fontSize: "15px", fontWeight: 700, cursor: loading ? "not-allowed" : "pointer", boxShadow: loading ? "none" : "0 8px 20px rgba(67,97,238,.3)", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", transition: "all .2s ease" }}>
-              {loading ? <><svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} style={{ animation: "spin 1s linear infinite" }}><path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" strokeOpacity=".3"/><path d="M21 12a9 9 0 00-9-9"/></svg>Masuk…</> : "Masuk ke Akun"}
+              {loading ? <><svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} style={{ animation: "spin 1s linear infinite" }}><path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" strokeOpacity=".3"/><path d="M21 12a9 9 0 00-9-9"/></svg>Signing in…</> : "Sign In"}
             </button>
           </form>
         )}
@@ -204,7 +204,7 @@ export default function LoginPage() {
             <div style={{ width: "64px", height: "64px", borderRadius: "50%", background: "#12B76A", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 8px 24px rgba(18,183,106,.3)" }}>
               <svg width="28" height="28" fill="none" viewBox="0 0 24 24" stroke="#fff" strokeWidth={3}><path d="M20 6L9 17l-5-5"/></svg>
             </div>
-            <p style={{ fontSize: "15px", color: "#4A5065", textAlign: "center", fontWeight: 700 }}>Autentikasi berhasil!</p>
+            <p style={{ fontSize: "15px", color: "#4A5065", textAlign: "center", fontWeight: 700 }}>Authentication successful!</p>
           </div>
         )}
       </div>

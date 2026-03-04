@@ -30,9 +30,9 @@ export default function SetupUserButton() {
         throw new Error(data.error || "Setup failed");
       }
 
-      setResult(data.message || "Setup berhasil! Memperbarui hak akses...");
+      setResult(data.message || "Setup successful! Updating permissions...");
       
-      // Force Firebase token refresh untuk mendapatkan custom claims (role) baru
+      // Force Firebase token refresh to get new custom claims (role)
       if (auth.currentUser) {
         await reload(auth.currentUser);
         await getIdToken(auth.currentUser, true); // Force refresh token

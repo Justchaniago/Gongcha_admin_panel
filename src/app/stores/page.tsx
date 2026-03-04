@@ -60,7 +60,7 @@ export default async function StoresPage() {
             Store Management
           </h1>
           <p style={{ fontSize: 14, color: '#4A5065', marginTop: 5 }}>
-            Kelola informasi outlet, lokasi GPS, dan status operasional.
+            Manage store information, GPS location, and operational status.
           </p>
         </div>
         <StoresClient initialStores={stores} showAddTrigger />
@@ -69,10 +69,10 @@ export default async function StoresPage() {
       {/* ── STAT ROW ── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 24 }}>
         {[
-          { label: 'Total Outlet', value: stores.length,                                              color: '#4361EE', bg: '#EEF2FF', icon: 'store' },
-          { label: 'Aktif',        value: activeCount,                                                color: '#12B76A', bg: '#ECFDF3', icon: 'check' },
-          { label: 'Nonaktif',     value: inactiveCount,                                              color: '#F04438', bg: '#FEF3F2', icon: 'x'     },
-          { label: 'Dengan GPS',   value: stores.filter(s => s.latitude && s.longitude).length,       color: '#F79009', bg: '#FFFAEB', icon: 'pin'   },
+          { label: 'Total Stores', value: stores.length,                                              color: '#4361EE', bg: '#EEF2FF', icon: 'store' },
+          { label: 'Active',        value: activeCount,                                                color: '#12B76A', bg: '#ECFDF3', icon: 'check' },
+          { label: 'Inactive',     value: inactiveCount,                                              color: '#F04438', bg: '#FEF3F2', icon: 'x'     },
+          { label: 'With GPS',   value: stores.filter(s => s.latitude && s.longitude).length,       color: '#F79009', bg: '#FFFAEB', icon: 'pin'   },
         ].map((s) => (
           <div key={s.label} style={{
             background: '#fff', border: '1px solid #EAECF2',

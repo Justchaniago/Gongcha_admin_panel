@@ -11,12 +11,12 @@ async function validateSession() {
   const cookieStore = await cookies();
   const sessionCookie = cookieStore.get("session")?.value;
   if (!sessionCookie) {
-    return { error: "Session tidak ditemukan. Silakan login ulang.", status: 403 };
+    return { error: "Session not found. Please login again.", status: 403 };
   }
   const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
   const userRole = decodedClaims.role as string;
   if (!["admin", "master"].includes(userRole)) {
-    return { error: "Akses ditolak. Anda tidak memiliki izin.", status: 403 };
+    return { error: "Access denied. You do not have permission.", status: 403 };
   }
   return { token: decodedClaims, userRole, error: null };
 }

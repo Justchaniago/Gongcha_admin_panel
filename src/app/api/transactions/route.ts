@@ -10,7 +10,7 @@ async function validateSession(req: NextRequest) {
   const cookieStore = await cookies();
   const sessionCookie = cookieStore.get("session")?.value;
   if (!sessionCookie) {
-    return { error: "Session tidak ditemukan. Silakan login ulang.", status: 403, token: null };
+    return { error: "Session not found. Please login again.", status: 403, token: null };
   }
   const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
   const userRole = decodedClaims.role as string;
@@ -48,9 +48,9 @@ async function disbursePoints(
       amount:        points,
       type:          "earn",
       status:        "verified",
-      context:       `Transaksi ${txData.transactionId ?? txId}`,
+      context:       `Transaction ${txData.posTransactionId ?? txData.transactionId ?? txId}`,
       location:      txData.storeLocation ?? "",
-      transactionId: txData.transactionId ?? txId,
+      transactionId: txData.posTransactionId ?? txData.transactionId ?? txId,
     };
 
     t.update(memberRef, {
@@ -82,22 +82,26 @@ export async function GET(req: NextRequest) {
     const txs = snap.docs
       .map((d) => {
         const data = d.data();
+        const type = data.type ?? "earn"; // Default to earn if not specified
         return {
           docId:           d.id,
           docPath:         d.ref.path,
-          transactionId:   data.transactionId   ?? "",
+          transactionId:   data.posTransactionId ?? data.transactionId ?? "",
           memberName:      data.memberName       ?? "-",
           memberId:        data.memberId         ?? "",
           staffId:         data.staffId          ?? "",
           storeLocation:   data.storeLocation    ?? "-",
           amount:          data.amount           ?? 0,
           potentialPoints: data.potentialPoints  ?? 0,
+          type:            type,
           status:          data.status           ?? "pending",
           createdAt:       data.createdAt?.toDate?.()?.toISOString() ?? data.createdAt ?? null,
           verifiedAt:      data.verifiedAt?.toDate?.()?.toISOString() ?? data.verifiedAt ?? null,
           verifiedBy:      data.verifiedBy       ?? null,
         };
       })
+      // Filter: only show "earn" (purchase) transactions, exclude "redeem"
+      .filter((tx) => tx.type === "earn")
       // Sort newest-first in memory (avoids needing a Firestore collection-group index)
       .sort((a, b) => {
         const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
@@ -134,14 +138,14 @@ export async function PATCH(req: NextRequest) {
     const txSnap = await txRef.get();
 
     if (!txSnap.exists) {
-      return NextResponse.json({ message: "Transaksi tidak ditemukan." }, { status: 404 });
+      return NextResponse.json({ message: "Transaction not found." }, { status: 404 });
     }
 
     const txData = txSnap.data()!;
 
     if (txData.status !== "pending") {
       return NextResponse.json(
-        { message: `Transaksi sudah berstatus "${txData.status}". Tidak bisa diubah lagi.` },
+        { message: `Transaction already has status "${txData.status}". Cannot be changed.` },
         { status: 409 }
       );
     }
@@ -158,7 +162,7 @@ export async function PATCH(req: NextRequest) {
         txData.memberId,
         txData.potentialPoints ?? 0,
         txData,
-        txSnap.id,
+        txData.posTransactionId ?? txData.transactionId ?? txSnap.id,
         verifiedBy
       );
 
@@ -189,7 +193,7 @@ export async function POST(req: NextRequest) {
     const { docPaths, action } = await req.json();
 
     if (!Array.isArray(docPaths) || docPaths.length === 0) {
-      return NextResponse.json({ message: "docPaths harus berupa array yang tidak kosong." }, { status: 400 });
+      return NextResponse.json({ message: "docPaths must be a non-empty array." }, { status: 400 });
     }
 
     const actionType = action ?? "verify";
@@ -221,7 +225,7 @@ export async function POST(req: NextRequest) {
             txData.memberId,
             txData.potentialPoints ?? 0,
             txData,
-            txSnap.id,
+            txData.posTransactionId ?? txData.transactionId ?? txSnap.id,
             verifiedBy
           );
         } else {
@@ -243,6 +247,68 @@ export async function POST(req: NextRequest) {
     });
   } catch (e: any) {
     console.error("[POST /api/transactions]", e);
+    return NextResponse.json({ message: e.message ?? "Internal server error" }, { status: 500 });
+  }
+}
+
+// ── DELETE — bulk/single delete transactions (admin only) ────────────────────
+export async function DELETE(req: NextRequest) {
+  const validation = await validateSession(req);
+  if (validation.error) {
+    return NextResponse.json({ message: validation.error }, { status: validation.status });
+  }
+
+  if (validation.userRole !== "admin") {
+    return NextResponse.json(
+      { message: "Only admin is allowed to delete transactions." },
+      { status: 403 }
+    );
+  }
+
+  try {
+    const { docPaths } = await req.json();
+    if (!Array.isArray(docPaths) || docPaths.length === 0) {
+      return NextResponse.json(
+        { message: "docPaths must be a non-empty array." },
+        { status: 400 }
+      );
+    }
+
+    let successCount = 0;
+    let skipCount = 0;
+    const errors: string[] = [];
+
+    for (const docPath of docPaths) {
+      try {
+        if (typeof docPath !== "string" || !docPath.trim()) {
+          skipCount++;
+          continue;
+        }
+
+        const txRef = adminDb.doc(docPath);
+        const txSnap = await txRef.get();
+
+        if (!txSnap.exists) {
+          skipCount++;
+          continue;
+        }
+
+        await txRef.delete();
+        successCount++;
+      } catch (e: any) {
+        errors.push(`${docPath}: ${e.message}`);
+      }
+    }
+
+    return NextResponse.json({
+      success: true,
+      successCount,
+      skipCount,
+      errorCount: errors.length,
+      errors: errors.slice(0, 5),
+    });
+  } catch (e: any) {
+    console.error("[DELETE /api/transactions]", e);
     return NextResponse.json({ message: e.message ?? "Internal server error" }, { status: 500 });
   }
 }

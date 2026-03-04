@@ -30,7 +30,7 @@ async function validateAdmin() {
   const sessionCookie = cookieStore.get("session")?.value;
   
   if (!sessionCookie) {
-    return { error: "Sesi tidak ditemukan. Silakan login ulang.", status: 401, token: null };
+    return { error: "Session not found. Please login again.", status: 401, token: null };
   }
   
   const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
@@ -44,7 +44,7 @@ async function validateAdmin() {
 
   const allowedRoles = ["admin", "master"];
   if (!role || !allowedRoles.includes(role)) {
-    return { error: "Akses ditolak. Role Anda tidak diizinkan mengubah pengaturan.", status: 403, token: null };
+    return { error: "Access denied. Your role is not permitted to modify settings.", status: 403, token: null };
   }
   return { token: decodedClaims, error: null, status: 200 };
 }
@@ -90,7 +90,7 @@ export async function PATCH(req: NextRequest) {
     }
 
     if (Object.keys(update).length === 0) {
-      return NextResponse.json({ message: "Tidak ada data valid untuk disimpan." }, { status: 400 });
+      return NextResponse.json({ message: "No valid data to save." }, { status: 400 });
     }
 
     update.updatedAt = new Date().toISOString();

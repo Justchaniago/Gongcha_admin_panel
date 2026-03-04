@@ -29,7 +29,7 @@ export default function InjectVoucherModal({ rewards, onClose, onSuccess }: {
     try {
       const reward = rewards.find(r => r.id === rewardId);
       if (!uid || !rewardId || !code || !expiresAt) {
-        setError('Semua field wajib diisi.'); setLoading(false); return;
+        setError('All fields are required.'); setLoading(false); return;
       }
       const res = await fetch(`/api/members/${uid}/vouchers`, {
         method: 'POST',
@@ -41,8 +41,8 @@ export default function InjectVoucherModal({ rewards, onClose, onSuccess }: {
           expiresAt,
         }),
       });
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message ?? 'Gagal suntik voucher.');
-      onSuccess('Voucher berhasil disuntikkan ke user!');
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message ?? 'Failed to inject voucher.');
+      onSuccess('Voucher successfully injected to user!');
     } catch (e: any) {
       setError(e.message);
       setLoading(false);
@@ -53,34 +53,34 @@ export default function InjectVoucherModal({ rewards, onClose, onSuccess }: {
     <div onClick={e => { if (e.target === e.currentTarget) onClose(); }}
       style={{ position: 'fixed', inset: 0, zIndex: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(10,12,20,.52)', backdropFilter: 'blur(8px)' }}>
       <div style={{ background: C.white, borderRadius: 22, width: '100%', maxWidth: 420, boxShadow: C.shadowLg, padding: '32px 28px', fontFamily: font }}>
-        <h2 style={{ fontSize: 20, fontWeight: 800, color: C.tx1, marginBottom: 18 }}>Suntik Voucher ke User</h2>
+        <h2 style={{ fontSize: 20, fontWeight: 800, color: C.tx1, marginBottom: 18 }}>Inject Voucher to User</h2>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>
             <FL required>UID User</FL>
-            <GcInput placeholder="Masukkan UID user" value={uid} onChange={e => setUid(e.target.value)} />
+            <GcInput placeholder="Enter user UID" value={uid} onChange={e => setUid(e.target.value)} />
           </div>
           <div>
-            <FL required>Pilih Voucher (Reward)</FL>
+            <FL required>Select Voucher (Reward)</FL>
             <GcSelect value={rewardId} onChange={e => setRewardId(e.target.value)}>
-              <option value="">Pilih reward…</option>
+              <option value="">Select reward...</option>
               {rewards.map(r => (
                 <option key={r.id} value={r.id}>{r.title}</option>
               ))}
             </GcSelect>
           </div>
           <div>
-            <FL required>Kode Voucher</FL>
-            <GcInput placeholder="Kode unik voucher" value={code} onChange={e => setCode(e.target.value)} />
+            <FL required>Voucher Code</FL>
+            <GcInput placeholder="Unique voucher code" value={code} onChange={e => setCode(e.target.value)} />
           </div>
           <div>
-            <FL required>Tanggal Kadaluarsa</FL>
+            <FL required>Expiration Date</FL>
             <GcInput type="date" value={expiresAt} onChange={e => setExpiresAt(e.target.value)} />
           </div>
           {error && <div style={{ color: C.red, fontSize: 13, marginTop: 6 }}>{error}</div>}
         </div>
         <div style={{ display: 'flex', gap: 10, marginTop: 24, justifyContent: 'flex-end' }}>
-          <button onClick={onClose} style={{ height: 40, padding: '0 20px', borderRadius: 9, border: `1.5px solid ${C.border}`, background: C.white, color: C.tx2, fontFamily: font, fontSize: 13.5, fontWeight: 600, cursor: 'pointer' }}>Batal</button>
-          <button onClick={handleInject} disabled={loading} style={{ height: 40, padding: '0 22px', borderRadius: 9, border: 'none', background: loading ? '#9ca3af' : C.purple, color: '#fff', fontFamily: font, fontSize: 13.5, fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer', transition: 'all .15s' }}>{loading ? 'Menyuntik…' : 'Suntik Voucher'}</button>
+          <button onClick={onClose} style={{ height: 40, padding: '0 20px', borderRadius: 9, border: `1.5px solid ${C.border}`, background: C.white, color: C.tx2, fontFamily: font, fontSize: 13.5, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
+          <button onClick={handleInject} disabled={loading} style={{ height: 40, padding: '0 22px', borderRadius: 9, border: 'none', background: loading ? '#9ca3af' : C.purple, color: '#fff', fontFamily: font, fontSize: 13.5, fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer', transition: 'all .15s' }}>{loading ? 'Injecting...' : 'Inject Voucher'}</button>
         </div>
       </div>
     </div>

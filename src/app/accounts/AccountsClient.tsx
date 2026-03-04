@@ -227,7 +227,7 @@ function CreateAccountModal({ onClose, onCreated }: { onClose: () => void; onCre
 
   return (
     <Modal onClose={onClose}>
-      <MHead eyebrow="Akun Baru" title="Tambah Akun" onClose={onClose} />
+      <MHead eyebrow="New Account" title="Add Account" onClose={onClose} />
       <MBody>
         <SL>Document ID</SL>
         <div style={{ marginBottom: 22 }}>
@@ -299,7 +299,7 @@ function EditAccountModal({ account, onClose, onSaved }: {
   const [error, setError]     = useState("");
 
   async function save() {
-    if (!form.name.trim()) { setError("Nama tidak boleh kosong."); return; }
+    if (!form.name.trim()) { setError("Name cannot be empty."); return; }
     setLoading(true); setError("");
     try {
       const r = await fetch(`/api/accounts/${account.id}`, {
@@ -323,7 +323,7 @@ function EditAccountModal({ account, onClose, onSaved }: {
 
   return (
     <Modal onClose={onClose}>
-      <MHead eyebrow="Edit Akun" title={account.name} onClose={onClose} />
+      <MHead eyebrow="Edit Account" title={account.name} onClose={onClose} />
       <MBody>
         <SL>Informasi Akun</SL>
         <div style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 22 }}>
@@ -355,7 +355,7 @@ function EditAccountModal({ account, onClose, onSaved }: {
       </MBody>
       <MFoot>
         <GcBtn variant="ghost" onClick={onClose}>Batal</GcBtn>
-        <GcBtn variant="primary" onClick={save} disabled={loading}>{loading ? "Menyimpan…" : "Simpan"}</GcBtn>
+        <GcBtn variant="primary" onClick={save} disabled={loading}>{loading ? "Saving…" : "Save"}</GcBtn>
       </MFoot>
     </Modal>
   );
@@ -403,7 +403,7 @@ function DetailAccountModal({ account, onClose, onEdit }: {
       </MBody>
       <MFoot>
         <GcBtn variant="ghost" onClick={onClose}>Tutup</GcBtn>
-        <GcBtn variant="blue" onClick={onEdit}>Edit Akun</GcBtn>
+        <GcBtn variant="blue" onClick={onEdit}>Edit Account</GcBtn>
       </MFoot>
     </Modal>
   );
@@ -446,7 +446,7 @@ function AccountRow({ acc, isLast, onDetail, onEdit, onDelete }: {
         <div style={{ display: "flex", gap: 6 }}>
           <ActionBtn onClick={onDetail} label="Detail" />
           <ActionBtn onClick={onEdit}   label="Edit"   />
-          <ActionBtn onClick={onDelete} label="Hapus"  danger />
+          <ActionBtn onClick={onDelete} label="Delete"  danger />
         </div>
       </td>
     </tr>
@@ -503,8 +503,8 @@ export default function AccountsClient({ initialAccounts }: { initialAccounts: A
     try {
       const r = await fetch(`/api/accounts/${deleteAcc.id}`, { method: "DELETE" });
       const data = await r.json();
-      if (!r.ok) throw new Error(data.message ?? "Gagal menghapus akun.");
-      showToast("Akun berhasil dihapus.");
+      if (!r.ok) throw new Error(data.message ?? "Failed to delete account.");
+      showToast("Account successfully deleted.");
     } catch (e) {
       showToast(String(e), "error");
     } finally {
@@ -537,7 +537,7 @@ export default function AccountsClient({ initialAccounts }: { initialAccounts: A
         </div>
         <GcBtn variant="blue" onClick={() => setShowCreate(true)}>
           <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
-          Tambah Akun
+          Add Account
         </GcBtn>
       </div>
 
@@ -583,7 +583,7 @@ export default function AccountsClient({ initialAccounts }: { initialAccounts: A
         {/* Search */}
         <div style={{ display: "flex", alignItems: "center", gap: 8, height: 40, padding: "0 13px", minWidth: 240, background: C.white, border: `1.5px solid ${sf ? C.blue : C.border}`, borderRadius: 10, transition: "all .14s", boxShadow: sf ? "0 0 0 3px rgba(67,97,238,.1)" : "none" }}>
           <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke={C.tx3} strokeWidth={2.2}><circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" /></svg>
-          <input style={{ flex: 1, border: "none", background: "transparent", outline: "none", fontFamily: font, fontSize: 13.5, color: C.tx1 }} placeholder="Cari akun…" value={search} onChange={e => setSearch(e.target.value)} onFocus={() => setSF(true)} onBlur={() => setSF(false)} />
+          <input style={{ flex: 1, border: "none", background: "transparent", outline: "none", fontFamily: font, fontSize: 13.5, color: C.tx1 }} placeholder="Search account…" value={search} onChange={e => setSearch(e.target.value)} onFocus={() => setSF(true)} onBlur={() => setSF(false)} />
           {search && <button onClick={() => setSearch("")} style={{ background: "none", border: "none", cursor: "pointer", color: C.tx3, fontSize: 15, padding: 0 }}>✕</button>}
         </div>
       </div>
@@ -592,9 +592,9 @@ export default function AccountsClient({ initialAccounts }: { initialAccounts: A
       <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 18, boxShadow: C.shadow, overflow: "hidden" }}>
         {filtered.length === 0 ? (
           <div style={{ padding: "60px 24px", textAlign: "center" }}>
-            <p style={{ fontSize: 15, fontWeight: 700, color: C.tx1, marginBottom: 6 }}>Tidak ada akun</p>
+            <p style={{ fontSize: 15, fontWeight: 700, color: C.tx1, marginBottom: 6 }}>No accounts</p>
             <p style={{ fontSize: 13, color: C.tx3 }}>
-              {syncStatus === "connecting" ? "Memuat data…" : search || roleF !== "All" || statusF !== "All" ? "Tidak ada yang cocok dengan filter." : "Belum ada akun terdaftar."}
+              {syncStatus === "connecting" ? "Loading data…" : search || roleF !== "All" || statusF !== "All" ? "No matches for filters." : "No registered accounts yet."}
             </p>
           </div>
         ) : (
@@ -640,8 +640,8 @@ export default function AccountsClient({ initialAccounts }: { initialAccounts: A
       )}
       {deleteAcc && (
         <ConfirmDialog
-          title="Hapus Akun?"
-          message={`Akun "${deleteAcc.name}" akan dihapus permanen. Tindakan ini tidak dapat diurungkan.`}
+          title="Delete Account?"
+          message={`Account "${deleteAcc.name}" will be permanently deleted. This action cannot be undone.`}
           onConfirm={confirmDelete}
           onCancel={() => setDeleteAcc(null)}
         />

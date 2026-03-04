@@ -60,7 +60,7 @@ export default async function RewardsPage() {
           Voucher & Rewards
         </h1>
         <p style={{ fontSize: "14px", color: "#8C91AC", fontFamily: "'Instrument Sans', sans-serif", margin: 0 }}>
-          Kelola katalog hadiah, harga poin, dan ketersediaan voucher untuk member.
+          Manage reward catalog, points pricing, and voucher availability for members.
         </p>
       </div>
 

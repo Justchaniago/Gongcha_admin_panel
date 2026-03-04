@@ -24,8 +24,7 @@ type StaffWithUid = Staff & {
 
 function normalizeStoreAccess(s: StaffWithUid): { storeLocations: string[]; accessAllStores: boolean } {
   if (s.accessAllStores) return { storeLocations: [], accessAllStores: true };
-  if (s.storeLocations?.length) return { storeLocations: s.storeLocations, accessAllStores: false };
-  return { storeLocations: s.storeLocation ? [s.storeLocation] : [], accessAllStores: false };
+  return { storeLocations: s.storeLocations || [], accessAllStores: false };
 }
 type TabType   = "member" | "staff";
 type ToastType = "success" | "error" | "info";
@@ -202,8 +201,8 @@ function EmptyState({ query, type }: { query: string; type: TabType }) {
     <tr><td colSpan={8} style={{ padding: "56px 0", textAlign: "center" }}>
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
         <div style={{ width: 52, height: 52, borderRadius: 16, background: C.bg, border: `1.5px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24 }}>{query ? "🔍" : "👥"}</div>
-        <p style={{ fontSize: 14, fontWeight: 700, color: C.tx1 }}>{query ? "Tidak ada hasil" : `Belum ada ${type === "member" ? "member" : "staff"}`}</p>
-        <p style={{ fontSize: 12.5, color: C.tx3 }}>{query ? `Tidak ada akun yang cocok dengan "${query}"` : "Tambah akun untuk memulai"}</p>
+        <p style={{ fontSize: 14, fontWeight: 700, color: C.tx1 }}>{query ? "No results" : `No ${type === "member" ? "members" : "staff"} yet`}</p>
+        <p style={{ fontSize: 12.5, color: C.tx3 }}>{query ? `No accounts match "${query}"` : "Add account to get started"}</p>
       </div>
     </td></tr>
   );
@@ -303,7 +302,7 @@ function EditPointsModal({
   function handleSave() {
     if (!isValid) return;
     confirm({
-      title: "Konfirmasi Edit Poin",
+      title: "Confirm Points Edit",
       description: `Poin aktif ${user.name} akan diubah menjadi ${pointsNum.toLocaleString("id")} dan Lifetime XP menjadi ${lifetimeNum.toLocaleString("id")}.`,
       confirmLabel: "Simpan Perubahan",
       onConfirm: async () => {
@@ -314,7 +313,7 @@ function EditPointsModal({
           onSaved({ currentPoints: pointsNum, lifetimePoints: lifetimeNum });
           onClose();
         } catch (e: any) {
-          setError(e.message ?? "Gagal menyimpan perubahan poin.");
+          setError(e.message ?? "Failed to save points changes.");
         } finally { setLoading(false); }
       },
     });
@@ -325,7 +324,7 @@ function EditPointsModal({
 
   return (
     <Modal onClose={onClose} maxW={460}>
-      <MHead eyebrow="Edit Poin" title={user.name ?? "—"} onClose={onClose} />
+      <MHead eyebrow="Edit Points" title={user.name ?? "—"} onClose={onClose} />
       <MBody>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 22 }}>
           {[
@@ -388,9 +387,9 @@ function MemberDetailModal({
 
   function handleDelete() {
     confirm({
-      title: "Hapus Akun Member",
-      description: `Akun "${localUser.name}" akan dihapus permanen. Data poin, voucher, dan riwayat XP tidak dapat dikembalikan.`,
-      confirmLabel: "Hapus Akun", danger: true,
+      title: "Delete Member Account",
+      description: `Account "${localUser.name}" will be permanently deleted. Points, vouchers, and XP history cannot be restored.`,
+      confirmLabel: "Delete Account", danger: true,
       onConfirm: async () => {
         await deleteAccountAction(localUser.uid, 'users');
         toast(`Akun ${localUser.name} berhasil dihapus.`, "success");
@@ -431,7 +430,7 @@ function MemberDetailModal({
             <button type="button" onClick={() => setShowEditPoints(true)}
               style={{ width: "100%", height: 34, borderRadius: 8, border: `1.5px dashed ${C.blue}`, background: C.blueL, color: C.blue, fontFamily: font, fontSize: 12.5, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, transition: "all .13s" }}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-              Edit Poin & Lifetime XP
+              Edit Points & Lifetime XP
             </button>
           </div>
 
@@ -452,7 +451,7 @@ function MemberDetailModal({
         <MFoot>
           <GcBtn variant="ghost"  onClick={onClose}>Tutup</GcBtn>
           <GcBtn variant="blue"   onClick={onEdit}>Edit Member</GcBtn>
-          <GcBtn variant="danger" onClick={handleDelete}>Hapus Akun</GcBtn>
+          <GcBtn variant="danger" onClick={handleDelete}>Delete Account</GcBtn>
         </MFoot>
       </Modal>
 
@@ -500,14 +499,14 @@ function EditMemberModal({
         onSaved({ ...form, tier: form.tier as UserTier, role: form.role as UserRole });
         onClose();
       } catch (e: any) {
-        setError(e.message ?? "Gagal menyimpan perubahan.");
+        setError(e.message ?? "Failed to save changes.");
       } finally { setLoading(false); }
     }
 
     return (
       <>
         <Modal onClose={onClose} maxW={520}>
-          <MHead eyebrow="Edit Akun" title="Edit Member" onClose={onClose} />
+          <MHead eyebrow="Edit Account" title="Edit Member" onClose={onClose} />
           <MBody>
             <SL>Informasi Member</SL>
             <div style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 22 }}>
@@ -574,13 +573,13 @@ function EditStaffModal({ staff, storeIds, onClose, onSaved, toast }: {
       toast(`${form.name} berhasil diperbarui.`, "success");
       onSaved({ name: form.name, role: form.role as StaffRole, storeLocations: form.storeLocations, accessAllStores: form.accessAllStores, isActive: form.isActive });
       onClose();
-    } catch (e: any) { setError(e.message ?? "Gagal menyimpan perubahan."); }
+    } catch (e: any) { setError(e.message ?? "Failed to save changes."); }
     finally { setLoading(false); }
   }
 
   return (
     <Modal onClose={onClose}>
-      <MHead eyebrow="Edit Akun" title="Edit Staff" onClose={onClose} />
+      <MHead eyebrow="Edit Account" title="Edit Staff" onClose={onClose} />
       <MBody>
         <SL>Informasi Staff</SL>
         <div style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 22 }}>
@@ -697,11 +696,11 @@ function CreateModal({ storeIds, onClose, toast }: { storeIds: string[]; onClose
       
       await createAccountAction(payload, type);
       toast(`Akun ${form.name} berhasil dibuat.`, "success"); onClose();
-    } catch (e: any) { setError(e.message ?? "Gagal membuat akun."); } finally { setLoading(false); }
+    } catch (e: any) { setError(e.message ?? "Failed to create account."); } finally { setLoading(false); }
   }
   return (
     <Modal onClose={onClose}>
-      <MHead eyebrow="Akun Baru" title="Tambah Akun" onClose={onClose} />
+      <MHead eyebrow="New Account" title="Add Account" onClose={onClose} />
       <MBody>
         <div style={{ display: "flex", background: C.bg, border: `1.5px solid ${C.border}`, borderRadius: 12, padding: 4, marginBottom: 22 }}>
           {(["member","staff"] as const).map(t => (
@@ -937,9 +936,9 @@ export default function MembersClient({ initialUsers, initialStaff, storeIds }: 
   function handleBatchDelete() {
     const ids = Array.from(tab === "member" ? selectedUsers : selectedStaff);
     confirm({
-      title: `Hapus ${ids.length} Akun`, 
-      description: `${ids.length} akun akan dihapus secara permanen. Tindakan ini tidak dapat dibatalkan.`,
-      confirmLabel: `Hapus ${ids.length} Akun`, danger: true,
+      title: `Delete ${ids.length} Accounts`, 
+      description: `${ids.length} accounts will be permanently deleted. This action cannot be undone.`,
+      confirmLabel: `Delete ${ids.length} Accounts`, danger: true,
       onConfirm: async () => {
         setBatchDeleting(true);
         try {
@@ -948,7 +947,7 @@ export default function MembersClient({ initialUsers, initialStaff, storeIds }: 
           toast(`${ids.length} akun berhasil dihapus.`, "success");
           tab === "member" ? setSelectedUsers(new Set()) : setSelectedStaff(new Set());
         } catch (e: any) {
-          toast(e.message ?? "Sebagian akun gagal dihapus.", "error");
+          toast(e.message ?? "Some accounts failed to delete.", "error");
         } finally { setBatchDeleting(false); }
       },
     });
@@ -962,7 +961,7 @@ export default function MembersClient({ initialUsers, initialStaff, storeIds }: 
       toast(`${ids.length} akun berhasil diperbarui.`, "success");
       setShowBatchEdit(false);
       tab === "member" ? setSelectedUsers(new Set()) : setSelectedStaff(new Set());
-    } catch (e: any) { throw new Error(e.message ?? "Gagal memperbarui akun."); }
+    } catch (e: any) { throw new Error(e.message ?? "Failed to update account."); }
   }
 
   const stats = useMemo(() => ({ totalMembers: users.length, platinum: users.filter(u => u.tier === "Platinum").length, gold: users.filter(u => u.tier === "Gold").length, activeStaff: staff.filter(s => s.isActive).length }), [users, staff]);
@@ -984,7 +983,7 @@ export default function MembersClient({ initialUsers, initialStaff, storeIds }: 
           </GcBtn>
           <GcBtn variant="blue" onClick={() => setShowCreate(true)}>
             <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
-            Tambah Akun
+            Add Account
           </GcBtn>
         </div>
       </div>
@@ -1020,7 +1019,7 @@ export default function MembersClient({ initialUsers, initialStaff, storeIds }: 
           <div style={{ display: "flex", alignItems: "center", gap: 10, background: C.blueL, border: `1px solid rgba(67,97,238,.25)`, padding: "6px 12px 6px 16px", borderRadius: 10, animation: "gcFadeIn .2s ease" }}>
             <span style={{ fontSize: 13, fontWeight: 700, color: C.blue }}>{selectedCount} dipilih</span>
             <div style={{ width: 1, height: 16, background: "rgba(67,97,238,.2)" }} />
-            <GcBtn variant="ghost" onClick={() => setShowBatchEdit(true)} style={{ height: 32, background: C.white, borderColor: "rgba(67,97,238,.3)", color: C.blue }}>✏️ Edit Sekaligus</GcBtn>
+            <GcBtn variant="ghost" onClick={() => setShowBatchEdit(true)} style={{ height: 32, background: C.white, borderColor: "rgba(67,97,238,.3)", color: C.blue }}>✏️ Bulk Edit</GcBtn>
             <GcBtn variant="danger" onClick={handleBatchDelete} disabled={batchDeleting} style={{ height: 32, padding: "0 14px" }}>{batchDeleting ? "Menghapus…" : "🗑 Hapus"}</GcBtn>
           </div>
         ) : (

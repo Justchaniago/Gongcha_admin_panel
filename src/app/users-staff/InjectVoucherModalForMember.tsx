@@ -57,7 +57,7 @@ export default function InjectVoucherModalForMember({ uid, onClose, onSuccess }:
     setLoading(true); setError('');
     try {
       if (!uid || typeof uid !== 'string' || uid.trim() === '') {
-        setError('UID user tidak ditemukan. Silakan tutup dan buka ulang form.');
+        setError('User UID not found. Please close and reopen form.');
         setLoading(false);
         // Debug log
         // eslint-disable-next-line no-console

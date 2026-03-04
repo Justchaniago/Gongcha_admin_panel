@@ -1,9 +1,9 @@
 import * as admin from "firebase-admin";
 
-// Singleton — pastikan hanya init sekali saat Next.js server start
+// Singleton — ensure only init once when Next.js server starts
 if (!admin.apps.length) {
-  // Di production (Vercel), simpan service account sebagai env var JSON string
-  // Di local dev, baca dari file path
+  // In production (Vercel), save service account as env var JSON string
+  // In local dev, read from file path
   const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_JSON
     ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON)
     : (() => {

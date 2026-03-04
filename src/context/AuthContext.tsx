@@ -63,12 +63,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => unsubscribe();
   }, []);
 
-  // 2. Fungsi Logout yang Bersih
+  // 2. Clean Logout function
   async function handleLogout() {
     try {
-      await auth.signOut(); // Hapus sesi client
-      await fetch('/api/auth/logout', { method: 'POST' }); // Hapus cookie server
-      window.location.href = "/login"; // Force reload ke login
+      await auth.signOut(); // clear client session
+      await fetch('/api/auth/logout', { method: 'POST' }); // clear server cookie
+      window.location.href = "/login"; // force reload to login
     } catch (error) {
       console.error("Logout error:", error);
     }
@@ -91,7 +91,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     );
   }
 
-  // KITA HAPUS "if (!user) return null;" DI SINI AGAR APLIKASI BISA MERENDER HALAMAN LOGIN!
+  // We remove "if (!user) return null;" here so the app can render the login page!
 
   return (
     <Ctx.Provider value={{ user, loading: false, logout: handleLogout }}>

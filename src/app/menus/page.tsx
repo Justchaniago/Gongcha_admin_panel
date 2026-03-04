@@ -30,7 +30,7 @@ export default async function MenusPage() {
     return <UnauthorizedOverlay />;
   }
 
-  // Fetch dari collection "products"
+  // Fetch from collection "products"
   const snapshot = await adminDb.collection("products").get();
   const menus = snapshot.docs.map(doc => ({
     id: doc.id,
@@ -55,7 +55,7 @@ export default async function MenusPage() {
             Product Management
           </h1>
           <p style={{ fontSize: 14, color: '#4A5065', marginTop: 5 }}>
-            Kelola daftar minuman, harga, dan ketersediaan di Showcase Menu App.
+            Manage beverage list, pricing, and availability in Showcase Menu App.
           </p>
         </div>
         <MenusClient initialMenus={menus} showAddTrigger />
@@ -63,9 +63,9 @@ export default async function MenusPage() {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 24 }}>
         {[
-          { label: 'Total Produk', value: menus.length, color: '#4361EE', bg: '#EEF2FF', icon: 'menu' },
-          { label: 'Tersedia', value: availableCount, color: '#12B76A', bg: '#ECFDF3', icon: 'check' },
-          { label: 'Kosong/Nonaktif', value: unavailableCount, color: '#F04438', bg: '#FEF3F2', icon: 'x' },
+          { label: 'Total Products', value: menus.length, color: '#4361EE', bg: '#EEF2FF', icon: 'menu' },
+          { label: 'Available', value: availableCount, color: '#12B76A', bg: '#ECFDF3', icon: 'check' },
+          { label: 'Out of Stock/Inactive', value: unavailableCount, color: '#F04438', bg: '#FEF3F2', icon: 'x' },
         ].map((s) => (
           <div key={s.label} style={{
             background: '#fff', border: '1px solid #EAECF2',

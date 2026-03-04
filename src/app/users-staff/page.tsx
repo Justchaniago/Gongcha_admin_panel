@@ -64,7 +64,6 @@ export default async function UsersStaffPage() {
       email: data.email ?? "",
       role: data.role ?? "cashier",
       isActive: data.isActive ?? true,
-      storeLocation: data.storeLocation ?? "",
       storeLocations: data.storeLocations ?? [],
       accessAllStores: data.accessAllStores ?? false,
     };

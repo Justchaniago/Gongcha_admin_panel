@@ -48,7 +48,7 @@ const compressImageToWebP = (file: File, maxWidth = 800, maxHeight = 800, qualit
       const ctx = canvas.getContext("2d");
       
       if (!ctx) {
-        reject(new Error("Gagal menginisialisasi Canvas API"));
+        reject(new Error("Failed to initialize Canvas API"));
         return;
       }
 
@@ -57,13 +57,13 @@ const compressImageToWebP = (file: File, maxWidth = 800, maxHeight = 800, qualit
       canvas.toBlob(
         (blob) => {
           if (blob) resolve(blob);
-          else reject(new Error("Gagal mengonversi gambar"));
+          else reject(new Error("Failed to convert image"));
         },
         "image/webp",
         quality
       );
     };
-    img.onerror = () => reject(new Error("Gagal membaca file gambar"));
+    img.onerror = () => reject(new Error("Failed to read image file"));
   });
 };
 
@@ -83,7 +83,7 @@ function StatusPill({ active }: { active: boolean }) {
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 11px', borderRadius: 99, background: active ? C.greenBg : C.border2, color: active ? '#027A48' : C.tx3, fontSize: 11, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase' }}>
       <span style={{ width: 5, height: 5, borderRadius: '50%', background: active ? C.green : C.tx4 }}/>
-      {active ? 'Tersedia' : 'Kosong'}
+      {active ? 'Available' : 'Out of Stock'}
     </span>
   );
 }
@@ -146,7 +146,7 @@ function DeleteModal({ menu, onClose, onDeleted }: { menu: ProductWithId; onClos
     setLoading(true); setError('');
     try {
       await deleteMenu(menu.id);
-      onDeleted(`"${menu.name}" berhasil dihapus.`);
+      onDeleted(`"${menu.name}" successfully deleted.`);
       onClose();
     } catch (e: any) { setError(e.message); setLoading(false); }
   }
@@ -157,14 +157,14 @@ function DeleteModal({ menu, onClose, onDeleted }: { menu: ProductWithId; onClos
         <div style={{ width: 52, height: 52, borderRadius: 14, background: C.redBg, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 18 }}>
           <svg width="24" height="24" fill="none" viewBox="0 0 24 24" stroke={C.red} strokeWidth={2}><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
         </div>
-        <h2 style={{ fontSize: 20, fontWeight: 800, color: C.tx1, marginBottom: 8 }}>Hapus Produk?</h2>
-        <p style={{ fontSize: 13.5, color: C.tx2, lineHeight: 1.6, marginBottom: 6 }}>Menu <strong>"{menu.name}"</strong> akan dihapus permanen dari Firestore (koleksi products).</p>
+        <h2 style={{ fontSize: 20, fontWeight: 800, color: C.tx1, marginBottom: 8 }}>Delete Product?</h2>
+        <p style={{ fontSize: 13.5, color: C.tx2, lineHeight: 1.6, marginBottom: 6 }}>Product <strong>"{menu.name}"</strong> will be permanently deleted from Firestore.</p>
         <code style={{ fontSize: 11, color: C.tx3, background: C.bg, padding: '4px 8px', borderRadius: 6, display: 'inline-block', marginBottom: 18 }}>ID: {menu.id}</code>
         {error && <div style={{ padding: '10px 14px', background: C.redBg, border: '1px solid #FECDD3', borderRadius: 9, fontSize: 12.5, color: '#B42318', marginBottom: 14 }}>{error}</div>}
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-          <button onClick={onClose} style={{ height: 40, padding: '0 20px', borderRadius: 9, border: `1.5px solid ${C.border}`, background: C.white, color: C.tx2, fontFamily: font, fontSize: 13.5, fontWeight: 600, cursor: 'pointer' }}>Batal</button>
+          <button onClick={onClose} style={{ height: 40, padding: '0 20px', borderRadius: 9, border: `1.5px solid ${C.border}`, background: C.white, color: C.tx2, fontFamily: font, fontSize: 13.5, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
           <button onClick={confirm} disabled={loading} style={{ height: 40, padding: '0 20px', borderRadius: 9, border: 'none', background: loading ? '#fca5a5' : C.red, color: '#fff', fontFamily: font, fontSize: 13.5, fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer' }}>
-            {loading ? 'Menghapus…' : 'Ya, Hapus'}
+            {loading ? 'Deleting…' : 'Yes, Delete'}
           </button>
         </div>
       </div>
@@ -221,7 +221,7 @@ function MenuModal({ menu, onClose, onSaved }: {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Batas file asli sebelum kompresi diubah menjadi 15MB
+    // Original file size limit before compression changed to 15MB
     if (file.size > 15 * 1024 * 1024) {
       setError("Ukuran gambar asli maksimal 15MB.");
       return;
@@ -231,7 +231,7 @@ function MenuModal({ menu, onClose, onSaved }: {
     setProcessingImage(true);
 
     try {
-      // 1. Kompres dan convert ke WebP (Max 800px, 80% quality)
+      // 1. Compress and convert to WebP (Max 800px, 80% quality)
       const compressedBlob = await compressImageToWebP(file, 800, 800, 0.8);
       
       // 2. Upload blob WebP ke Firebase Storage
@@ -248,7 +248,7 @@ function MenuModal({ menu, onClose, onSaved }: {
           setUploadProgress(prog);
         },
         (err) => {
-          setError("Gagal upload gambar: " + err.message);
+          setError("Failed to upload image: " + err.message);
           setUploadProgress(null);
         },
         async () => {
@@ -258,15 +258,15 @@ function MenuModal({ menu, onClose, onSaved }: {
         }
       );
     } catch (err: any) {
-      setError(err.message || "Gagal memproses gambar");
+      setError(err.message || "Failed to process image");
       setProcessingImage(false);
     }
   };
 
   async function handleSave() {
-    if (!form.name.trim()) { setError('Nama produk wajib diisi.'); return; }
-    if (!form.mediumPrice.trim() || isNaN(Number(form.mediumPrice))) { setError('Harga harus berupa angka yang valid.'); return; }
-    if (uploadProgress !== null || processingImage) { setError('Tunggu proses gambar selesai.'); return; }
+    if (!form.name.trim()) { setError('Product name is required.'); return; }
+    if (!form.mediumPrice.trim() || isNaN(Number(form.mediumPrice))) { setError('Price must be a valid number.'); return; }
+    if (uploadProgress !== null || processingImage) { setError('Wait for image processing to complete.'); return; }
 
     setLoading(true); setError('');
     try {
@@ -288,7 +288,7 @@ function MenuModal({ menu, onClose, onSaved }: {
         await updateMenu(menu!.id, payload);
       }
 
-      onSaved(isNew ? `Produk "${form.name}" berhasil ditambahkan!` : `"${form.name}" berhasil diperbarui.`);
+      onSaved(isNew ? `Product "${form.name}" successfully added!` : `"${form.name}" successfully updated.`);
       onClose();
     } catch (e: any) {
       setError(e.message);
@@ -307,8 +307,8 @@ function MenuModal({ menu, onClose, onSaved }: {
         {/* Head */}
         <div style={{ padding: '24px 28px 18px', borderBottom: `1px solid ${C.border2}`, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexShrink: 0 }}>
           <div>
-            <p style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase', color: C.blue, marginBottom: 4 }}>{isNew ? 'Produk Baru' : 'Edit Produk'}</p>
-            <h2 style={{ fontSize: 22, fontWeight: 800, letterSpacing: '-.02em', color: C.tx1, margin: 0 }}>{isNew ? 'Tambah Produk' : menu!.name}</h2>
+            <p style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase', color: C.blue, marginBottom: 4 }}>{isNew ? 'New Item' : 'Edit Item'}</p>
+            <h2 style={{ fontSize: 22, fontWeight: 800, letterSpacing: '-.02em', color: C.tx1, margin: 0 }}>{isNew ? 'Add Product' : menu!.name}</h2>
           </div>
           <button onClick={onClose} style={{ width: 34, height: 34, borderRadius: 9, cursor: 'pointer', border: `1.5px solid ${C.border}`, background: 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
             onMouseOver={e => (e.currentTarget.style.background = C.bg)}
@@ -319,14 +319,14 @@ function MenuModal({ menu, onClose, onSaved }: {
 
         {/* Body */}
         <div style={{ overflowY: 'auto', flex: 1, padding: '20px 28px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-          {section('Informasi Dasar')}
+          {section('Basic Information')}
           <div>
-            <FL required>Nama Produk (name)</FL>
+            <FL required>Product Name (name)</FL>
             <GcInput placeholder="Misal: Pearl Milk Tea" value={form.name} onChange={set('name')}/>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
             <div>
-              <FL required>Kategori (category)</FL>
+              <FL required>Category (category)</FL>
               <GcSelect value={form.category} onChange={set('category')}>
                 <option value="Signature">Signature</option>
                 <option value="MilkTea">Milk Tea</option>
@@ -340,16 +340,16 @@ function MenuModal({ menu, onClose, onSaved }: {
               </GcSelect>
             </div>
             <div>
-              <FL required>Harga M (mediumPrice)</FL>
+              <FL required>Medium Price (mediumPrice)</FL>
               <GcInput type="number" placeholder="29000" value={form.mediumPrice} onChange={set('mediumPrice')}/>
             </div>
           </div>
           <div>
-            <FL>Deskripsi Modal (description)</FL>
-            <GcTextarea placeholder="Penjelasan minuman..." value={form.description} onChange={set('description')}/>
+            <FL>Description (description)</FL>
+            <GcTextarea placeholder="Drink description..." value={form.description} onChange={set('description')}/>
           </div>
 
-          {section('Opsi Minuman App Customer')}
+          {section('Customer App Options')}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderRadius: 10, background: C.bg, border: `1px solid ${C.border}` }}>
               <div>
@@ -375,7 +375,7 @@ function MenuModal({ menu, onClose, onSaved }: {
           {section('Media & Meta')}
           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 14 }}>
             <div>
-              <FL>Upload Gambar Produk (WebP)</FL>
+              <FL>Upload Product Image (WebP)</FL>
               <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                 {form.image && (
                   <img
@@ -384,28 +384,28 @@ function MenuModal({ menu, onClose, onSaved }: {
                     style={{
                       width: '100%',
                       height: '100%',
-                      objectFit: 'contain', // ubah dari 'cover' ke 'contain'
-                      maxWidth: 44,         // tambahkan ini
-                      maxHeight: 44         // tambahkan ini
+                      objectFit: 'contain', // change from 'cover' to 'contain'
+                      maxWidth: 44,         // add this
+                      maxHeight: 44         // add this
                     }}
                   />
                 )}
                 <div style={{ flex: 1 }}>
                   {processingImage ? (
                     <div style={{ width: '100%', height: 42, borderRadius: 9, background: C.bg, border: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: C.orange }}>Mengompresi ke WebP...</span>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: C.orange }}>Compressing to WebP...</span>
                     </div>
                   ) : uploadProgress !== null ? (
                     <div style={{ width: '100%', height: 42, borderRadius: 9, background: C.bg, border: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', padding: '0 10px', position: 'relative', overflow: 'hidden' }}>
                       <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, background: C.blueL, width: `${uploadProgress}%`, transition: 'width 0.2s ease' }} />
-                      <span style={{ position: 'relative', zIndex: 1, fontSize: 12, fontWeight: 700, color: C.blue }}>Mengunggah... {Math.round(uploadProgress)}%</span>
+                      <span style={{ position: 'relative', zIndex: 1, fontSize: 12, fontWeight: 700, color: C.blue }}>Uploading... {Math.round(uploadProgress)}%</span>
                     </div>
                   ) : (
                     <div style={{ position: 'relative', height: 42, display: 'flex', alignItems: 'center' }}>
                       <input type="file" accept="image/*" onChange={handleImageFile} style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', zIndex: 10 }} />
                       <div style={{ width: '100%', height: '100%', borderRadius: 9, background: C.bg, border: `1.5px dashed ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontSize: 12.5, fontWeight: 600, color: C.tx2, transition: 'all .2s' }}>
                         <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
-                        Pilih File Gambar
+                        Choose Image File
                       </div>
                     </div>
                   )}
@@ -413,15 +413,15 @@ function MenuModal({ menu, onClose, onSaved }: {
               </div>
             </div>
             <div>
-              <FL>Rating Default</FL>
+              <FL>Default Rating</FL>
               <GcInput type="number" step="0.1" placeholder="5.0" value={form.rating} onChange={set('rating')}/>
             </div>
           </div>
           
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: 12, background: C.bg, border: `1px solid ${C.border}`, marginTop: 6 }}>
             <div>
-              <p style={{ fontSize: 13.5, fontWeight: 600, color: C.tx1, marginBottom: 2 }}>Ketersediaan Stok Outlet</p>
-              <p style={{ fontSize: 12, color: C.tx3 }}>Matikan jika barang sedang habis nasional</p>
+              <p style={{ fontSize: 13.5, fontWeight: 600, color: C.tx1, marginBottom: 2 }}>Store Stock Availability</p>
+              <p style={{ fontSize: 12, color: C.tx3 }}>Turn off if item is out of stock nationwide</p>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <StatusPill active={form.isAvailable !== false}/>
@@ -437,12 +437,12 @@ function MenuModal({ menu, onClose, onSaved }: {
 
         {/* Footer */}
         <div style={{ padding: '16px 28px 24px', borderTop: `1px solid ${C.border2}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
-          <p style={{ fontSize: 11.5, color: C.tx3 }}>Kolom <span style={{ color: C.red }}>*</span> wajib diisi</p>
+          <p style={{ fontSize: 11.5, color: C.tx3 }}>Fields marked <span style={{ color: C.red }}>*</span> are required</p>
           <div style={{ display: 'flex', gap: 10 }}>
-            <button onClick={onClose} style={{ height: 40, padding: '0 20px', borderRadius: 9, border: `1.5px solid ${C.border}`, background: C.white, color: C.tx2, fontFamily: font, fontSize: 13.5, fontWeight: 600, cursor: 'pointer' }}>Batal</button>
+          <button onClick={onClose} style={{ height: 40, padding: '0 20px', borderRadius: 9, border: `1.5px solid ${C.border}`, background: C.white, color: C.tx2, fontFamily: font, fontSize: 13.5, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
             <button onClick={handleSave} disabled={loading || uploadProgress !== null || processingImage}
               style={{ height: 40, padding: '0 22px', borderRadius: 9, border: 'none', background: (loading || uploadProgress !== null || processingImage) ? '#9ca3af' : C.tx1, color: '#fff', fontFamily: font, fontSize: 13.5, fontWeight: 600, cursor: (loading || uploadProgress !== null || processingImage) ? 'not-allowed' : 'pointer', transition: 'all .15s' }}>
-              {loading ? 'Menyimpan…' : isNew ? '+ Tambah Produk' : 'Simpan Perubahan'}
+              {loading ? 'Saving…' : isNew ? '+ Add Product' : 'Save Changes'}
             </button>
           </div>
         </div>
@@ -470,9 +470,9 @@ function MenuRow({ menu, isLast, onEdit, onDelete }: { menu: ProductWithId; isLa
                 style={{
                   width: '100%',
                   height: '100%',
-                  objectFit: 'contain', // ubah dari 'cover' ke 'contain'
-                  maxWidth: 44,         // tambahkan ini
-                  maxHeight: 44         // tambahkan ini
+                  objectFit: 'contain', // change from 'cover' to 'contain'
+                  maxWidth: 44,         // add this
+                  maxHeight: 44         // add this
                 }}
               />
             ) : (
@@ -489,7 +489,7 @@ function MenuRow({ menu, isLast, onEdit, onDelete }: { menu: ProductWithId; isLa
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
           <span style={{ padding: '4px 10px', borderRadius: 8, background: C.bg, border: `1px solid ${C.border2}`, fontSize: 11.5, fontWeight: 700, color: C.tx2 }}>{menu.category}</span>
           {menu.availableHot && <span title="Bisa Panas" style={{ padding: '4px 8px', borderRadius: 8, background: '#FFF1F2', color: '#E11D48', fontSize: 10.5, fontWeight: 800 }}>HOT</span>}
-          {menu.availableLarge && <span title="Tersedia ukuran Large" style={{ padding: '4px 8px', borderRadius: 8, background: '#EFF6FF', color: '#2563EB', fontSize: 10.5, fontWeight: 800 }}>LARGE</span>}
+          {menu.availableLarge && <span title="Large size available" style={{ padding: '4px 8px', borderRadius: 8, background: '#EFF6FF', color: '#2563EB', fontSize: 10.5, fontWeight: 800 }}>LARGE</span>}
         </div>
       </td>
       <td style={{ padding: '14px 18px', fontSize: 13.5, fontWeight: 800, color: C.tx1 }}>{formatRp(menu.mediumPrice)}</td>
@@ -504,7 +504,7 @@ function MenuRow({ menu, isLast, onEdit, onDelete }: { menu: ProductWithId; isLa
           <button onClick={onDelete} onMouseOver={() => setDH(true)} onMouseOut={() => setDH(false)}
             style={{ height: 32, padding: '0 12px', borderRadius: 7, fontFamily: font, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: `1.5px solid ${dh ? C.red : C.border}`, background: dh ? C.redBg : C.white, color: dh ? C.red : C.tx2, display: 'inline-flex', alignItems: 'center', gap: 5, transition: 'all .13s' }}>
             <svg width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M9 6V4h6v2"/></svg>
-            Hapus
+            Delete
           </button>
         </div>
       </td>
@@ -551,7 +551,7 @@ export default function MenusClient({ initialMenus, showAddTrigger }: { initialM
             onMouseOver={e => { e.currentTarget.style.background = C.red; e.currentTarget.style.transform = 'translateY(-1px)'; }}
             onMouseOut={e  => { e.currentTarget.style.background = C.tx1; e.currentTarget.style.transform = 'none'; }}>
             <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
-            Tambah Produk
+            Add Product
           </button>
         </div>
         {showAdd && <MenuModal menu={null} onClose={() => setShowAdd(false)} onSaved={msg => { showToast(msg); setShowAdd(false); }}/>}
@@ -567,20 +567,20 @@ export default function MenusClient({ initialMenus, showAddTrigger }: { initialM
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, height: 40, padding: '0 13px', minWidth: 240, background: C.white, border: `1.5px solid ${searchFocus ? C.blue : C.border}`, borderRadius: 10, boxShadow: searchFocus ? '0 0 0 3px rgba(67,97,238,.1)' : 'none', transition: 'all .14s' }}>
             <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke={C.tx3} strokeWidth={2.2}><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-            <input style={{ flex: 1, border: 'none', background: 'transparent', outline: 'none', fontFamily: font, fontSize: 13.5, color: C.tx1 }} placeholder="Cari nama atau kategori…" value={search} onChange={e => setSearch(e.target.value)} onFocus={() => setSearchFocus(true)} onBlur={() => setSearchFocus(false)}/>
+            <input style={{ flex: 1, border: 'none', background: 'transparent', outline: 'none', fontFamily: font, fontSize: 13.5, color: C.tx1 }} placeholder="Search name or category…" value={search} onChange={e => setSearch(e.target.value)} onFocus={() => setSearchFocus(true)} onBlur={() => setSearchFocus(false)}/>
             {search && <button onClick={() => setSearch('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.tx3, fontSize: 15, padding: 0 }}>✕</button>}
           </div>
           <div style={{ display: 'flex', background: C.bg, border: `1.5px solid ${C.border}`, borderRadius: 10, padding: 3 }}>
             {(['all', 'available', 'unavailable'] as const).map(f => (
               <button key={f} onClick={() => setFilter(f)} style={{ padding: '5px 14px', borderRadius: 7, border: 'none', fontFamily: font, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', transition: 'all .13s', background: filter === f ? C.white : 'transparent', color: filter === f ? C.tx1 : C.tx3, boxShadow: filter === f ? C.shadow : 'none' }}>
-                {f === 'all' ? 'Semua' : f === 'available' ? 'Tersedia' : 'Kosong'}
+                {f === 'all' ? 'All' : f === 'available' ? 'Available' : 'Out of Stock'}
               </button>
             ))}
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <LiveBadge status={syncStatus}/>
-          <span style={{ fontSize: 12.5, color: C.tx3 }}>{filtered.length} produk</span>
+          <span style={{ fontSize: 12.5, color: C.tx3 }}>{filtered.length} products</span>
         </div>
       </div>
 
@@ -589,14 +589,14 @@ export default function MenusClient({ initialMenus, showAddTrigger }: { initialM
         <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: font }}>
           <thead>
             <tr style={{ background: '#F8F9FC' }}>
-              {['Detail Produk', 'Kategori & Info', 'Harga M (Rp)', 'Status', ''].map((h, i) => (
+              {['Product Details', 'Category & Info', 'Medium Price (Rp)', 'Status', ''].map((h, i) => (
                 <th key={i} style={{ padding: '11px 18px', textAlign: 'left', fontSize: 10.5, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: C.tx3, borderBottom: `1px solid ${C.border2}`, whiteSpace: 'nowrap' }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 ? (
-              <tr><td colSpan={5} style={{ padding: '40px', textAlign: 'center', color: C.tx3 }}>Tidak ada produk ditemukan.</td></tr>
+              <tr><td colSpan={5} style={{ padding: '40px', textAlign: 'center', color: C.tx3 }}>No products found.</td></tr>
             ) : filtered.map((m, i) => (
               <MenuRow key={m.id} menu={m} isLast={i === filtered.length - 1} onEdit={() => setEditTarget(m)} onDelete={() => setDeleteTarget(m)} />
             ))}

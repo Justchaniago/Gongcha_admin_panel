@@ -34,7 +34,7 @@ export default function UnauthorizedPage() {
         </span>
 
         <h1 style={{ fontSize: 26, fontWeight: 800, color: "#0F1117", marginBottom: 12, letterSpacing: "-.02em" }}>
-          Tidak Ada Izin
+          No Permission
         </h1>
         <p style={{ fontSize: 14, color: "#4A5065", lineHeight: 1.7, marginBottom: 32 }}>
           Akun Anda tidak memiliki izin untuk mengakses halaman ini.

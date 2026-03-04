@@ -10,12 +10,17 @@ import { db } from "../../lib/firebaseClient";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface Transaction {
+  docId?: string;
+  docPath?: string;
   transactionId: string;
   memberName: string;
   amount: number;
+  potentialPoints?: number;
+  type?: "earn" | "redeem"; // earn = purchase, redeem = voucher redemption
   status: "verified" | "pending" | "rejected";
   createdAt: string | null;
   storeId?: string;
+  storeName?: string; // store name to display
 }
 
 interface Member { uid: string; tier: string; currentPoints: number; lifetimePoints: number; }
@@ -87,6 +92,11 @@ function StatusBadge({ status }: { status: string }) {
     rejected: { bg: "#FEF3F2", color: "#B42318", dot: "#F04438" },
   };
   const s = map[status] ?? map.pending;
+  const labelMap: Record<string, string> = {
+    verified: "Verified",
+    pending: "Pending",
+    rejected: "Rejected",
+  };
   return (
     <span style={{
       display: "inline-flex", alignItems: "center", gap: 5,
@@ -96,7 +106,25 @@ function StatusBadge({ status }: { status: string }) {
       textTransform: "uppercase",
     }}>
       <span style={{ width: 5, height: 5, borderRadius: "50%", background: s.dot }}/>
-      {status}
+      {labelMap[status] ?? status}
+    </span>
+  );
+}
+
+function TransactionTypeBadge({ type }: { type?: string }) {
+  if (!type) return null;
+  const isRedeem = type === "redeem";
+  const isEarn = type === "earn";
+  return (
+    <span style={{
+      display: "inline-flex", alignItems: "center", gap: 4,
+      padding: "2px 8px", borderRadius: 6,
+      background: isRedeem ? "#F3F0FF" : "#EEF2FF",
+      color: isRedeem ? "#5B21B6" : "#4361EE",
+      fontSize: 10, fontWeight: 700, letterSpacing: ".06em",
+      textTransform: "uppercase",
+    }}>
+      {isRedeem ? "🎁 Redeem" : isEarn ? "💳 Purchase" : type}
     </span>
   );
 }
@@ -128,20 +156,27 @@ interface DashboardProps {
   initialRole: string;
   initialTransactions: any[];
   initialUsers: any[];
-  initialStaff: any[];
+  initialStores: any[];
 }
 
-export default function DashboardClient({ initialRole, initialTransactions, initialUsers, initialStaff }: DashboardProps) {
+export default function DashboardClient({ initialRole, initialTransactions, initialUsers, initialStores }: DashboardProps) {
   const [mode, setMode] = useState<"realtime" | "range">("realtime");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [selectedStoreId, setSelectedStoreId] = useState<string>("all"); // Store filter for admin
   // Use initial data from server as default state
   const [transactions, setTransactions] = useState<any[]>(initialTransactions);
-  // Tetap gunakan state members dan stores agar seluruh logika lama tetap berjalan
+  // Keep using state members and stores for legacy logic to continue working
   const [members, setMembers] = useState<any[]>(initialUsers);
-  const [stores, setStores] = useState<any[]>(initialStaff);
+  const [stores, setStores] = useState<any[]>(initialStores);
+  // All-time pending & rejected counts (not affected by date picker)
+  const [allTimePendingCount, setAllTimePendingCount] = useState(0);
+  const [allTimeRejectedCount, setAllTimeRejectedCount] = useState(0);
   const [txStatus,     setTxStatus]     = useState<"connecting"|"live"|"error">("connecting");
   const [memberStatus, setMemberStatus] = useState<"connecting"|"live"|"error">("connecting");
+  const [selectedTxDocPaths, setSelectedTxDocPaths] = useState<string[]>([]);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteMessage, setDeleteMessage] = useState<string | null>(null);
 
   // Greeting
   const { user } = useAdminAuth();
@@ -150,6 +185,25 @@ export default function DashboardClient({ initialRole, initialTransactions, init
   const greeting = hr < 12 ? "Good morning" : hr < 17 ? "Good afternoon" : "Good evening";
   const dateStr  = now.toLocaleDateString("en-US", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
   const userName = user?.name || user?.email?.split("@")[0] || "Admin";
+
+  // Check if user has limited access (cashier or store_manager)
+  const isLimitedAccess = initialRole === "cashier" || initialRole === "store_manager";
+  const canDeleteTransactions = initialRole === "admin";
+
+  // Get assigned store ID for cashier/store manager
+  const userAssignedStoreId = (user as any)?.storeId || (user as any)?.assignedStoreId || null;
+  
+  // Determine effective store filter
+  const effectiveStoreFilter = isLimitedAccess && userAssignedStoreId ? userAssignedStoreId : selectedStoreId;
+
+  // Helper: resolve store name from storeId
+  const getStoreName = (storeId?: string) => {
+    if (!storeId) return "—";
+    const store = stores.find(s => s.uid === storeId || s.id === storeId);
+    return store?.name || storeId;
+  };
+
+  const getTxDocPath = (tx: any) => tx?.docPath ?? (tx?.docId ? `transactions/${tx.docId}` : "");
 
   // ── Firestore listeners ──────────────────────────────────────────────────
   useEffect(() => {
@@ -173,17 +227,31 @@ export default function DashboardClient({ initialRole, initialTransactions, init
         }
         const snap = await getDocs(q);
         if (!ignore) {
-          setTransactions(snap.docs.map(d => {
+          let txList = snap.docs.map(d => {
             const data = d.data();
+            const storeId = data.storeId ?? data.storeLocation ?? "";
+            const type = data.type ?? "earn"; // Default to earn (purchase) if not specified
             return {
-              transactionId: d.id,
+              docId:         d.id,
+              docPath:       d.ref.path,
+              transactionId: data.posTransactionId ?? data.transactionId ?? "",
               memberName:    data.memberName    ?? data.userName ?? "—",
               amount:        data.amount        ?? data.totalAmount ?? 0,
+              potentialPoints: data.potentialPoints ?? 0,
+              type:          type,
               status:        data.status        ?? "pending",
               createdAt:     data.createdAt?.toDate?.()?.toISOString?.() ?? data.createdAt ?? null,
-              storeId:       data.storeId       ?? data.storeLocation ?? "",
+              storeId:       storeId,
+              storeName:     getStoreName(storeId),
             } as Transaction;
-          }));
+          });
+          
+          // Filter by store if needed (client-side)
+          if (effectiveStoreFilter && effectiveStoreFilter !== "all") {
+            txList = txList.filter(t => t.storeId === effectiveStoreFilter);
+          }
+          
+          setTransactions(txList);
           setTxStatus("live");
         }
       } catch {
@@ -192,20 +260,34 @@ export default function DashboardClient({ initialRole, initialTransactions, init
     }
 
     if (mode === "realtime") {
-      const txQ = query(collection(db, "transactions"), orderBy("createdAt", "desc"), limit(20));
+      const txQ = query(collection(db, "transactions"), orderBy("createdAt", "desc"), limit(50));
       unsubTx = onSnapshot(txQ,
         (snap) => {
-          setTransactions(snap.docs.map(d => {
+          let txList = snap.docs.map(d => {
             const data = d.data();
+            const storeId = data.storeId ?? data.storeLocation ?? "";
+            const type = data.type ?? "earn"; // Default to earn (purchase) if not specified
             return {
-              transactionId: d.id,
+              docId:         d.id,
+              docPath:       d.ref.path,
+              transactionId: data.posTransactionId ?? data.transactionId ?? "",
               memberName:    data.memberName    ?? data.userName ?? "—",
               amount:        data.amount        ?? data.totalAmount ?? 0,
+              potentialPoints: data.potentialPoints ?? 0,
+              type:          type,
               status:        data.status        ?? "pending",
               createdAt:     data.createdAt?.toDate?.()?.toISOString?.() ?? data.createdAt ?? null,
-              storeId:       data.storeId       ?? data.storeLocation ?? "",
+              storeId:       storeId,
+              storeName:     getStoreName(storeId),
             } as Transaction;
-          }));
+          });
+          
+          // Filter by store if needed (client-side)
+          if (effectiveStoreFilter && effectiveStoreFilter !== "all") {
+            txList = txList.filter(t => t.storeId === effectiveStoreFilter);
+          }
+          
+          setTransactions(txList);
           setTxStatus("live");
         },
         () => setTxStatus("error"),
@@ -227,22 +309,106 @@ export default function DashboardClient({ initialRole, initialTransactions, init
     // Stores
     const storeQ = query(collection(db, "stores"));
     const unsubStore = onSnapshot(storeQ,
-      (snap) => setStores(snap.docs.map(d => ({ uid: d.id, ...d.data() } as Store))),
-      (err)  => console.error("[stores]", err),
+      (snap) => {
+        setStores(snap.docs.map(d => ({ uid: d.id, ...d.data() } as Store)));
+      },
+      (err) => {
+        console.error("[stores] error:", err);
+      }
     );
 
-    return () => { if (unsubTx) unsubTx(); ignore = true; unsubMem(); unsubStore(); };
-  }, [mode, dateFrom, dateTo]);
+    // All-time pending count (not affected by date picker)
+    const pendingQ = query(collection(db, "transactions"), where("status", "==", "pending"));
+    const unsubPending = onSnapshot(pendingQ,
+      (snap) => {
+        setAllTimePendingCount(snap.size);
+      },
+      (err) => {
+        console.error("[pending] error:", err);
+      }
+    );
+
+    // All-time rejected count (not affected by date picker)
+    const rejectedQ = query(collection(db, "transactions"), where("status", "==", "rejected"));
+    const unsubRejected = onSnapshot(rejectedQ,
+      (snap) => {
+        setAllTimeRejectedCount(snap.size);
+      },
+      (err) => {
+        console.error("[rejected] error:", err);
+      }
+    );
+
+    return () => { if (unsubTx) unsubTx(); ignore = true; unsubMem(); unsubStore(); unsubPending(); unsubRejected(); };
+  }, [mode, dateFrom, dateTo, effectiveStoreFilter, stores.length]); // Re-run when store filter or stores change
 
   // ── Derived stats ────────────────────────────────────────────────────────
+  // ALL TIME (tidak terpengaruh date picker):
   const totalMembers  = members.length;
   const totalStores   = stores.length;
-  const pendingCount  = transactions.filter(t => t.status === "pending").length;
+  const pendingCount  = allTimePendingCount; // ALL TIME pending claims
+  const rejectedCount = allTimeRejectedCount; // ALL TIME rejected claims
+  const claimsNeedingReview = pendingCount + rejectedCount; // Pending + Rejected
+  
+  // FILTERED BY DATE (affected by date picker):
   const verifiedCount = transactions.filter(t => t.status === "verified").length;
   const totalRevenue  = transactions.filter(t => t.status === "verified").reduce((a, t) => a + t.amount, 0);
   const avgTrx        = transactions.length > 0 ? Math.round(transactions.reduce((a, t) => a + t.amount, 0) / transactions.length) : 0;
-  const totalXP       = members.reduce((a, m) => a + (m.lifetimePoints ?? 0), 0);
+  const totalXP       = transactions.filter(t => t.status === "verified").reduce((a, t) => a + (t.potentialPoints ?? 0), 0); // XP issued in date range
   const recentTrx     = transactions.slice(0, 10);
+
+  useEffect(() => {
+    setSelectedTxDocPaths((prev) => prev.filter((p) => transactions.some((tx) => getTxDocPath(tx) === p)));
+  }, [transactions]);
+
+  const selectedRecentCount = recentTrx.reduce((count, trx) => {
+    const p = getTxDocPath(trx);
+    if (!p) return count;
+    return selectedTxDocPaths.includes(p) ? count + 1 : count;
+  }, 0);
+
+  function toggleSelectTx(docPath: string, checked: boolean) {
+    setSelectedTxDocPaths((prev) => {
+      if (checked) {
+        if (prev.includes(docPath)) return prev;
+        return [...prev, docPath];
+      }
+      return prev.filter((p) => p !== docPath);
+    });
+  }
+
+  async function deleteTransactions(docPaths: string[]) {
+    const res = await fetch("/api/transactions", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ docPaths }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message ?? "Failed to delete transactions");
+    return data;
+  }
+
+  async function handleDeleteDashboard(docPaths: string[]) {
+    if (!canDeleteTransactions || docPaths.length === 0) return;
+    const confirmed = window.confirm(
+      `Delete ${docPaths.length} transaction(s)? This action cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    setDeleteBusy(true);
+    setDeleteMessage(null);
+    try {
+      const data = await deleteTransactions(docPaths);
+      const deletedSet = new Set(docPaths);
+      setTransactions((prev) => prev.filter((tx) => !deletedSet.has(getTxDocPath(tx))));
+      setSelectedTxDocPaths((prev) => prev.filter((p) => !deletedSet.has(p)));
+      setDeleteMessage(`Deleted ${data.successCount ?? 0} transaction(s).`);
+    } catch (e: any) {
+      setDeleteMessage(e.message ?? "Failed to delete transactions.");
+    } finally {
+      setDeleteBusy(false);
+    }
+  }
 
   const tierCounts = useMemo(() => ({
     Platinum: members.filter(m => m.tier === "Platinum").length,
@@ -277,8 +443,17 @@ export default function DashboardClient({ initialRole, initialTransactions, init
             {greeting}, {userName}! 👋
           </h1>
           <p style={{ fontSize: 14, color: C.tx2, marginTop: 5, display: "flex", alignItems: "center", gap: 10 }}>
-            Here's what's happening at Gong Cha today.
-            <LiveBadge status={overallStatus}/>
+            {isLimitedAccess ? (
+              <>
+                Your {initialRole === "cashier" ? "Cashier" : "Store Manager"} dashboard.
+                <LiveBadge status={overallStatus}/>
+              </>
+            ) : (
+              <>
+                Here's what's happening at Gong Cha today.
+                <LiveBadge status={overallStatus}/>
+              </>
+            )}
           </p>
         </div>
         <div style={{ display: "flex", flex: 1, justifyContent: "flex-end", gap: 10, alignItems: "center" }}>
@@ -289,7 +464,7 @@ export default function DashboardClient({ initialRole, initialTransactions, init
               style={{ padding: "7px 14px", borderRadius: 8, border: "1.5px solid " + C.blueL, background: C.white, fontWeight: 600, color: C.tx1, fontSize: 13 }}
             >
               <option value="realtime">Real-time</option>
-              <option value="range">Rentang Tanggal</option>
+              <option value="range">Date Range</option>
             </select>
             {mode === "range" && (
               <>
@@ -299,7 +474,7 @@ export default function DashboardClient({ initialRole, initialTransactions, init
                   onChange={e => setDateFrom(e.target.value)}
                   style={{ padding: "7px 10px", borderRadius: 8, border: "1.5px solid " + C.border, background: C.white, fontSize: 13, color: C.tx1 }}
                 />
-                <span style={{ color: C.tx3, fontWeight: 600 }}>s/d</span>
+                <span style={{ color: C.tx3, fontWeight: 600 }}>to</span>
                 <input
                   type="date"
                   value={dateTo}
@@ -307,6 +482,21 @@ export default function DashboardClient({ initialRole, initialTransactions, init
                   style={{ padding: "7px 10px", borderRadius: 8, border: "1.5px solid " + C.border, background: C.white, fontSize: 13, color: C.tx1 }}
                 />
               </>
+            )}
+            {/* Store Filter (Admin only) */}
+            {!isLimitedAccess && stores.length > 0 && (
+              <select
+                value={selectedStoreId}
+                onChange={e => setSelectedStoreId(e.target.value)}
+                style={{ padding: "7px 14px", borderRadius: 8, border: "1.5px solid " + C.border, background: C.white, fontWeight: 600, color: C.tx1, fontSize: 13, minWidth: 150 }}
+              >
+                <option value="all">🏪 All Stores</option>
+                {stores.map(store => (
+                  <option key={store.uid || store.id} value={store.uid || store.id}>
+                    {store.name}
+                  </option>
+                ))}
+              </select>
             )}
             {mode === "realtime" && (
               <div style={{ display: "flex", alignItems: "center", gap: 8, background: C.white, border: "1.5px solid " + C.border, borderRadius: 10, padding: "8px 16px", boxShadow: C.shadow }}>
@@ -321,72 +511,119 @@ export default function DashboardClient({ initialRole, initialTransactions, init
         
       </div>
 
-      {/* ── BENTO ROW 1: 4 stat cards ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "1.35fr 1fr 1fr 1fr", gap: 14, marginBottom: 14 }}>
-
-        {/* Hero — Revenue */}
-        <div style={{
-          background: `linear-gradient(135deg, ${C.blue} 0%, ${C.blueD} 100%)`,
-          border: "none", padding: "24px 26px", borderRadius: 18,
-          boxShadow: "0 8px 32px rgba(67,97,238,.28)",
-        }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
-            <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "rgba(255,255,255,.65)" }}>
-              Total Revenue
-            </span>
-            <div style={{ width: 30, height: 30, borderRadius: "50%", background: "rgba(255,255,255,.18)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="white" strokeWidth={2.5}>
-                <path d="M7 17L17 7M17 7H7M17 7v10"/>
-              </svg>
+      {/* ── BENTO ROW 1: Conditional based on role ── */}
+      {isLimitedAccess ? (
+        // LIMITED ACCESS: Only Revenue + Pending Claims (2 columns)
+        <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: 14, marginBottom: 14 }}>
+          {/* Hero — Revenue */}
+          <div style={{
+            background: `linear-gradient(135deg, ${C.blue} 0%, ${C.blueD} 100%)`,
+            border: "none", padding: "24px 26px", borderRadius: 18,
+            boxShadow: "0 8px 32px rgba(67,97,238,.28)",
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "rgba(255,255,255,.65)" }}>
+                Total Revenue
+              </span>
+              <div style={{ width: 30, height: 30, borderRadius: "50%", background: "rgba(255,255,255,.18)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="white" strokeWidth={2.5}>
+                  <path d="M7 17L17 7M17 7H7M17 7v10"/>
+                </svg>
+              </div>
+            </div>
+            <p style={{ fontSize: 32, fontWeight: 800, letterSpacing: "-.025em", color: "#fff", lineHeight: 1, marginBottom: 14 }}>
+              Rp {totalRevenue.toLocaleString("id-ID")}
+            </p>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 3, padding: "2px 9px", borderRadius: 99, fontSize: 11, fontWeight: 700, background: "rgba(18,183,106,.22)", color: "#6EE7B7" }}>
+                ↑ Verified only
+              </span>
+              <span style={{ fontSize: 12, color: "rgba(255,255,255,.55)" }}>
+                {verifiedCount} transactions {mode === "range" && dateFrom && dateTo ? "(filtered)" : ""}
+              </span>
             </div>
           </div>
-          <p style={{ fontSize: 32, fontWeight: 800, letterSpacing: "-.025em", color: "#fff", lineHeight: 1, marginBottom: 14 }}>
-            Rp {totalRevenue.toLocaleString("id-ID")}
-          </p>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 3, padding: "2px 9px", borderRadius: 99, fontSize: 11, fontWeight: 700, background: "rgba(18,183,106,.22)", color: "#6EE7B7" }}>
-              ↑ Verified only
-            </span>
-            <span style={{ fontSize: 12, color: "rgba(255,255,255,.55)" }}>{verifiedCount} trx verified</span>
-          </div>
+
+          <StatCard
+            label="Claims Needing Review" value={String(claimsNeedingReview)}
+            trend={claimsNeedingReview > 0 ? -claimsNeedingReview : 0} trendLabel={`${pendingCount} pending • ${rejectedCount} rejected`}
+            iconBg="#FEF3F2" iconColor="#F04438"
+            borderOverride={claimsNeedingReview > 0 ? "1.5px solid #FEE2E2" : undefined}
+            icon={<><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></>}
+          />
         </div>
+      ) : (
+        // FULL ACCESS (ADMIN): All 4 stat cards
+        <div style={{ display: "grid", gridTemplateColumns: "1.35fr 1fr 1fr 1fr", gap: 14, marginBottom: 14 }}>
+          {/* Hero — Revenue */}
+          <div style={{
+            background: `linear-gradient(135deg, ${C.blue} 0%, ${C.blueD} 100%)`,
+            border: "none", padding: "24px 26px", borderRadius: 18,
+            boxShadow: "0 8px 32px rgba(67,97,238,.28)",
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "rgba(255,255,255,.65)" }}>
+                Total Revenue
+              </span>
+              <div style={{ width: 30, height: 30, borderRadius: "50%", background: "rgba(255,255,255,.18)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="white" strokeWidth={2.5}>
+                  <path d="M7 17L17 7M17 7H7M17 7v10"/>
+                </svg>
+              </div>
+            </div>
+            <p style={{ fontSize: 32, fontWeight: 800, letterSpacing: "-.025em", color: "#fff", lineHeight: 1, marginBottom: 14 }}>
+              Rp {totalRevenue.toLocaleString("id-ID")}
+            </p>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 3, padding: "2px 9px", borderRadius: 99, fontSize: 11, fontWeight: 700, background: "rgba(18,183,106,.22)", color: "#6EE7B7" }}>
+                ↑ Verified only
+              </span>
+              <span style={{ fontSize: 12, color: "rgba(255,255,255,.55)" }}>
+                {verifiedCount} transactions {mode === "range" && dateFrom && dateTo ? "(filtered)" : ""}
+              </span>
+            </div>
+          </div>
 
-        <StatCard
-          label="Active Members" value={totalMembers.toLocaleString()}
-          trend={5.1} trendLabel="vs. last month"
-          iconBg={C.blueL} iconColor={C.blue}
-          icon={<><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/></>}
-        />
-        <StatCard
-          label="Total Stores" value={String(totalStores)}
-          trend={0} trendLabel="All active"
-          iconBg="#F3F0FF" iconColor="#7C3AED"
-          icon={<path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>}
-        />
-        <StatCard
-          label="Pending Claims" value={String(pendingCount)}
-          trend={pendingCount > 0 ? -pendingCount : 0} trendLabel="Needs review"
-          iconBg="#FEF3F2" iconColor="#F04438"
-          borderOverride={pendingCount > 0 ? "1.5px solid #FEE2E2" : undefined}
-          icon={<><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></>}
-        />
-      </div>
+          <StatCard
+            label="Active Members" value={totalMembers.toLocaleString()}
+            trend={5.1} trendLabel="All time"
+            iconBg={C.blueL} iconColor={C.blue}
+            icon={<><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/></>}
+          />
+          <StatCard
+            label="Total Stores" value={String(totalStores)}
+            trend={0} trendLabel="All time"
+            iconBg="#F3F0FF" iconColor="#7C3AED"
+            icon={<path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>}
+          />
+          <StatCard
+            label="Claims Needing Review" value={String(claimsNeedingReview)}
+            trend={claimsNeedingReview > 0 ? -claimsNeedingReview : 0} trendLabel={`${pendingCount} pending • ${rejectedCount} rejected`}
+            iconBg="#FEF3F2" iconColor="#F04438"
+            borderOverride={claimsNeedingReview > 0 ? "1.5px solid #FEE2E2" : undefined}
+            icon={<><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></>}
+          />
+        </div>
+      )}
 
-      {/* ── BENTO ROW 2: 3 mini cards ── */}
+      {/* ── BENTO ROW 2: 3 mini cards (Same for all roles) ── */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 20 }}>
         {[
           {
-            label: "Total XP Issued", iconBg: C.blueL, iconColor: C.blue,
+            label: mode === "range" && dateFrom && dateTo ? `Total XP (${dateFrom} - ${dateTo})` : "Total XP Issued", 
+            iconBg: C.blueL, iconColor: C.blue,
             value: `${totalXP.toLocaleString("id-ID")} pts`,
             icon: <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>,
           },
           {
-            label: "Verified Trx (recent)", iconBg: C.greenBg, iconColor: C.green,
+            label: mode === "range" && dateFrom && dateTo ? "Verified Transactions (filtered)" : "Verified Transactions", 
+            iconBg: C.greenBg, iconColor: C.green,
             value: `${verifiedCount} / ${transactions.length}`,
             icon: <path d="M20 6L9 17l-5-5"/>,
           },
           {
-            label: "Avg. Transaction", iconBg: C.amberBg, iconColor: C.amber,
+            label: mode === "range" && dateFrom && dateTo ? "Avg. Transaction (filtered)" : "Avg. Transaction", 
+            iconBg: C.amberBg, iconColor: C.amber,
             value: `Rp ${avgTrx.toLocaleString("id-ID")}`,
             icon: <><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></>,
           },
@@ -416,43 +653,114 @@ export default function DashboardClient({ initialRole, initialTransactions, init
                 <LiveBadge status={txStatus}/>
               </h2>
             </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              {canDeleteTransactions && selectedTxDocPaths.length > 0 && (
+                <button
+                  onClick={() => handleDeleteDashboard(selectedTxDocPaths)}
+                  disabled={deleteBusy}
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 700,
+                    color: C.red,
+                    background: "#FFF5F5",
+                    border: "1px solid #FCA5A5",
+                    borderRadius: 8,
+                    padding: "7px 12px",
+                    cursor: deleteBusy ? "not-allowed" : "pointer",
+                  }}
+                >
+                  {deleteBusy ? "Deleting…" : `🗑 Delete Selected (${selectedTxDocPaths.length})`}
+                </button>
+              )}
               <a href="/transactions" style={{ fontSize: 13, fontWeight: 600, color: C.blue, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 5, padding: "7px 14px", borderRadius: 8, border: `1.5px solid ${C.blueL}`, background: C.blueL }}>
               View all
               <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                 <path d="M7 17L17 7M17 7H7M17 7v10"/>
               </svg>
             </a>
+            </div>
           </div>
+
+          {deleteMessage && (
+            <div style={{ padding: "10px 24px", fontSize: 12.5, color: deleteMessage.startsWith("Deleted") ? "#027A48" : C.red, borderBottom: `1px solid ${C.border2}`, background: deleteMessage.startsWith("Deleted") ? "#ECFDF3" : "#FEF3F2" }}>
+              {deleteMessage}
+            </div>
+          )}
 
           {recentTrx.length === 0 ? (
             <div style={{ padding: "52px 24px", textAlign: "center", color: C.tx3, fontSize: 13.5 }}>
-              {txStatus === "connecting" ? "Memuat transaksi…" : "Belum ada transaksi."}
+              {txStatus === "connecting" ? "Loading transactions…" : "No transactions yet."}
             </div>
           ) : (
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr style={{ background: "#F8F9FC" }}>
-                  {["Transaction ID", "Member", "Amount", "Status", "Date"].map(h => (
-                    <th key={h} style={{ padding: "10px 20px", textAlign: "left", fontSize: 11, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: C.tx3, borderBottom: `1px solid ${C.border2}` }}>{h}</th>
-                  ))}
+                  {[canDeleteTransactions && "Select", "Transaction ID", "Type", "Member", "Amount", !isLimitedAccess && "Store", "Status", "Date", canDeleteTransactions && "Action"]
+                    .filter(Boolean)
+                    .map(h => (
+                      <th key={h as string} style={{ padding: "10px 20px", textAlign: "left", fontSize: 11, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: C.tx3, borderBottom: `1px solid ${C.border2}` }}>{h}</th>
+                    ))}
                 </tr>
               </thead>
               <tbody>
                 {recentTrx.map((trx, i) => (
-                  <tr key={trx.transactionId} style={{ borderBottom: i < recentTrx.length - 1 ? `1px solid ${C.border2}` : "none" }}>
+                  <tr key={trx.docId ?? trx.transactionId ?? String(i)} style={{ borderBottom: i < recentTrx.length - 1 ? `1px solid ${C.border2}` : "none" }}>
+                    {canDeleteTransactions && (
+                      <td style={{ padding: "14px 20px" }}>
+                        <input
+                          type="checkbox"
+                          checked={selectedTxDocPaths.includes(getTxDocPath(trx))}
+                          onChange={(e) => toggleSelectTx(getTxDocPath(trx), e.target.checked)}
+                          disabled={!getTxDocPath(trx) || deleteBusy}
+                          aria-label={`Select ${trx.transactionId || trx.docId || "transaction"}`}
+                        />
+                      </td>
+                    )}
                     <td style={{ padding: "14px 20px" }}>
                       <code style={{ fontSize: 12, background: C.blueL, padding: "3px 9px", borderRadius: 6, color: C.blue, border: `1px solid rgba(67,97,238,.15)` }}>
-                        {trx.transactionId.slice(0, 12)}…
+                        {trx.transactionId || "—"}
                       </code>
+                    </td>
+                    <td style={{ padding: "14px 20px" }}>
+                      <TransactionTypeBadge type={trx.type} />
                     </td>
                     <td style={{ padding: "14px 20px", fontSize: 13.5, fontWeight: 600, color: C.tx1 }}>{trx.memberName}</td>
                     <td style={{ padding: "14px 20px", fontSize: 14, fontWeight: 700, color: C.tx1 }}>
-                      Rp {trx.amount.toLocaleString("id-ID")}
+                      {trx.type === "redeem" ? (
+                        <span style={{ color: "#7C3AED" }}>— (Redeem)</span>
+                      ) : (
+                        `Rp ${trx.amount.toLocaleString("id-ID")}`
+                      )}
                     </td>
+                    {!isLimitedAccess && (
+                      <td style={{ padding: "14px 20px", fontSize: 12.5, fontWeight: 600, color: C.tx2 }}>
+                        {trx.storeName || "—"}
+                      </td>
+                    )}
                     <td style={{ padding: "14px 20px" }}><StatusBadge status={trx.status}/></td>
                     <td style={{ padding: "14px 20px", fontSize: 12.5, color: C.tx3 }}>
                       {trx.createdAt ? new Date(trx.createdAt).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" }) : "—"}
                     </td>
+                    {canDeleteTransactions && (
+                      <td style={{ padding: "14px 20px" }}>
+                        <button
+                          onClick={() => handleDeleteDashboard([getTxDocPath(trx)].filter(Boolean))}
+                          disabled={!getTxDocPath(trx) || deleteBusy}
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 700,
+                            color: C.red,
+                            background: "#FFF5F5",
+                            border: "1px solid #FCA5A5",
+                            borderRadius: 7,
+                            padding: "5px 10px",
+                            cursor: (!getTxDocPath(trx) || deleteBusy) ? "not-allowed" : "pointer",
+                          }}
+                        >
+                          🗑 Delete
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -462,32 +770,39 @@ export default function DashboardClient({ initialRole, initialTransactions, init
             <span style={{ fontSize: 12, color: C.tx3 }}>
               Showing <strong style={{ color: C.tx2 }}>{recentTrx.length}</strong> most recent
             </span>
+            {canDeleteTransactions && (
+              <span style={{ fontSize: 12, color: C.tx3 }}>
+                Selected <strong style={{ color: C.tx2 }}>{selectedRecentCount}</strong> in this table
+              </span>
+            )}
           </div>
         </div>
 
         {/* Right sidebar */}
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
 
-          {/* Top Stores — real data */}
-          <div style={{ ...card, padding: "20px 22px" }}>
-            <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: C.tx3, marginBottom: 3 }}>Performa</p>
-            <h2 style={{ fontSize: 16, fontWeight: 700, color: C.tx1, marginBottom: 18, letterSpacing: "-.01em" }}>Top Stores</h2>
-            {storeStats.length === 0 ? (
-              <p style={{ fontSize: 13, color: C.tx3, textAlign: "center", padding: "20px 0" }}>Memuat data…</p>
-            ) : storeStats.map((s, i) => (
-              <div key={s.name} style={{ marginBottom: i < storeStats.length - 1 ? 14 : 0 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
-                  <span style={{ fontSize: 12.5, fontWeight: 600, color: C.tx1 }}>{s.name}</span>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: barColors[i] }}>{s.pct}%</span>
+          {/* Top Stores — Only for Admin */}
+          {!isLimitedAccess && (
+            <div style={{ ...card, padding: "20px 22px" }}>
+              <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: C.tx3, marginBottom: 3 }}>Performance</p>
+              <h2 style={{ fontSize: 16, fontWeight: 700, color: C.tx1, marginBottom: 18, letterSpacing: "-.01em" }}>Top Stores</h2>
+              {storeStats.length === 0 ? (
+                <p style={{ fontSize: 13, color: C.tx3, textAlign: "center", padding: "20px 0" }}>Loading data…</p>
+              ) : storeStats.map((s, i) => (
+                <div key={s.name} style={{ marginBottom: i < storeStats.length - 1 ? 14 : 0 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
+                    <span style={{ fontSize: 12.5, fontWeight: 600, color: C.tx1 }}>{s.name}</span>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: barColors[i] }}>{s.pct}%</span>
+                  </div>
+                  <div style={{ height: 5, borderRadius: 99, background: C.border2 }}>
+                    <div style={{ height: "100%", borderRadius: 99, width: `${s.pct}%`, background: barColors[i], transition: "width .5s ease" }}/>
+                  </div>
                 </div>
-                <div style={{ height: 5, borderRadius: 99, background: C.border2 }}>
-                  <div style={{ height: "100%", borderRadius: 99, width: `${s.pct}%`, background: barColors[i], transition: "width .5s ease" }}/>
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
 
-          {/* Tier Breakdown — real data */}
+          {/* Tier Breakdown — Visible for all roles */}
           <div style={{ ...card, padding: "20px 22px" }}>
             <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: C.tx3, marginBottom: 3 }}>Members</p>
             <h2 style={{ fontSize: 16, fontWeight: 700, color: C.tx1, marginBottom: 16, letterSpacing: "-.01em" }}>Tier Breakdown</h2>

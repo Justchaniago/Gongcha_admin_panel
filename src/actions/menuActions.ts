@@ -10,7 +10,7 @@ export async function createMenu(data: any) {
     });
     return { success: true, id: docRef.id };
   } catch (error: any) {
-    throw new Error(error.message || "Gagal menambah produk");
+    throw new Error(error.message || "Failed to add product");
   }
 }
 
@@ -22,7 +22,7 @@ export async function updateMenu(id: string, data: any) {
     });
     return { success: true };
   } catch (error: any) {
-    throw new Error(error.message || "Gagal mengupdate produk");
+    throw new Error(error.message || "Failed to update product");
   }
 }
 
@@ -31,6 +31,6 @@ export async function deleteMenu(id: string) {
     await adminDb.collection("products").doc(id).delete();
     return { success: true };
   } catch (error: any) {
-    throw new Error(error.message || "Gagal menghapus produk");
+    throw new Error(error.message || "Failed to delete product");
   }
 }

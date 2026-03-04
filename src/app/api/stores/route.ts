@@ -31,11 +31,13 @@ export async function POST(req: NextRequest) {
     const { storeId, name, address, latitude, longitude, openHours, statusOverride, isActive } = body;
 
     if (!storeId || !name) {
-      return NextResponse.json({ message: "Data tidak lengkap" }, { status: 400 });
+      return NextResponse.json({ message: "Incomplete data" }, { status: 400 });
     }
 
+    const namePlace = name.replace(/^Gong Cha\s*/i, '').trim();
     await adminDb.collection("stores").doc(storeId).set({
       name,
+      namePlace,
       address: address || "",
       latitude: latitude ? Number(latitude) : null,
       longitude: longitude ? Number(longitude) : null,

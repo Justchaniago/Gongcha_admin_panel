@@ -14,7 +14,7 @@ async function validateSession(req: NextRequest) {
   const cookieStore = await cookies();
   const sessionCookie = cookieStore.get("session")?.value;
   if (!sessionCookie) {
-    return { error: "Session tidak ditemukan. Silakan login ulang.", status: 403 };
+    return { error: "Session not found. Please login again.", status: 403 };
   }
   const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
   const uid = decodedClaims.uid;
@@ -27,7 +27,7 @@ async function validateSession(req: NextRequest) {
 
   const allowedRoles = ["admin", "master", "manager", "store_manager"];
   if (!role || !allowedRoles.includes(role)) {
-    return { error: "Akses ditolak. Role tidak diizinkan.", status: 403 };
+    return { error: "Access denied. Role not allowed.", status: 403 };
   }
   return { token: decodedClaims, userRole: role, error: null };
 }
@@ -81,7 +81,7 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
 
     // Validation that are present in — only validate fields body
     if ("category" in body && !["Drink", "Topping", "Discount"].includes(body.category)) {
-      return NextResponse.json({ message: "category tidak valid. Gunakan: Drink, Topping, atau Discount." }, { status: 400 });
+      return NextResponse.json({ message: "category invalid. Use: Drink, Topping, or Discount." }, { status: 400 });
     }
     if ("pointsCost" in body && (typeof body.pointsCost !== "number" || body.pointsCost < 0)) {
       return NextResponse.json({ message: "pointsCost harus angka positif." }, { status: 400 });
@@ -103,7 +103,7 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
     }
 
     if (Object.keys(update).length === 0) {
-      return NextResponse.json({ message: "Tidak ada field yang diupdate." }, { status: 400 });
+      return NextResponse.json({ message: "No fields to update." }, { status: 400 });
     }
 
     update.updatedAt = FieldValue.serverTimestamp();

@@ -22,7 +22,7 @@ const staffMembers: Array<{ id: string } & Staff> = [
     name: "Rina Kusumawati",
     email: "rina.mgr@gongcha.id",
     role: "store_manager",
-    storeLocation: "store_tp6",            // ref ke stores/store_tp6
+    storeLocations: ["store_tp6"],            // ref ke stores/store_tp6
     isActive: true,
   },
   {
@@ -30,7 +30,7 @@ const staffMembers: Array<{ id: string } & Staff> = [
     name: "Benny Santoso",
     email: "benny.mgr@gongcha.id",
     role: "store_manager",
-    storeLocation: "store_mbg",
+    storeLocations: ["store_mbg"],
     isActive: true,
   },
   {
@@ -38,7 +38,7 @@ const staffMembers: Array<{ id: string } & Staff> = [
     name: "Citra Dewi",
     email: "citra.mgr@gongcha.id",
     role: "store_manager",
-    storeLocation: "store_pms",
+    storeLocations: ["store_pms"],
     isActive: true,
   },
 
@@ -48,7 +48,7 @@ const staffMembers: Array<{ id: string } & Staff> = [
     name: "Aldi Pratama",
     email: "aldi.kasir@gongcha.id",
     role: "cashier",
-    storeLocation: "store_tp6",
+    storeLocations: ["store_tp6"],
     isActive: true,
   },
   {
@@ -56,7 +56,7 @@ const staffMembers: Array<{ id: string } & Staff> = [
     name: "Siti Rahayu",
     email: "siti.kasir@gongcha.id",
     role: "cashier",
-    storeLocation: "store_tp6",
+    storeLocations: ["store_tp6"],
     isActive: true,
   },
   {
@@ -64,7 +64,7 @@ const staffMembers: Array<{ id: string } & Staff> = [
     name: "Made Surya",
     email: "made.kasir@gongcha.id",
     role: "cashier",
-    storeLocation: "store_mbg",
+    storeLocations: ["store_mbg"],
     isActive: true,
   },
   {
@@ -72,7 +72,7 @@ const staffMembers: Array<{ id: string } & Staff> = [
     name: "Dian Anggraeni",
     email: "dian.kasir@gongcha.id",
     role: "cashier",
-    storeLocation: "store_pms",
+    storeLocations: ["store_pms"],
     isActive: true,
   },
   {
@@ -80,7 +80,7 @@ const staffMembers: Array<{ id: string } & Staff> = [
     name: "Reza Firmansyah",
     email: "reza.kasir@gongcha.id",
     role: "cashier",
-    storeLocation: "store_gsc",
+    storeLocations: ["store_gsc"],
     isActive: false,  // outlet sedang tutup
   },
 
@@ -90,7 +90,7 @@ const staffMembers: Array<{ id: string } & Staff> = [
     name: "Ferry Rusly Chaniago",
     email: "ferry@gongcha.id",
     role: "admin",
-    storeLocation: "store_tp6",           // home base admin
+    storeLocations: ["store_tp6"],           // home base admin
     isActive: true,
   },
 ];

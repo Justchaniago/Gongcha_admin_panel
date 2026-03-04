@@ -10,7 +10,7 @@ async function validateSession(req: NextRequest) {
   const cookieStore = await cookies();
   const sessionCookie = cookieStore.get("session")?.value;
   if (!sessionCookie) {
-    return { error: "Session tidak ditemukan. Silakan login ulang.", status: 403 };
+    return { error: "Session not found. Please login again.", status: 403 };
   }
   const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
   const uid = decodedClaims.uid;
@@ -23,7 +23,7 @@ async function validateSession(req: NextRequest) {
 
   const allowedRoles = ["admin", "master", "manager", "store_manager"];
   if (!role || !allowedRoles.includes(role)) {
-    return { error: "Akses ditolak. Role tidak diizinkan.", status: 403 };
+    return { error: "Access denied. Role not allowed.", status: 403 };
   }
   return { token: decodedClaims, userRole: role, error: null };
 }
@@ -61,12 +61,12 @@ export async function POST(req: NextRequest) {
     if (!rewardId?.trim())  return NextResponse.json({ message: "rewardId wajib diisi." },  { status: 400 });
     if (!title?.trim())     return NextResponse.json({ message: "title wajib diisi." },      { status: 400 });
     if (!["Drink", "Topping", "Discount"].includes(category)) {
-      return NextResponse.json({ message: "category tidak valid. Gunakan: Drink, Topping, atau Discount." }, { status: 400 });
+      return NextResponse.json({ message: "category invalid. Use: Drink, Topping, or Discount." }, { status: 400 });
     }
 
     const docId = rewardId.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
     if (!docId) {
-      return NextResponse.json({ message: "Reward ID tidak valid. Gunakan huruf kecil, angka, atau underscore." }, { status: 400 });
+      return NextResponse.json({ message: "Reward ID invalid. Use lowercase letters, numbers, or underscore." }, { status: 400 });
     }
     const docRef = adminDb.collection("rewards_catalog").doc(docId);
 

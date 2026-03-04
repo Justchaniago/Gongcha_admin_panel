@@ -1,11 +1,10 @@
 "use client";
-// src/app/rewards/RewardsClient.tsx — TICKET REDESIGN (FIXED COLLECTION)
+// src/app/rewards/RewardsClient.tsx — TICKET REDESIGN (FIXED COLLECTION & IMAGE UPLOAD)
 
 import { useState, useMemo, useEffect, useCallback } from "react";
-// Pastikan import ini tidak error jika file InjectVoucherModal tidak ada
-// import InjectVoucherModal from "./InjectVoucherModal"; 
 import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
-import { db } from "@/lib/firebaseClient";
+import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
+import { db, storage } from "@/lib/firebaseClient";
 import { Reward } from "@/types/firestore";
 
 type RewardWithId = Reward & { id: string };
@@ -46,6 +45,51 @@ const CAT_CFG: Record<Category, { bg: string; color: string; dot: string; label:
   Drink:    { bg: '#EBF3FF', color: '#1D5FCC', dot: '#3A8EF6', label: 'Drink'    },
   Topping:  { bg: '#F3EDFF', color: '#6B2FCC', dot: '#8B5CF6', label: 'Topping'  },
   Discount: { bg: '#EDFFF6', color: '#0A7A44', dot: '#10B981', label: 'Discount' },
+};
+
+// ── Image Compression Utility (WebP) ───────────────────────────────────────────
+const compressImageToWebP = (file: File, maxWidth = 800, maxHeight = 800, quality = 0.8): Promise<Blob> => {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.src = URL.createObjectURL(file);
+    img.onload = () => {
+      let { width, height } = img;
+
+      if (width > height) {
+        if (width > maxWidth) {
+          height = Math.round((height * maxWidth) / width);
+          width = maxWidth;
+        }
+      } else {
+        if (height > maxHeight) {
+          width = Math.round((width * maxHeight) / height);
+          height = maxHeight;
+        }
+      }
+
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      
+      if (!ctx) {
+        reject(new Error("Failed to initialize Canvas API"));
+        return;
+      }
+
+      ctx.drawImage(img, 0, 0, width, height);
+
+      canvas.toBlob(
+        (blob) => {
+          if (blob) resolve(blob);
+          else reject(new Error("Failed to convert image"));
+        },
+        "image/webp",
+        quality
+      );
+    };
+    img.onerror = () => reject(new Error("Failed to read image file"));
+  });
 };
 
 // ── Global CSS ─────────────────────────────────────────────────────────────────
@@ -120,7 +164,7 @@ function StatusPill({ active }: { active: boolean }) {
       fontSize:10, fontWeight:700, letterSpacing:'.07em', textTransform:'uppercase', fontFamily:font,
     }}>
       <span style={{ width:4, height:4, borderRadius:'50%', background: active ? C.green : C.tx4 }}/>
-      {active ? 'Aktif' : 'Nonaktif'}
+      {active ? 'Active' : 'Inactive'}
     </span>
   );
 }
@@ -183,7 +227,6 @@ export function GcSelect({ style, ...p }: React.SelectHTMLAttributes<HTMLSelectE
   );
 }
 
-// Compact toolbar select
 function ToolbarSelect({
   value, onChange, children,
 }: { value: string; onChange: (v: string) => void; children: React.ReactNode }) {
@@ -229,6 +272,20 @@ function Toast({ msg, type, onDone }: { msg:string; type:'success'|'error'; onDo
   );
 }
 
+function StatCard({ label, value, color, bg, icon }: { label:string; value:number; color:string; bg:string; icon:React.ReactNode }) {
+  return (
+    <div className="gc-stat-card" style={{ background:C.white, borderRadius:16, padding:'16px 20px', border:`1px solid ${C.border}`, display:'flex', alignItems:'center', gap:14 }}>
+      <div style={{ width:44, height:44, borderRadius:12, background:bg, color:color, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+        {icon}
+      </div>
+      <div>
+        <p style={{ fontSize:12, fontWeight:600, color:C.tx3, marginBottom:2, fontFamily:font }}>{label}</p>
+        <p style={{ fontSize:22, fontWeight:700, color:C.tx1, fontFamily:font, lineHeight:1, letterSpacing:'-.02em' }}>{value.toLocaleString('id')}</p>
+      </div>
+    </div>
+  );
+}
+
 // ── Delete Modal ───────────────────────────────────────────────────────────────
 function DeleteModal({ reward, onClose, onDeleted }:
   { reward:RewardWithId; onClose:()=>void; onDeleted:(msg:string)=>void }) {
@@ -239,8 +296,8 @@ function DeleteModal({ reward, onClose, onDeleted }:
     setLoading(true); setError('');
     try {
       const r = await fetch(`/api/rewards/${reward.id}`, { method:'DELETE' });
-      if (!r.ok) throw new Error((await r.json().catch(()=>({}))).message ?? 'Gagal menghapus.');
-      onDeleted(`"${reward.title}" berhasil dihapus.`); onClose();
+      if (!r.ok) throw new Error((await r.json().catch(()=>({}))).message ?? 'Failed to delete.');
+      onDeleted(`"${reward.title}" successfully deleted.`); onClose();
     } catch (e:any) { setError(e.message); setLoading(false); }
   }
 
@@ -265,18 +322,18 @@ function DeleteModal({ reward, onClose, onDeleted }:
             <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
           </svg>
         </div>
-        <h2 style={{ fontSize:18, fontWeight:700, color:C.tx1, marginBottom:8, letterSpacing:'-.02em' }}>Hapus reward ini?</h2>
+        <h2 style={{ fontSize:18, fontWeight:700, color:C.tx1, marginBottom:8, letterSpacing:'-.02em' }}>Delete this reward?</h2>
         <p style={{ fontSize:13, color:C.tx2, lineHeight:1.65, marginBottom:10 }}>
-          <strong style={{ color:C.tx1 }}>"{reward.title}"</strong> akan dihapus permanen dari Firestore.
+          <strong style={{ color:C.tx1 }}>"${reward.title}"</strong> will be permanently deleted from Firestore.
         </p>
         <code style={{ fontSize:10.5, color:C.tx3, background:C.bg, padding:'4px 9px', borderRadius:6, display:'inline-block', marginBottom:20, fontFamily:fontMono, border:`1px solid ${C.border}` }}>
           {reward.id}
         </code>
         {error && <div style={{ padding:'10px 14px', background:C.redBg, border:`1px solid ${C.red}30`, borderRadius:9, fontSize:12.5, color:C.red, marginBottom:14 }}>{error}</div>}
         <div style={{ display:'flex', gap:9 }}>
-          <button onClick={onClose} className="gc-btn-ghost" style={{ flex:1, height:40, borderRadius:10, border:`1.5px solid ${C.border}`, background:C.white, color:C.tx2, fontFamily:font, fontSize:13.5, fontWeight:600, cursor:'pointer', transition:'all .15s' }}>Batal</button>
+          <button onClick={onClose} className="gc-btn-ghost" style={{ flex:1, height:40, borderRadius:10, border:`1.5px solid ${C.border}`, background:C.white, color:C.tx2, fontFamily:font, fontSize:13.5, fontWeight:600, cursor:'pointer', transition:'all .15s' }}>Cancel</button>
           <button onClick={confirm} disabled={loading} style={{ flex:1, height:40, borderRadius:10, border:'none', background:loading?'#f5a3ae':C.red, color:'#fff', fontFamily:font, fontSize:13.5, fontWeight:600, cursor:loading?'not-allowed':'pointer', transition:'all .15s' }}>
-            {loading ? 'Menghapus…' : 'Ya, Hapus'}
+            {loading ? 'Deleting…' : 'Yes, Delete'}
           </button>
         </div>
       </div>
@@ -285,7 +342,8 @@ function DeleteModal({ reward, onClose, onDeleted }:
 }
 
 // ── Reward Modal ───────────────────────────────────────────────────────────────
-type RewardForm = { rewardId:string; title:string; description:string; pointsCost:string; category:Category; isActive:boolean };
+// 🔥 FIXED: Field changed to `imageURL` according to Reward interface
+type RewardForm = { rewardId:string; title:string; description:string; pointsCost:string; category:Category; isActive:boolean; imageURL:string; };
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -306,10 +364,15 @@ function RewardModal({ reward, onClose, onSaved }:
     pointsCost:  reward?.pointsCost != null ? String(reward.pointsCost) : '',
     category:    (reward?.category as Category) ?? 'Drink',
     isActive:    reward?.isActive ?? true,
+    imageURL:    reward?.imageURL ?? '', // 🔥 Using imageURL
   });
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState('');
   const [idTouched, setIdTouched] = useState(false);
+  
+  // State for Image Upload
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const [processingImage, setProcessingImage] = useState(false);
 
   useEffect(() => {
     if (!isNew || idTouched) return;
@@ -325,19 +388,74 @@ function RewardModal({ reward, onClose, onSaved }:
   const set = (k:keyof RewardForm) => (e:React.ChangeEvent<HTMLInputElement|HTMLTextAreaElement|HTMLSelectElement>) =>
     setForm(p => ({ ...p, [k]:e.target.value }));
 
+  // Handler Upload Image
+  const handleImageFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 15 * 1024 * 1024) {
+      setError("Ukuran gambar asli maksimal 15MB.");
+      return;
+    }
+
+    setError('');
+    setProcessingImage(true);
+
+    try {
+      const compressedBlob = await compressImageToWebP(file, 800, 800, 0.8);
+      const fileName = `rewards/${Date.now()}_${Math.random().toString(36).substring(2, 8)}.webp`;
+      const storageRef = ref(storage, fileName);
+
+      const uploadTask = uploadBytesResumable(storageRef, compressedBlob);
+      setUploadProgress(0);
+      setProcessingImage(false);
+
+      uploadTask.on("state_changed",
+        (snapshot) => {
+          const prog = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+          setUploadProgress(prog);
+        },
+        (err) => {
+          setError("Failed to upload image: " + err.message);
+          setUploadProgress(null);
+        },
+        async () => {
+          const url = await getDownloadURL(uploadTask.snapshot.ref);
+          setForm(p => ({ ...p, imageURL: url })); // 🔥 Simpan ke imageURL
+          setUploadProgress(null);
+        }
+      );
+    } catch (err: any) {
+      setError(err.message || "Failed to process image");
+      setProcessingImage(false);
+    }
+  };
+
   async function handleSave() {
-    if (!form.title.trim())             { setError('Nama reward wajib diisi.'); return; }
-    if (isNew && !form.rewardId.trim()) { setError('Reward ID wajib diisi.'); return; }
+    if (!form.title.trim())             { setError('Reward name is required.'); return; }
+    if (isNew && !form.rewardId.trim()) { setError('Reward ID is required.'); return; }
     const cost = Number(form.pointsCost);
-    if (form.pointsCost !== '' && (isNaN(cost)||cost<0)) { setError('Biaya poin harus angka positif.'); return; }
+    if (form.pointsCost !== '' && (isNaN(cost)||cost<0)) { setError('Points cost must be a positive number.'); return; }
+    if (uploadProgress !== null || processingImage) { setError('Wait for image processing to complete.'); return; }
+    
     setLoading(true); setError('');
     try {
       const method = isNew ? 'POST' : 'PATCH';
       const url    = isNew ? '/api/rewards' : `/api/rewards/${reward!.id}`;
-      const payload = { ...(isNew?{rewardId:form.rewardId.trim()}:{}), title:form.title.trim(), description:form.description.trim(), pointsCost:form.pointsCost!==''?Number(form.pointsCost):0, category:form.category, isActive:form.isActive };
+      // 🔥 Payload with imageURL
+      const payload = { 
+        ...(isNew?{rewardId:form.rewardId.trim()}:{}), 
+        title:form.title.trim(), 
+        description:form.description.trim(), 
+        pointsCost:form.pointsCost!==''?Number(form.pointsCost):0, 
+        category:form.category, 
+        isActive:form.isActive, 
+        imageURL:form.imageURL.trim() 
+      };
+      
       const r = await fetch(url, { method, headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) });
-      if (!r.ok) throw new Error((await r.json().catch(()=>({}))).message ?? 'Gagal menyimpan.');
-      onSaved(isNew ? `Reward "${form.title}" berhasil ditambahkan!` : `"${form.title}" berhasil diperbarui.`);
+      if (!r.ok) throw new Error((await r.json().catch(()=>({}))).message ?? 'Failed to save.');
+      onSaved(isNew ? `Reward "${form.title}" successfully added!` : `"${form.title}" successfully updated.`);
       onClose();
     } catch (e:any) { setError(e.message); setLoading(false); }
   }
@@ -358,10 +476,10 @@ function RewardModal({ reward, onClose, onSaved }:
         <div style={{ padding:'22px 26px 18px', borderBottom:`1px solid ${C.border2}`, display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
           <div>
             <p style={{ fontSize:10.5, fontWeight:700, letterSpacing:'.12em', textTransform:'uppercase', color:C.blue, marginBottom:4 }}>
-              {isNew ? 'Reward Baru' : 'Edit Reward'}
+              {isNew ? 'New Reward' : 'Edit Reward'}
             </p>
             <h2 style={{ fontSize:20, fontWeight:700, letterSpacing:'-.025em', color:C.tx1, margin:0 }}>
-              {isNew ? 'Tambah Voucher' : reward!.title}
+              {isNew ? 'Add Voucher' : reward!.title}
             </h2>
             {!isNew && (
               <code style={{ fontSize:10.5, color:C.tx3, background:C.bg, padding:'2px 8px', borderRadius:5, fontFamily:fontMono, border:`1px solid ${C.border}`, display:'inline-block', marginTop:5 }}>
@@ -382,26 +500,26 @@ function RewardModal({ reward, onClose, onSaved }:
               <FL required>Reward ID</FL>
               <GcInput placeholder="rw_free_drink" value={form.rewardId}
                 onChange={e => { setIdTouched(true); setForm(p=>({...p,rewardId:e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g,'')})); }}/>
-              <p style={{ fontSize:11.5, color:C.tx3, marginTop:5 }}>Tidak bisa diubah setelah disimpan.</p>
+              <p style={{ fontSize:11.5, color:C.tx3, marginTop:5 }}>Cannot be changed after saving.</p>
             </div>
           )}
           <div>
-            <SectionLabel>Informasi Reward</SectionLabel>
+            <SectionLabel>Reward Information</SectionLabel>
             <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
-              <div><FL required>Nama Voucher</FL><GcInput placeholder="Free Drink Any Size" value={form.title} onChange={set('title')}/></div>
-              <div><FL>Deskripsi</FL><GcTextarea placeholder="Tukarkan poin kamu dengan minuman gratis..." value={form.description} onChange={set('description')}/></div>
+              <div><FL required>Voucher Name</FL><GcInput placeholder="Free Drink Any Size" value={form.title} onChange={set('title')}/></div>
+              <div><FL>Description</FL><GcTextarea placeholder="Redeem your points for free drinks..." value={form.description} onChange={set('description')}/></div>
             </div>
           </div>
           <div>
-            <SectionLabel>Poin & Kategori</SectionLabel>
+            <SectionLabel>Points & Category</SectionLabel>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
               <div>
-                <FL required>Biaya Poin</FL>
+                <FL required>Points Cost</FL>
                 <GcInput type="number" min="0" step="1" placeholder="500" value={form.pointsCost} onChange={set('pointsCost')}/>
-                <p style={{ fontSize:11.5, color:C.tx3, marginTop:5 }}>0 = gratis</p>
+                <p style={{ fontSize:11.5, color:C.tx3, marginTop:5 }}>0 = free</p>
               </div>
               <div>
-                <FL required>Kategori</FL>
+                <FL required>Category</FL>
                 <GcSelect value={form.category} onChange={set('category')}>
                   <option value="Drink">Drink</option>
                   <option value="Topping">Topping</option>
@@ -410,22 +528,64 @@ function RewardModal({ reward, onClose, onSaved }:
               </div>
             </div>
           </div>
+
+          {/* 🔥 NEW IMAGE UPLOAD FIELD */}
+          <div>
+            <SectionLabel>Media (Optional)</SectionLabel>
+            <FL>Upload Voucher Image (WebP)</FL>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+              {form.imageURL && (
+                <img
+                  src={form.imageURL}
+                  alt={form.title}
+                  style={{
+                    width: '100%', height: '100%',
+                    objectFit: 'contain', maxWidth: 44, maxHeight: 44,
+                    borderRadius: 8, border: `1px solid ${C.border}`
+                  }}
+                />
+              )}
+              <div style={{ flex: 1 }}>
+                {processingImage ? (
+                  <div style={{ width: '100%', height: 42, borderRadius: 9, background: C.bg, border: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: C.orange }}>Compressing to WebP...</span>
+                  </div>
+                ) : uploadProgress !== null ? (
+                  <div style={{ width: '100%', height: 42, borderRadius: 9, background: C.bg, border: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', padding: '0 10px', position: 'relative', overflow: 'hidden' }}>
+                    <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, background: C.blueL, width: `${uploadProgress}%`, transition: 'width 0.2s ease' }} />
+                    <span style={{ position: 'relative', zIndex: 1, fontSize: 12, fontWeight: 700, color: C.blue }}>Uploading... {Math.round(uploadProgress)}%</span>
+                  </div>
+                ) : (
+                  <div style={{ position: 'relative', height: 42, display: 'flex', alignItems: 'center' }}>
+                    <input type="file" accept="image/*" onChange={handleImageFile} style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', zIndex: 10 }} />
+                    <div style={{ width: '100%', height: '100%', borderRadius: 9, background: C.bg, border: `1.5px dashed ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontSize: 12.5, fontWeight: 600, color: C.tx2, transition: 'all .2s' }}>
+                      <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+                      {form.imageURL ? "Change Voucher Image" : "Select Image File"}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+            <p style={{ fontSize:11.5, color:C.tx4, marginTop:5 }}>If empty, the application will use the default image.</p>
+          </div>
+
           {/* Preview */}
-          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'12px 16px', borderRadius:12, background:cat.bg, border:`1px solid ${cat.color}25` }}>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'12px 16px', borderRadius:12, background:cat.bg, border:`1px solid ${cat.color}25`, marginTop: 6 }}>
             <div>
               <p style={{ fontSize:11.5, fontWeight:700, color:cat.color, marginBottom:2 }}>Preview</p>
               <p style={{ fontSize:13, color:C.tx2 }}>
-                {form.title || '(nama reward)'}{' · '}
-                <strong style={{ color:cat.color }}>{!form.pointsCost||form.pointsCost==='0'?'Gratis':`${Number(form.pointsCost).toLocaleString('id')} pts`}</strong>
+                {form.title || '(reward name)'}{' · '}
+                <strong style={{ color:cat.color }}>{!form.pointsCost||form.pointsCost==='0'?'Free':`${Number(form.pointsCost).toLocaleString('id')} pts`}</strong>
               </p>
             </div>
             <CategoryChip category={form.category}/>
           </div>
+          
           {/* Toggle */}
           <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'13px 16px', borderRadius:12, background:C.bg, border:`1.5px solid ${C.border}` }}>
             <div>
-              <p style={{ fontSize:13.5, fontWeight:600, color:C.tx1, marginBottom:2 }}>Status Aktif</p>
-              <p style={{ fontSize:12, color:C.tx3 }}>{form.isActive ? 'Bisa di-redeem member' : 'Disembunyikan dari member'}</p>
+              <p style={{ fontSize:13.5, fontWeight:600, color:C.tx1, marginBottom:2 }}>Active Status</p>
+              <p style={{ fontSize:12, color:C.tx3 }}>{form.isActive ? 'Can be redeemed by members' : 'Hidden from members'}</p>
             </div>
             <div style={{ display:'flex', alignItems:'center', gap:10 }}>
               <StatusPill active={form.isActive}/>
@@ -439,11 +599,11 @@ function RewardModal({ reward, onClose, onSaved }:
 
         {/* Footer */}
         <div style={{ padding:'14px 26px 20px', borderTop:`1px solid ${C.border2}`, display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0, background:C.bg }}>
-          <p style={{ fontSize:11.5, color:C.tx4 }}><span style={{ color:C.red }}>*</span> wajib diisi</p>
+          <p style={{ fontSize:11.5, color:C.tx4 }}><span style={{ color:C.red }}>*</span> required</p>
           <div style={{ display:'flex', gap:9 }}>
             <button onClick={onClose} className="gc-btn-ghost" style={{ height:40, padding:'0 18px', borderRadius:10, border:`1.5px solid ${C.border}`, background:C.white, color:C.tx2, fontFamily:font, fontSize:13.5, fontWeight:600, cursor:'pointer', transition:'all .15s' }}>Batal</button>
-            <button onClick={handleSave} disabled={loading} className="gc-btn-primary" style={{ height:40, padding:'0 22px', borderRadius:10, border:'none', background:loading?'#9ca3af':C.blue, color:'#fff', fontFamily:font, fontSize:13.5, fontWeight:600, cursor:loading?'not-allowed':'pointer', boxShadow:loading?'none':'0 2px 12px rgba(58,86,232,.28)', display:'inline-flex', alignItems:'center', gap:7 }}>
-              {loading ? 'Menyimpan…' : isNew ? '+ Tambah Reward' : 'Simpan Perubahan'}
+            <button onClick={handleSave} disabled={loading || uploadProgress !== null || processingImage} className="gc-btn-primary" style={{ height:40, padding:'0 22px', borderRadius:10, border:'none', background:(loading||uploadProgress!==null||processingImage)?'#9ca3af':C.blue, color:'#fff', fontFamily:font, fontSize:13.5, fontWeight:600, cursor:(loading||uploadProgress!==null||processingImage)?'not-allowed':'pointer', boxShadow:(loading||uploadProgress!==null||processingImage)?'none':'0 2px 12px rgba(58,86,232,.28)', display:'inline-flex', alignItems:'center', gap:7 }}>
+              {loading ? 'Saving…' : isNew ? '+ Add Reward' : 'Save Changes'}
             </button>
           </div>
         </div>
@@ -453,12 +613,9 @@ function RewardModal({ reward, onClose, onSaved }:
 }
 
 // ── TICKET CARD ────────────────────────────────────────────────────────────────
-// Horizontal "ticket" shape: left stub (category + points) | dashed separator | right body (title, desc, actions)
 function RewardCard({ reward, onEdit, onDelete, onToggleActive }:
   { reward:RewardWithId; onEdit:()=>void; onDelete:()=>void; onToggleActive:()=>void }) {
   const cat = CAT_CFG[reward.category as Category] ?? CAT_CFG.Drink;
-
-  // notch size
   const notch = 14;
 
   return (
@@ -472,7 +629,7 @@ function RewardCard({ reward, onEdit, onDelete, onToggleActive }:
       position: 'relative',
     }}>
 
-      {/* ── LEFT STUB ── colored background, category + points */}
+      {/* ── LEFT STUB ── */}
       <div style={{
         width: 110,
         flexShrink: 0,
@@ -486,15 +643,12 @@ function RewardCard({ reward, onEdit, onDelete, onToggleActive }:
         position: 'relative',
         gap: 6,
       }}>
-        {/* Category label — horizontal, centered */}
         <span style={{
           fontSize: 9, fontWeight: 800, letterSpacing: '.13em', textTransform: 'uppercase',
           color: cat.color, opacity: .75, fontFamily: font, textAlign: 'center',
         }}>
           {cat.label}
         </span>
-
-        {/* Points */}
         <div style={{ textAlign: 'center' }}>
           {reward.pointsCost === 0 ? (
             <p style={{ fontSize: 16, fontWeight: 800, color: C.green, letterSpacing: '-.02em', lineHeight: 1, fontFamily: font, margin: 0 }}>FREE</p>
@@ -511,8 +665,6 @@ function RewardCard({ reward, onEdit, onDelete, onToggleActive }:
             </>
           )}
         </div>
-
-        {/* Status indicator — green = active, red = inactive */}
         <span style={{
           width: 7, height: 7, borderRadius: '50%',
           background: reward.isActive ? C.green : C.red,
@@ -520,8 +672,6 @@ function RewardCard({ reward, onEdit, onDelete, onToggleActive }:
             ? `0 0 0 2px ${C.green}35`
             : `0 0 0 2px ${C.red}30`,
         }}/>
-
-        {/* Notch */}
         <div style={{
           position: 'absolute', right: -notch/2, top: '50%',
           transform: 'translateY(-50%)',
@@ -534,58 +684,41 @@ function RewardCard({ reward, onEdit, onDelete, onToggleActive }:
         }}/>
       </div>
 
-      {/* ── SEPARATOR (dashed, sits over the notch gap) ── */}
+      {/* ── SEPARATOR ── */}
       <div style={{
-        position: 'absolute',
-        left: 110,
-        top: 10,
-        bottom: 10,
-        width: 0,
-        borderLeft: `1.5px dashed ${C.border}`,
-        zIndex: 1,
+        position: 'absolute', left: 110, top: 10, bottom: 10, width: 0, borderLeft: `1.5px dashed ${C.border}`, zIndex: 1,
       }}/>
 
       {/* ── RIGHT BODY ── */}
-      <div style={{
-        flex: 1,
-        display: 'flex',
-        flexDirection: 'column',
-        padding: '14px 16px 12px 20px',
-        minWidth: 0,
-      }}>
-
-        {/* Top row: title + status */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '14px 16px 12px 20px', minWidth: 0 }}>
         <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:8, marginBottom:5 }}>
           <p style={{ fontSize:13.5, fontWeight:700, color:C.tx1, lineHeight:1.3, letterSpacing:'-.015em', fontFamily:font, margin:0, flex:1, minWidth:0 }}>
             {reward.title}
           </p>
           <StatusPill active={reward.isActive}/>
         </div>
-
-        {/* Description */}
-        <p style={{ fontSize:12, color:C.tx3, lineHeight:1.55, fontFamily:font, margin:0,
-          marginBottom:10, flex:1,
-          overflow:'hidden', display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical' as any,
-        }}>
-          {reward.description || <span style={{ fontStyle:'italic', color:C.tx4 }}>Tidak ada deskripsi.</span>}
+        <p style={{ fontSize:12, color:C.tx3, lineHeight:1.55, fontFamily:font, margin:0, marginBottom:10, flex:1, overflow:'hidden', display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical' as any }}>
+          {reward.description || <span style={{ fontStyle:'italic', color:C.tx4 }}>No description.</span>}
         </p>
 
-        {/* Bottom row: ID + category + actions */}
+        {/* 🔥 IMAGE DISPLAY USES imageURL */}
         <div style={{ display:'flex', alignItems:'center', gap:7, flexWrap:'wrap' }}>
+          {reward.imageURL && (
+            <div style={{ width:22, height:22, borderRadius:4, overflow:'hidden', border:`1px solid ${C.border2}`, flexShrink:0 }}>
+              <img src={reward.imageURL} alt={reward.title} style={{ width:'100%', height:'100%', objectFit:'contain' }}/>
+            </div>
+          )}
           <code style={{ fontSize:9.5, color:C.tx4, background:C.bg, padding:'2px 7px', borderRadius:5, fontFamily:fontMono, border:`1px solid ${C.border2}`, flexShrink:0 }}>
             {reward.id}
           </code>
           <CategoryChip category={reward.category as Category}/>
           <div style={{ flex:1 }}/>
-
-          {/* Actions */}
           <button onClick={onEdit} className="gc-action-edit" style={{ height:28, padding:'0 10px', borderRadius:7, fontFamily:font, fontSize:11.5, fontWeight:600, cursor:'pointer', border:`1.5px solid ${C.border}`, background:C.white, color:C.tx2, display:'inline-flex', alignItems:'center', gap:4, transition:'all .13s', flexShrink:0 }}>
             <svg width="10" height="10" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
               <path d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
             </svg>
             Edit
           </button>
-
           <button onClick={onToggleActive} className={reward.isActive ? 'gc-action-deactivate' : 'gc-action-activate'} style={{ height:28, padding:'0 10px', borderRadius:7, fontFamily:font, fontSize:11.5, fontWeight:600, cursor:'pointer', transition:'all .13s', border:`1.5px solid ${reward.isActive?'#FECACA':'#A7F3D0'}`, background:C.white, color:reward.isActive?'#EF4444':'#16A34A', display:'inline-flex', alignItems:'center', gap:4, flexShrink:0 }}>
             {reward.isActive ? (
               <><svg width="9" height="9" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>Nonaktifkan</>
@@ -593,7 +726,6 @@ function RewardCard({ reward, onEdit, onDelete, onToggleActive }:
               <><svg width="9" height="9" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round"><path d="M20 6L9 17l-5-5"/></svg>Aktifkan</>
             )}
           </button>
-
           <button onClick={onDelete} className="gc-action-delete" style={{ width:28, height:28, borderRadius:7, cursor:'pointer', border:`1.5px solid ${C.border}`, background:C.white, color:C.tx3, display:'inline-flex', alignItems:'center', justifyContent:'center', flexShrink:0, transition:'all .13s' }}>
             <svg width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round">
               <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M9 6V4h6v2"/>
@@ -619,22 +751,8 @@ function AddTicket({ onClick }: { onClick: () => void }) {
         </svg>
       </div>
       <div>
-        <p style={{ fontSize:12.5, fontWeight:600, color:C.tx3, margin:0, fontFamily:font }}>Tambah Voucher Baru</p>
-        <p style={{ fontSize:11, color:C.tx4, margin:'2px 0 0', fontFamily:font }}>Klik untuk menambahkan reward</p>
-      </div>
-    </div>
-  );
-}
-
-// ── Stat Card ─────────────────────────────────────────────────────────────────
-function StatCard({ label, value, color, bg, icon }:
-  { label:string; value:number; color:string; bg:string; icon:React.ReactNode }) {
-  return (
-    <div className="gc-stat-card" style={{ background:C.white, border:`1px solid ${C.border}`, borderRadius:14, boxShadow:C.shadow, padding:'14px 18px', display:'flex', alignItems:'center', gap:12 }}>
-      <div style={{ width:38, height:38, borderRadius:10, background:bg, flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', color }}>{icon}</div>
-      <div>
-        <p style={{ fontSize:10, fontWeight:700, letterSpacing:'.09em', textTransform:'uppercase', color:C.tx3, marginBottom:4, fontFamily:font }}>{label}</p>
-        <p style={{ fontSize:26, fontWeight:800, letterSpacing:'-.03em', color, lineHeight:1, fontFamily:font }}>{value}</p>
+        <p style={{ fontSize:12.5, fontWeight:600, color:C.tx3, margin:0, fontFamily:font }}>Add New Voucher</p>
+        <p style={{ fontSize:11, color:C.tx4, margin:'2px 0 0', fontFamily:font }}>Click to add reward</p>
       </div>
     </div>
   );
@@ -657,7 +775,6 @@ export default function RewardsClient({ initialRewards = [], showAddTrigger }:
   const showToast = useCallback((msg:string, type:'success'|'error'='success') => setToast({msg,type}), []);
 
   useEffect(() => {
-    // Pastikan collection ini sama persis dengan yang ada di original code kamu
     const q = query(collection(db,'rewards_catalog'), orderBy('title'));
     const unsub = onSnapshot(q, snap => { setRewards(snap.docs.map(d=>({id:d.id,...d.data()} as RewardWithId))); setSyncStatus('live'); }, err => { console.error(err); setSyncStatus('error'); });
     return () => unsub();
@@ -667,7 +784,7 @@ export default function RewardsClient({ initialRewards = [], showAddTrigger }:
     setTogglingId(reward.id);
     try {
       const r = await fetch(`/api/rewards/${reward.id}`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({isActive:!reward.isActive}) });
-      if (!r.ok) throw new Error((await r.json().catch(()=>({}))).message ?? 'Gagal update.');
+      if (!r.ok) throw new Error((await r.json().catch(()=>({}))).message ?? 'Failed to update.');
       showToast(reward.isActive ? `"${reward.title}" dinonaktifkan.` : `"${reward.title}" diaktifkan.`);
     } catch (e:any) { showToast(e.message,'error'); } finally { setTogglingId(null); }
   }, [showToast]);
@@ -683,7 +800,6 @@ export default function RewardsClient({ initialRewards = [], showAddTrigger }:
   const total     = rewards.length;
   const activeAmt = rewards.filter(r=>r.isActive).length;
   const inactive  = rewards.filter(r=>!r.isActive).length;
-  const drinkCnt  = rewards.filter(r=>r.category==='Drink').length;
 
   if (showAddTrigger) {
     return (
@@ -693,7 +809,7 @@ export default function RewardsClient({ initialRewards = [], showAddTrigger }:
           <LiveBadge status={syncStatus}/>
           <button onClick={() => setShowAdd(true)} className="gc-btn-primary" style={{ height:40, padding:'0 18px', borderRadius:10, border:'none', background:C.blue, color:'#fff', fontFamily:font, fontSize:13.5, fontWeight:600, cursor:'pointer', display:'inline-flex', alignItems:'center', gap:7, boxShadow:'0 2px 12px rgba(58,86,232,.30)' }}>
             <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round"><path d="M12 4.5v15m7.5-7.5h-15"/></svg>
-            Tambah Voucher
+            Add Voucher
           </button>
         </div>
         {showAdd && <RewardModal reward={null} onClose={()=>setShowAdd(false)} onSaved={msg=>{showToast(msg);setShowAdd(false);}}/>}
@@ -726,7 +842,7 @@ export default function RewardsClient({ initialRewards = [], showAddTrigger }:
           {/* Search */}
           <div className="gc-search" style={{ display:'flex', alignItems:'center', gap:8, height:36, padding:'0 12px', background:C.white, border:`1.5px solid ${C.border}`, borderRadius:9, transition:'all .15s', minWidth:200 }}>
             <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke={C.tx3} strokeWidth={2} strokeLinecap="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-            <input type="text" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Cari reward..." style={{ border:'none', outline:'none', background:'transparent', fontSize:13, color:C.tx1, width:150, fontFamily:font }}/>
+            <input type="text" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search reward..." style={{ border:'none', outline:'none', background:'transparent', fontSize:13, color:C.tx1, width:150, fontFamily:font }}/>
             {search && (
               <button onClick={()=>setSearch('')} style={{ background:'none', border:'none', cursor:'pointer', color:C.tx3, padding:0, lineHeight:1, display:'flex' }}>
                 <svg width="11" height="11" viewBox="0 0 12 12" fill="none"><path d="M1 1l10 10M11 1L1 11" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/></svg>
@@ -758,7 +874,6 @@ export default function RewardsClient({ initialRewards = [], showAddTrigger }:
             </span>
             <LiveBadge status={syncStatus}/>
           </div>
-          {/* TOMBOL TAMBAH VOUCHER BARU */}
           <button 
             onClick={() => setShowAdd(true)} 
             className="gc-btn-primary" 
@@ -772,7 +887,7 @@ export default function RewardsClient({ initialRewards = [], showAddTrigger }:
             <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round">
               <path d="M12 4.5v15m7.5-7.5h-15"/>
             </svg>
-            Tambah Voucher
+            Add Voucher
           </button>
         </div>
       </div>
@@ -780,16 +895,16 @@ export default function RewardsClient({ initialRewards = [], showAddTrigger }:
       {/* Ticket list */}
       {rewards.length===0 && syncStatus!=='connecting' ? (
         <div style={{ background:C.white, borderRadius:18, border:`1px solid ${C.border}`, boxShadow:C.shadow, padding:'70px 24px', textAlign:'center' }}>
-          <p style={{ fontSize:15, fontWeight:700, color:C.tx1, marginBottom:6, fontFamily:font }}>Belum ada reward</p>
-          <p style={{ fontSize:13, color:C.tx3, marginBottom:22, fontFamily:font }}>Mulai tambahkan voucher pertama kamu.</p>
+          <p style={{ fontSize:15, fontWeight:700, color:C.tx1, marginBottom:6, fontFamily:font }}>No rewards yet</p>
+          <p style={{ fontSize:13, color:C.tx3, marginBottom:22, fontFamily:font }}>Start adding your first voucher.</p>
           <button onClick={()=>setShowAdd(true)} className="gc-btn-primary" style={{ height:40, padding:'0 22px', borderRadius:10, border:'none', background:C.blue, color:'#fff', fontFamily:font, fontSize:13.5, fontWeight:600, cursor:'pointer', boxShadow:'0 4px 16px rgba(58,86,232,.30)' }}>
-            + Tambah Voucher Pertama
+            + Add First Voucher
           </button>
         </div>
       ) : filtered.length===0 ? (
         <div style={{ background:C.white, borderRadius:18, border:`1px solid ${C.border}`, boxShadow:C.shadow, padding:'50px 24px', textAlign:'center' }}>
-          <p style={{ fontSize:14, fontWeight:700, color:C.tx1, marginBottom:6, fontFamily:font }}>Tidak ada hasil</p>
-          <p style={{ fontSize:12.5, color:C.tx3, fontFamily:font }}>{syncStatus==='connecting'?'Memuat data…':'Tidak ada reward yang cocok dengan filter ini.'}</p>
+          <p style={{ fontSize:14, fontWeight:700, color:C.tx1, marginBottom:6, fontFamily:font }}>No results</p>
+          <p style={{ fontSize:12.5, color:C.tx3, fontFamily:font }}>{syncStatus==='connecting'?'Loading data…':'No rewards match this filter.'}</p>
         </div>
       ) : (
         <div style={{ display:'flex', flexDirection:'column', gap:10 }}>

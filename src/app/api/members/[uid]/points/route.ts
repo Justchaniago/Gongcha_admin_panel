@@ -15,7 +15,7 @@ export async function PATCH(
     const sessionCookie = cookieStore.get("session")?.value;
     if (!sessionCookie) {
       return NextResponse.json(
-        { error: "Session tidak ditemukan. Silakan login ulang.", code: "SESSION_NULL" },
+        { error: "Session not found. Please login again.", code: "SESSION_NULL" },
         { status: 403 }
       );
     }
@@ -23,7 +23,7 @@ export async function PATCH(
     const userRole = decodedClaims.role as string;
     if (!["admin", "master"].includes(userRole)) {
       return NextResponse.json(
-        { error: "Akses ditolak. Anda tidak memiliki izin admin.", code: "FORBIDDEN" },
+        { error: "Access denied. You do not have admin permission.", code: "FORBIDDEN" },
         { status: 403 }
       );
     }
@@ -40,7 +40,7 @@ export async function PATCH(
 
     if (lifetimePoints < currentPoints) {
       return NextResponse.json(
-        { error: "Lifetime points tidak boleh kurang dari current points" },
+        { error: "Lifetime points cannot be less than current points" },
         { status: 400 }
       );
     }

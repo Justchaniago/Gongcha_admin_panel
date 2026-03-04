@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
-// import NextAuthProvider from "@/components/NextAuthProvider"; // 🔥 SUDAH DIHAPUS (CLEANUP)
+// import NextAuthProvider from "@/components/NextAuthProvider"; // 🔥 ALREADY REMOVED (CLEANUP)
 import { AuthProvider } from "@/context/AuthContext";
 import ProtectedRoute from "@/components/layout/ProtectedRoute";
 import UserProfileHeader from "@/components/layout/UserProfileHeader";

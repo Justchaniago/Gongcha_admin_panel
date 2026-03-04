@@ -40,18 +40,20 @@ export async function createStore(data: any) {
   const { storeId, name, address, latitude, longitude, openHours, statusOverride, isActive } = data;
 
   if (!name?.trim()) throw new Error("Nama outlet wajib diisi.");
-  if (!storeId?.trim()) throw new Error("Store ID wajib diisi.");
+  if (!storeId?.trim()) throw new Error("Store ID is required.");
 
   const idRegex = /^[a-z0-9_-]+$/;
   if (!idRegex.test(storeId.trim())) {
-    throw new Error("Store ID hanya boleh mengandung huruf kecil, angka, underscore (_) dan dash (-).");
+    throw new Error("Store ID can only contain lowercase letters, numbers, underscore (_) and dash (-).");
   }
 
   const existing = await adminDb.collection("stores").doc(storeId.trim()).get();
-  if (existing.exists) throw new Error(`Store ID "${storeId}" sudah digunakan.`);
+  if (existing.exists) throw new Error(`Store ID "${storeId}" is already in use.`);
 
+  const namePlace = name.replace(/^Gong Cha\s*/i, '').trim();
   const storeData = {
     name: name.trim(),
+    namePlace,
     address: address?.trim() ?? "",
     latitude: latitude != null && latitude !== "" ? Number(latitude) : null,
     longitude: longitude != null && longitude !== "" ? Number(longitude) : null,

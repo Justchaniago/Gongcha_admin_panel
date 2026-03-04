@@ -39,16 +39,16 @@ function StatusPill({ active }: { active: boolean }) {
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 11px', borderRadius: 99, background: active ? C.greenBg : C.border2, color: active ? '#027A48' : C.tx3, fontSize: 11, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase' }}>
       <span style={{ width: 5, height: 5, borderRadius: '50%', background: active ? C.green : C.tx4 }}/>
-      {active ? 'Aktif' : 'Nonaktif'}
+      {active ? 'Active' : 'Inactive'}
     </span>
   );
 }
 
 function StatusOverridePill({ status }: { status: StatusOverride }) {
   const cfg = {
-    open:         { label: 'Buka',        color: '#027A48', bg: C.greenBg  },
-    almost_close: { label: 'Mau Tutup',   color: '#92400E', bg: C.orangeBg },
-    closed:       { label: 'Tutup',       color: '#B42318', bg: C.redBg    },
+    open:         { label: 'Open',        color: '#027A48', bg: C.greenBg  },
+    almost_close: { label: 'Almost Closed',   color: '#92400E', bg: C.orangeBg },
+    closed:       { label: 'Closed',       color: '#B42318', bg: C.redBg    },
   }[status] ?? { label: status, color: C.tx3, bg: C.border2 };
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', padding: '3px 9px', borderRadius: 99, background: cfg.bg, color: cfg.color, fontSize: 11, fontWeight: 700, letterSpacing: '.04em' }}>
@@ -111,7 +111,7 @@ function DeleteModal({ store, onClose, onDeleted }: { store: StoreWithId; onClos
     setLoading(true); setError('');
     try {
       await deleteStore(store.id); // Memanggil Server Action
-      onDeleted(`"${store.name}" berhasil dihapus.`);
+      onDeleted(`"${store.name}" successfully deleted.`);
       onClose();
     } catch (e: any) { setError(e.message); setLoading(false); }
   }
@@ -122,14 +122,14 @@ function DeleteModal({ store, onClose, onDeleted }: { store: StoreWithId; onClos
         <div style={{ width: 52, height: 52, borderRadius: 14, background: C.redBg, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 18 }}>
           <svg width="24" height="24" fill="none" viewBox="0 0 24 24" stroke={C.red} strokeWidth={2}><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
         </div>
-        <h2 style={{ fontSize: 20, fontWeight: 800, color: C.tx1, marginBottom: 8 }}>Hapus Outlet?</h2>
-        <p style={{ fontSize: 13.5, color: C.tx2, lineHeight: 1.6, marginBottom: 6 }}>Outlet <strong>"{store.name}"</strong> akan dihapus permanen dari Firestore.</p>
+        <h2 style={{ fontSize: 20, fontWeight: 800, color: C.tx1, marginBottom: 8 }}>Delete Store?</h2>
+        <p style={{ fontSize: 13.5, color: C.tx2, lineHeight: 1.6, marginBottom: 6 }}>Store <strong>"{store.name}"</strong> will be permanently deleted from Firestore.</p>
         <code style={{ fontSize: 11, color: C.tx3, background: C.bg, padding: '4px 8px', borderRadius: 6, display: 'inline-block', marginBottom: 18 }}>ID: {store.id}</code>
         {error && <div style={{ padding: '10px 14px', background: C.redBg, border: '1px solid #FECDD3', borderRadius: 9, fontSize: 12.5, color: '#B42318', marginBottom: 14 }}>{error}</div>}
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-          <button onClick={onClose} style={{ height: 40, padding: '0 20px', borderRadius: 9, border: `1.5px solid ${C.border}`, background: C.white, color: C.tx2, fontFamily: font, fontSize: 13.5, fontWeight: 600, cursor: 'pointer' }}>Batal</button>
+          <button onClick={onClose} style={{ height: 40, padding: '0 20px', borderRadius: 9, border: `1.5px solid ${C.border}`, background: C.white, color: C.tx2, fontFamily: font, fontSize: 13.5, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
           <button onClick={confirm} disabled={loading} style={{ height: 40, padding: '0 20px', borderRadius: 9, border: 'none', background: loading ? '#fca5a5' : C.red, color: '#fff', fontFamily: font, fontSize: 13.5, fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer' }}>
-            {loading ? 'Menghapus…' : 'Ya, Hapus'}
+            {loading ? 'Deleting…' : 'Yes, Delete'}
           </button>
         </div>
       </div>
@@ -170,7 +170,7 @@ function StoreModal({ store, onClose, onSaved }: {
   const [error,   setError]   = useState('');
   const [idTouched, setIdTouched] = useState(false);
 
-  // Auto-generate ID suggestion dari nama
+  // Auto-generate ID suggestion from name
   useEffect(() => {
     if (!isNew || idTouched) return;
     const suggested = 'store_' + form.name
@@ -194,8 +194,8 @@ function StoreModal({ store, onClose, onSaved }: {
     setForm(p => ({ ...p, [k]: e.target.value }));
 
   async function handleSave() {
-    if (!form.name.trim()) { setError('Nama outlet wajib diisi.'); return; }
-    if (isNew && !form.storeId.trim()) { setError('Store ID wajib diisi.'); return; }
+    if (!form.name.trim()) { setError('Store name is required.'); return; }
+    if (isNew && !form.storeId.trim()) { setError('Store ID is required.'); return; }
 
     setLoading(true); setError('');
     try {
@@ -216,7 +216,7 @@ function StoreModal({ store, onClose, onSaved }: {
         await updateStore(store!.id, payload);
       }
 
-      onSaved(isNew ? `Outlet "${form.name}" berhasil ditambahkan!` : `"${form.name}" berhasil diperbarui.`);
+      onSaved(isNew ? `Outlet "${form.name}" successfully added!` : `"${form.name}" successfully updated.`);
       onClose();
     } catch (e: any) {
       setError(e.message);
@@ -235,8 +235,8 @@ function StoreModal({ store, onClose, onSaved }: {
         {/* Head */}
         <div style={{ padding: '24px 28px 18px', borderBottom: `1px solid ${C.border2}`, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexShrink: 0 }}>
           <div>
-            <p style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase', color: C.blue, marginBottom: 4 }}>{isNew ? 'Outlet Baru' : 'Edit Outlet'}</p>
-            <h2 style={{ fontSize: 22, fontWeight: 800, letterSpacing: '-.02em', color: C.tx1, margin: 0 }}>{isNew ? 'Tambah Store' : store!.name}</h2>
+            <p style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase', color: C.blue, marginBottom: 4 }}>{isNew ? 'New Store' : 'Edit Store'}</p>
+            <h2 style={{ fontSize: 22, fontWeight: 800, letterSpacing: '-.02em', color: C.tx1, margin: 0 }}>{isNew ? 'Add Store' : store!.name}</h2>
             {!isNew && <code style={{ fontSize: 11, color: C.tx3, background: C.bg, padding: '2px 8px', borderRadius: 6, border: `1px solid ${C.border2}`, display: 'inline-block', marginTop: 4 }}>ID: {store!.id}</code>}
           </div>
           <button onClick={onClose} style={{ width: 34, height: 34, borderRadius: 9, cursor: 'pointer', border: `1.5px solid ${C.border}`, background: 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
@@ -261,25 +261,25 @@ function StoreModal({ store, onClose, onSaved }: {
                   onChange={e => { setIdTouched(true); setForm(p => ({ ...p, storeId: e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, '') })); }}
                 />
                 <p style={{ fontSize: 11.5, color: C.tx3, marginTop: 5 }}>
-                  Akan menjadi document ID di Firestore. Contoh: <code style={{ background: C.bg, padding: '1px 5px', borderRadius: 4, border: `1px solid ${C.border2}` }}>store_tp6</code>. Tidak bisa diubah setelah disimpan.
+                  Will become the document ID in Firestore. Example: <code style={{ background: C.bg, padding: '1px 5px', borderRadius: 4, border: `1px solid ${C.border2}` }}>store_tp6</code>. Cannot be changed after saving.
                 </p>
               </div>
             </div>
           )}
 
-          {/* ── Info Outlet ── */}
-          {section('Informasi Outlet')}
+          {/* ── Store Information ── */}
+          {section('Store Information')}
           <div>
-            <FL required>Nama Outlet</FL>
+            <FL required>Store Name</FL>
             <GcInput placeholder="Gong Cha Grand Indonesia" value={form.name} onChange={set('name')}/>
           </div>
           <div>
-            <FL>Alamat Lengkap</FL>
+            <FL>Full Address</FL>
             <GcTextarea placeholder="Lt. 3 Grand Indonesia, Jl. M.H. Thamrin No.1, Jakarta..." value={form.address} onChange={set('address')}/>
           </div>
 
           {/* ── GPS ── */}
-          {section('Koordinat GPS')}
+          {section('GPS Coordinates')}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
             <div>
               <FL>Latitude</FL>
@@ -298,28 +298,28 @@ function StoreModal({ store, onClose, onSaved }: {
             </a>
           )}
 
-          {/* ── Operasional ── */}
-          {section('Operasional')}
+          {/* ── Operations ── */}
+          {section('Operations')}
           <div>
-            <FL>Jam Buka (openHours)</FL>
+            <FL>Opening Hours (openHours)</FL>
             <GcInput placeholder="10:00 - 22:00" value={form.openHours} onChange={set('openHours')}/>
-            <p style={{ fontSize: 11.5, color: C.tx3, marginTop: 4 }}>Format bebas, misal: "10:00 - 22:00" atau "10:00 - 21:45"</p>
+            <p style={{ fontSize: 11.5, color: C.tx3, marginTop: 4 }}>Free format, for example: "10:00 - 22:00" or "10:00 - 21:45"</p>
           </div>
           <div>
             <FL>Status Override (statusOverride)</FL>
             <GcSelect value={form.statusOverride} onChange={set('statusOverride')}>
-              <option value="open">open — Sedang buka normal</option>
-              <option value="almost_close">almost_close — Hampir tutup</option>
-              <option value="closed">closed — Tutup</option>
+              <option value="open">open — Currently open normal</option>
+              <option value="almost_close">almost_close — Almost closed</option>
+              <option value="closed">closed — Closed</option>
             </GcSelect>
-            <p style={{ fontSize: 11.5, color: C.tx3, marginTop: 4 }}>Ditampilkan di aplikasi member sebagai status real-time outlet.</p>
+            <p style={{ fontSize: 11.5, color: C.tx3, marginTop: 4 }}>Displayed in member app as real-time store status.</p>
           </div>
 
           {/* ── isActive toggle ── */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: 12, background: C.bg, border: `1.5px solid ${C.border}` }}>
             <div>
               <p style={{ fontSize: 13.5, fontWeight: 600, color: C.tx1, marginBottom: 2 }}>isActive</p>
-              <p style={{ fontSize: 12, color: C.tx3 }}>{form.isActive ? 'Outlet terlihat di aplikasi member' : 'Outlet disembunyikan dari aplikasi'}</p>
+              <p style={{ fontSize: 12, color: C.tx3 }}>{form.isActive ? 'Store is visible in member app' : 'Store is hidden from member app'}</p>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <StatusPill active={form.isActive}/>
@@ -335,12 +335,12 @@ function StoreModal({ store, onClose, onSaved }: {
 
         {/* Footer */}
         <div style={{ padding: '16px 28px 24px', borderTop: `1px solid ${C.border2}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
-          <p style={{ fontSize: 11.5, color: C.tx3 }}>Kolom <span style={{ color: C.red }}>*</span> wajib diisi</p>
+          <p style={{ fontSize: 11.5, color: C.tx3 }}>Fields marked <span style={{ color: C.red }}>*</span> are required</p>
           <div style={{ display: 'flex', gap: 10 }}>
-            <button onClick={onClose} style={{ height: 40, padding: '0 20px', borderRadius: 9, border: `1.5px solid ${C.border}`, background: C.white, color: C.tx2, fontFamily: font, fontSize: 13.5, fontWeight: 600, cursor: 'pointer' }}>Batal</button>
+            <button onClick={onClose} style={{ height: 40, padding: '0 20px', borderRadius: 9, border: `1.5px solid ${C.border}`, background: C.white, color: C.tx2, fontFamily: font, fontSize: 13.5, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
             <button onClick={handleSave} disabled={loading}
               style={{ height: 40, padding: '0 22px', borderRadius: 9, border: 'none', background: loading ? '#9ca3af' : C.tx1, color: '#fff', fontFamily: font, fontSize: 13.5, fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer', transition: 'all .15s', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
-              {loading ? 'Menyimpan…' : isNew ? '+ Tambah Outlet' : 'Simpan Perubahan'}
+              {loading ? 'Saving…' : isNew ? '+ Add Store' : 'Save Changes'}
             </button>
           </div>
         </div>
@@ -380,7 +380,7 @@ function StoreRow({ store, isLast, onEdit, onDelete }: { store: StoreWithId; isL
             <svg width="10" height="10" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
             {Number(store.latitude).toFixed(3)}, {Number(store.longitude).toFixed(3)}
           </a>
-        ) : <span style={{ fontSize: 11.5, color: C.tx4, padding: '3px 9px', borderRadius: 6, background: C.bg, border: `1px solid ${C.border2}` }}>Belum diset</span>}
+        ) : <span style={{ fontSize: 11.5, color: C.tx4, padding: '3px 9px', borderRadius: 6, background: C.bg, border: `1px solid ${C.border2}` }}>Not set</span>}
       </td>
       <td style={{ padding: '14px 18px' }}><StatusOverridePill status={(store.statusOverride as StatusOverride) ?? 'open'}/></td>
       <td style={{ padding: '14px 18px' }}><StatusPill active={store.isActive !== false}/></td>
@@ -394,7 +394,7 @@ function StoreRow({ store, isLast, onEdit, onDelete }: { store: StoreWithId; isL
           <button onClick={onDelete} onMouseOver={() => setDH(true)} onMouseOut={() => setDH(false)}
             style={{ height: 32, padding: '0 12px', borderRadius: 7, fontFamily: font, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: `1.5px solid ${dh ? C.red : C.border}`, background: dh ? C.redBg : C.white, color: dh ? C.red : C.tx2, display: 'inline-flex', alignItems: 'center', gap: 5, transition: 'all .13s' }}>
             <svg width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M9 6V4h6v2"/></svg>
-            Hapus
+            Delete
           </button>
         </div>
       </td>
@@ -443,7 +443,7 @@ export default function StoresClient({ initialStores, showAddTrigger }: { initia
             onMouseOver={e => { e.currentTarget.style.background = C.red; e.currentTarget.style.transform = 'translateY(-1px)'; }}
             onMouseOut={e  => { e.currentTarget.style.background = C.tx1; e.currentTarget.style.transform = 'none'; }}>
             <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
-            Tambah Outlet
+            Add Store
           </button>
         </div>
         {showAdd && <StoreModal store={null} onClose={() => setShowAdd(false)} onSaved={msg => { showToast(msg); setShowAdd(false); }}/>}
@@ -459,20 +459,20 @@ export default function StoresClient({ initialStores, showAddTrigger }: { initia
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, height: 40, padding: '0 13px', minWidth: 240, background: C.white, border: `1.5px solid ${searchFocus ? C.blue : C.border}`, borderRadius: 10, boxShadow: searchFocus ? '0 0 0 3px rgba(67,97,238,.1)' : 'none', transition: 'all .14s' }}>
             <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke={C.tx3} strokeWidth={2.2}><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-            <input style={{ flex: 1, border: 'none', background: 'transparent', outline: 'none', fontFamily: font, fontSize: 13.5, color: C.tx1 }} placeholder="Cari nama, ID, alamat…" value={search} onChange={e => setSearch(e.target.value)} onFocus={() => setSearchFocus(true)} onBlur={() => setSearchFocus(false)}/>
+            <input style={{ flex: 1, border: 'none', background: 'transparent', outline: 'none', fontFamily: font, fontSize: 13.5, color: C.tx1 }} placeholder="Search name, ID, address…" value={search} onChange={e => setSearch(e.target.value)} onFocus={() => setSearchFocus(true)} onBlur={() => setSearchFocus(false)}/>
             {search && <button onClick={() => setSearch('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.tx3, fontSize: 15, padding: 0 }}>✕</button>}
           </div>
           <div style={{ display: 'flex', background: C.bg, border: `1.5px solid ${C.border}`, borderRadius: 10, padding: 3 }}>
             {(['all', 'active', 'inactive'] as const).map(f => (
               <button key={f} onClick={() => setFilter(f)} style={{ padding: '5px 14px', borderRadius: 7, border: 'none', fontFamily: font, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', transition: 'all .13s', background: filter === f ? C.white : 'transparent', color: filter === f ? C.tx1 : C.tx3, boxShadow: filter === f ? C.shadow : 'none' }}>
-                {f === 'all' ? 'Semua' : f === 'active' ? 'Aktif' : 'Nonaktif'}
+                {f === 'all' ? 'All' : f === 'active' ? 'Active' : 'Inactive'}
               </button>
             ))}
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <LiveBadge status={syncStatus}/>
-          <span style={{ fontSize: 12.5, color: C.tx3 }}>{filtered.length} / {stores.length} outlet</span>
+          <span style={{ fontSize: 12.5, color: C.tx3 }}>{filtered.length} / {stores.length} stores</span>
         </div>
       </div>
 
@@ -480,14 +480,14 @@ export default function StoresClient({ initialStores, showAddTrigger }: { initia
       <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 18, boxShadow: C.shadow, overflow: 'hidden' }}>
         {filtered.length === 0 ? (
           <div style={{ padding: '60px 24px', textAlign: 'center' }}>
-            <p style={{ fontSize: 15, fontWeight: 700, color: C.tx1, marginBottom: 6 }}>Outlet tidak ditemukan</p>
-            <p style={{ fontSize: 13, color: C.tx3 }}>{syncStatus === 'connecting' ? 'Memuat data…' : search ? `Tidak ada hasil untuk "${search}"` : 'Belum ada outlet terdaftar.'}</p>
+            <p style={{ fontSize: 15, fontWeight: 700, color: C.tx1, marginBottom: 6 }}>Store not found</p>
+            <p style={{ fontSize: 13, color: C.tx3 }}>{syncStatus === 'connecting' ? 'Loading data…' : search ? `No results for "${search}"` : 'No registered outlets yet.'}</p>
           </div>
         ) : (
           <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: font }}>
             <thead>
               <tr style={{ background: '#F8F9FC' }}>
-                {['Outlet / ID', 'Alamat', 'Jam Buka', 'GPS', 'Status Override', 'isActive', ''].map((h, i) => (
+                {['Store / ID', 'Address', 'Opening Hours', 'GPS', 'Status Override', 'isActive', ''].map((h, i) => (
                   <th key={i} style={{ padding: '11px 18px', textAlign: 'left', fontSize: 10.5, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: C.tx3, borderBottom: `1px solid ${C.border2}`, whiteSpace: 'nowrap' }}>{h}</th>
                 ))}
               </tr>
@@ -505,9 +505,9 @@ export default function StoresClient({ initialStores, showAddTrigger }: { initia
 
         <div style={{ padding: '12px 18px', borderTop: `1px solid ${C.border2}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <p style={{ fontSize: 12, color: C.tx3 }}>
-            <strong style={{ color: C.tx2 }}>{stores.filter(s => s.isActive !== false).length}</strong> aktif ·{' '}
-            <strong style={{ color: C.tx2 }}>{stores.filter(s => s.isActive === false).length}</strong> nonaktif ·{' '}
-            <strong style={{ color: C.tx2 }}>{stores.filter(s => s.latitude && s.longitude).length}</strong> dengan GPS
+            <strong style={{ color: C.tx2 }}>{stores.filter(s => s.isActive !== false).length}</strong> active ·{' '}
+            <strong style={{ color: C.tx2 }}>{stores.filter(s => s.isActive === false).length}</strong> inactive ·{' '}
+            <strong style={{ color: C.tx2 }}>{stores.filter(s => s.latitude && s.longitude).length}</strong> with GPS
           </p>
           <button onClick={() => { /* refresh */ }} style={{ height: 34, padding: '0 16px', borderRadius: 8, background: C.bg, color: C.tx2, border: `1px solid ${C.border}`, fontFamily: font, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, marginRight: 10 }} >
             <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
@@ -517,7 +517,7 @@ export default function StoresClient({ initialStores, showAddTrigger }: { initia
             onMouseOver={e => (e.currentTarget.style.background = C.red)}
             onMouseOut={e  => (e.currentTarget.style.background = C.tx1)}>
             <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
-            Tambah Outlet
+            Add Store
           </button>
         </div>
       </div>

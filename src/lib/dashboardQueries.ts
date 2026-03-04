@@ -2,14 +2,14 @@ import { adminDb } from "@/lib/firebaseServer";
 
 export interface DashboardData {
   // KPI
-  totalRevenue: number;           // sum of amount dari semua verified transactions
+  totalRevenue: number;           // sum of amount from all verified transactions
   totalMembers: number;           // count users collection
   activeStores: number;           // count stores where isActive = true
   totalStores: number;            // count all stores
   pendingCount: number;           // count pending transactions (collectionGroup)
-  pendingPointsHeld: number;      // sum potentialPoints dari pending transactions
+  pendingPointsHeld: number;      // sum potentialPoints from pending transactions
 
-  // Recent transactions (5 terbaru dari collectionGroup)
+  // Recent transactions (5 latest from collectionGroup)
   recentTransactions: {
     docId: string;
     transactionId: string;
@@ -39,22 +39,22 @@ export async function getDashboardData(): Promise<DashboardData> {
   const totalStores = storesSnap.size;
   const activeStores = storesSnap.docs.filter((d) => d.data().isActive === true).length;
 
-  // Build storeId → storeName map untuk lookup
+  // Build storeId → storeName map for lookup
   const storeNameMap: Record<string, string> = {};
   storesSnap.docs.forEach((d) => {
     storeNameMap[d.id] = d.data().name as string;
   });
 
   // ─── 3. Transactions (collectionGroup) ─────────────────────────────────────
-  // Firestore collectionGroup query: semua subcollection bernama "transactions"
-  // di bawah stores/{storeId}/transactions
+  // Firestore collectionGroup query: all subcollections named "transactions"
+  // under stores/{storeId}/transactions
   const allTxSnap = await adminDb.collectionGroup("transactions").get();
 
   let totalRevenue = 0;
   let pendingCount = 0;
   let pendingPointsHeld = 0;
 
-  // Per-store aggregation untuk Top Stores
+  // Per-store aggregation for Top Stores
   const storeStats: Record<string, { revenue: number; txCount: number }> = {};
 
   allTxSnap.docs.forEach((doc) => {

@@ -8,12 +8,12 @@ import { revalidatePath } from "next/cache";
 async function getAuthSession() {
   const cookieStore = await cookies();
   const sessionCookie = cookieStore.get("session")?.value;
-  if (!sessionCookie) throw new Error("Unauthorized: Sesi tidak ditemukan.");
+  if (!sessionCookie) throw new Error("Unauthorized: Session not found.");
 
   try {
     const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
     
-    // Ambil role dari Firestore (cek di users dulu, lalu staff)
+    // Get role from Firestore (check users first, then staff)
     let userDoc = await adminDb.collection("users").doc(decodedClaims.uid).get();
     let role = userDoc.exists ? userDoc.data()?.role : null;
     
@@ -23,15 +23,15 @@ async function getAuthSession() {
     }
 
     const allowedRoles = ["admin", "master", "manager", "store_manager"];
-    if (!allowedRoles.includes(role)) throw new Error("Forbidden: Anda tidak memiliki izin.");
+    if (!allowedRoles.includes(role)) throw new Error("Forbidden: You do not have permission.");
     
     return { uid: decodedClaims.uid, role };
   } catch (error) {
-    throw new Error("Unauthorized: Sesi tidak valid.");
+    throw new Error("Unauthorized: Invalid session.");
   }
 }
 
-// ── CREATE ACCOUNT (MEMBER ATAU STAFF) ──
+// ├── CREATE ACCOUNT (MEMBER OR STAFF) ──
 export async function createAccountAction(payload: any, type: "member" | "staff") {
   await getAuthSession();
   const { email, password, name, role, storeLocations, accessAllStores, phoneNumber, tier } = payload;
@@ -55,7 +55,6 @@ export async function createAccountAction(payload: any, type: "member" | "staff"
       const staffData = {
         ...baseData,
         role: role || "cashier",
-        storeLocation: accessAllStores ? "" : (storeLocations?.[0] || ""),
         storeLocations: storeLocations || [],
         accessAllStores: !!accessAllStores,
       };
@@ -76,7 +75,7 @@ export async function createAccountAction(payload: any, type: "member" | "staff"
     return { success: true, uid: authUser.uid };
   } catch (error: any) {
     if (error.code === "auth/email-already-exists") throw new Error("Email sudah terdaftar.");
-    throw new Error(error.message || "Gagal membuat akun.");
+    throw new Error(error.message || "Failed to create account.");
   }
 }
 
@@ -101,7 +100,7 @@ export async function deleteAccountAction(uid: string, collection: "users" | "st
   try {
     await adminAuth.deleteUser(uid);
   } catch (e) {
-    console.warn("User auth sudah tidak ada, hapus doc saja.");
+    console.warn("User auth no longer exists, just delete doc.");
   }
   await adminDb.collection(collection).doc(uid).delete();
   return { success: true };

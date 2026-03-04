@@ -7,8 +7,15 @@ import { useState, useEffect, useRef } from "react";
 export interface Tx {
   docId: string; docPath: string; transactionId: string; memberName: string;
   memberId: string; staffId: string; storeLocation: string; amount: number;
-  potentialPoints: number; status: "pending"|"verified"|"rejected";
+  potentialPoints: number; type?: "earn"|"redeem"; status: "pending"|"verified"|"rejected";
   createdAt: string|null; verifiedAt: string|null; verifiedBy: string|null;
+}
+
+export interface CsvRow {
+  transactionId: string;
+  amount: number;
+  date: string;
+  [key: string]: any;
 }
 
 export const C = {
@@ -39,6 +46,46 @@ export function parseCSV(text: string): Record<string,string>[] {
     headers.forEach((h,i) => { row[h] = vals[i] ?? ""; });
     return row;
   });
+}
+
+// Extract transactionId, amount, date from CSV row with flexible column name matching
+export function extractPosData(row: Record<string,string>): { transactionId: string; amount: number; date: string } | null {
+  // Find transaction ID column
+  const txIdKey = Object.keys(row).find(k => 
+    ["transactionid", "transaction_id", "id", "txid", "no_transaksi", "nomor_transaksi"].includes(k.toLowerCase())
+  );
+  const txId = txIdKey ? row[txIdKey]?.trim() : "";
+  if (!txId) return null;
+
+  // Find amount column
+  const amountKey = Object.keys(row).find(k => 
+    ["amount", "total", "quantity_value", "nilai", "harga", "subtotal"].includes(k.toLowerCase())
+  );
+  const amountStr = amountKey ? row[amountKey]?.trim() : "";
+  const amount = amountStr ? parseFloat(amountStr.replace(/[^0-9.-]/g, "")) : 0;
+  if (isNaN(amount) || amount <= 0) return null;
+
+  // Find date column
+  const dateKey = Object.keys(row).find(k => 
+    ["date", "transaction_date", "tanggal", "tgl", "created_at"].includes(k.toLowerCase())
+  );
+  const dateStr = dateKey ? row[dateKey]?.trim() : "";
+  // Parse date format: could be YYYY-MM-DD, DD/MM/YYYY, or MM/DD/YYYY
+  let date = "";
+  if (dateStr.includes("-")) {
+    date = dateStr;
+  } else if (dateStr.includes("/")) {
+    const parts = dateStr.split("/");
+    if (parts.length === 3) {
+      const d = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
+      if (!isNaN(d.getTime())) {
+        date = d.toISOString().split("T")[0];
+      }
+    }
+  }
+  if (!date) return null;
+
+  return { transactionId: txId, amount, date };
 }
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
@@ -89,10 +136,10 @@ export function ConfirmModal({ title, message, confirmLabel, confirmColor, onCon
         <p style={{ fontSize:13.5, color:C.tx2, lineHeight:1.6, marginBottom:24 }}>{message}</p>
         <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
           <button onClick={onClose} style={{ height:40, padding:"0 20px", borderRadius:9, border:`1.5px solid ${C.border}`, background:C.white, color:C.tx2, fontFamily:font, fontSize:13.5, fontWeight:600, cursor:"pointer" }}>
-            Batal
+            Cancel
           </button>
           <button onClick={onConfirm} disabled={loading} style={{ height:40, padding:"0 22px", borderRadius:9, border:"none", background:loading?"#9ca3af":confirmColor, color:"#fff", fontFamily:font, fontSize:13.5, fontWeight:600, cursor:loading?"not-allowed":"pointer" }}>
-            {loading ? "Memproses…" : confirmLabel}
+            {loading ? "Processing…" : confirmLabel}
           </button>
         </div>
       </div>
@@ -104,13 +151,13 @@ export function ConfirmModal({ title, message, confirmLabel, confirmColor, onCon
 export function CsvPanel({ pendingTxs, stores, onMatchVerify, onToast }: {
   pendingTxs: Tx[];
   stores: string[];
-  onMatchVerify: (docPaths: string[]) => Promise<void>;
+  onMatchVerify: (rows: Array<{ tx: Tx; posData: { transactionId: string; amount: number; date: string } }>) => Promise<void>;
   onToast: (msg: string, type: "success"|"error") => void;
 }) {
   const [dragging,  setDragging]  = useState(false);
   const [csvRows,   setCsvRows]   = useState<Record<string,string>[]>([]);
   const [fileName,  setFileName]  = useState("");
-  const [matched,   setMatched]   = useState<Tx[]>([]);
+  const [matched,   setMatched]   = useState<Array<{ tx: Tx; posData: { transactionId: string; amount: number; date: string } }>>([]);
   const [unmatched, setUnmatched] = useState<Record<string,string>[]>([]);
   const [loading,   setLoading]   = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -122,14 +169,25 @@ export function CsvPanel({ pendingTxs, stores, onMatchVerify, onToast }: {
     reader.onload = (e) => {
       const rows = parseCSV(e.target?.result as string);
       setCsvRows(rows);
-      const matchedTxs: Tx[] = [];
+      const matchedRows: Array<{ tx: Tx; posData: { transactionId: string; amount: number; date: string } }> = [];
       const unmatchedRows: Record<string,string>[] = [];
+      
       rows.forEach(row => {
-        const csvId = (row["transactionid"]||row["transaction_id"]||row["id"]||row["txid"]||"").toLowerCase().trim();
-        const found = pendingTxs.find(tx => tx.transactionId.toLowerCase()===csvId || tx.docId.toLowerCase()===csvId);
-        if (found) matchedTxs.push(found); else unmatchedRows.push(row);
+        const posData = extractPosData(row);
+        if (!posData) { unmatchedRows.push(row); return; }
+        
+        const found = pendingTxs.find(tx => 
+          tx.transactionId.toLowerCase() === posData.transactionId.toLowerCase()
+        );
+        
+        if (found) {
+          matchedRows.push({ tx: found, posData });
+        } else {
+          unmatchedRows.push(row);
+        }
       });
-      setMatched(matchedTxs);
+      
+      setMatched(matchedRows);
       setUnmatched(unmatchedRows);
     };
     reader.readAsText(file);
@@ -139,11 +197,11 @@ export function CsvPanel({ pendingTxs, stores, onMatchVerify, onToast }: {
     if (matched.length === 0) return;
     setLoading(true);
     try {
-      await onMatchVerify(matched.map(tx => tx.docPath));
-      onToast(`${matched.length} transaksi berhasil diverifikasi!`, "success");
+      await onMatchVerify(matched);
+      onToast(`✓ ${matched.length} transactions verified successfully!`, "success");
       setCsvRows([]); setMatched([]); setUnmatched([]); setFileName("");
     } catch (e: any) {
-      onToast(e.message ?? "Gagal", "error");
+      onToast(e.message ?? "Failed", "error");
     } finally {
       setLoading(false);
     }
@@ -153,7 +211,7 @@ export function CsvPanel({ pendingTxs, stores, onMatchVerify, onToast }: {
 
   return (
     <div style={{ background:C.white, borderRadius:18, border:`1px solid ${C.border}`, boxShadow:C.shadow, padding:20, display:"flex", flexDirection:"column", gap:14 }}>
-      <h2 style={{ fontSize:15, fontWeight:800, color:C.tx1, margin:0 }}>Upload CSV dari POS</h2>
+      <h2 style={{ fontSize:15, fontWeight:800, color:C.tx1, margin:0 }}>Upload CSV from POS</h2>
 
       {/* Drop zone */}
       <div
@@ -174,10 +232,10 @@ export function CsvPanel({ pendingTxs, stores, onMatchVerify, onToast }: {
           ? <p style={{ fontSize:13, fontWeight:700, color:C.blue }}>{fileName}</p>
           : <>
               <p style={{ fontSize:13, fontWeight:700, color:C.tx1 }}>Drag & Drop file CSV</p>
-              <p style={{ fontSize:11, color:C.tx3, marginTop:4 }}>atau klik untuk pilih file</p>
+              <p style={{ fontSize:11, color:C.tx3, marginTop:4 }}>or click to select file</p>
             </>
         }
-        <p style={{ fontSize:10, color:C.tx3, marginTop:6 }}>Format: .csv dari mesin POS Gong Cha</p>
+        <p style={{ fontSize:10, color:C.tx3, marginTop:6 }}>Format: .csv from Gong Cha POS machine</p>
         <input ref={fileRef} type="file" accept=".csv" style={{ display:"none" }} onChange={e => { const f = e.target.files?.[0]; if (f) processFile(f); }}/>
       </div>
 
@@ -186,12 +244,12 @@ export function CsvPanel({ pendingTxs, stores, onMatchVerify, onToast }: {
         <div>
           <p style={{ fontSize:11, color:C.tx2, fontWeight:600, marginBottom:5 }}>Filter Outlet</p>
           <select style={{ width:"100%", height:36, borderRadius:9, border:`1.5px solid ${C.border}`, background:C.bg, padding:"0 10px", fontFamily:font, fontSize:12.5, color:C.tx1, outline:"none" }}>
-            <option value="all">Semua Outlet</option>
+            <option value="all">All Outlets</option>
             {stores.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
         </div>
         <div>
-          <p style={{ fontSize:11, color:C.tx2, fontWeight:600, marginBottom:5 }}>Tanggal</p>
+          <p style={{ fontSize:11, color:C.tx2, fontWeight:600, marginBottom:5 }}>Date</p>
           <input type="date" style={{ width:"100%", height:36, borderRadius:9, border:`1.5px solid ${C.border}`, background:C.bg, padding:"0 10px", fontFamily:font, fontSize:12.5, color:C.tx1, outline:"none", boxSizing:"border-box" }}/>
         </div>
       </div>
@@ -202,12 +260,12 @@ export function CsvPanel({ pendingTxs, stores, onMatchVerify, onToast }: {
           <div style={{ padding:"10px 14px", borderRadius:10, background:matched.length>0?C.greenBg:C.orangeBg, border:`1px solid ${matched.length>0?"#6EE7B7":"#FDE68A"}` }}>
             <p style={{ fontSize:12.5, fontWeight:700, color:matched.length>0?C.green:C.orange, margin:0 }}>
               {matched.length > 0
-                ? `✓ ${matched.length} transaksi cocok dari ${csvRows.length} baris CSV`
-                : `⚠ Tidak ada yang cocok dari ${csvRows.length} baris CSV`}
+                ? `✓ ${matched.length} transactions matched from ${csvRows.length} CSV rows - Ready for POS verification`
+                : `⚠ No matches found from ${csvRows.length} CSV rows`}
             </p>
           </div>
           {unmatched.length > 0 && (
-            <p style={{ fontSize:11, color:C.tx3, margin:0 }}>{unmatched.length} baris tidak cocok dengan transaksi pending.</p>
+            <p style={{ fontSize:11, color:C.tx3, margin:0 }}>{unmatched.length} rows not matched or incomplete POS data.</p>
           )}
         </div>
       )}
@@ -218,22 +276,77 @@ export function CsvPanel({ pendingTxs, stores, onMatchVerify, onToast }: {
         disabled={btnDisabled}
         style={{ width:"100%", height:42, borderRadius:11, border:"none", background:btnDisabled?"#9ca3af":"linear-gradient(135deg,#4361EE,#3A0CA3)", color:"#fff", fontFamily:font, fontSize:13.5, fontWeight:700, cursor:btnDisabled?"not-allowed":"pointer", transition:"all .2s" }}
       >
-        {loading ? "Memverifikasi…" : matched.length > 0 ? `✓ Auto-Match & Verifikasi ${matched.length} Transaksi` : "Auto-Match & Verifikasi Massal"}
+        {loading ? "Verifying with POS data…" : matched.length > 0 ? `✓ Verify ${matched.length} Transactions vs POS` : "Verify & Match POS"}
       </button>
 
       {/* Format hint */}
       <div style={{ padding:"10px 14px", borderRadius:10, background:C.bg, border:`1px solid ${C.border2}` }}>
-        <p style={{ fontSize:11, fontWeight:700, color:C.tx2, marginBottom:4 }}>Format CSV yang didukung:</p>
+        <p style={{ fontSize:11, fontWeight:700, color:C.tx2, marginBottom:4 }}>Supported CSV format:</p>
         <code style={{ fontSize:10, color:C.tx3, lineHeight:1.8, display:"block" }}>
-          transactionId,amount,memberName,date<br/>
-          TX-001,50000,Budi Santoso,2024-01-15
+          transactionId,amount,date<br/>
+          101384,61000,2026-03-01<br/>
+          or<br/>
+          no_transaksi,total,tanggal<br/>
+          101385,45000,01/03/2026
         </code>
       </div>
     </div>
   );
 }
 
-// ── Pending List Panel ────────────────────────────────────────────────────────
+// ── Rejected List Panel ──────────────────────────────────────────────────────
+export function RejectedPanel({ rejected, onApprove, onReject, loadingId }: {
+  rejected: Tx[];
+  onApprove: (tx: Tx) => void;
+  onReject: (tx: Tx) => void;
+  loadingId: string|null;
+}) {
+  return (
+    <div style={{ background:C.white, borderRadius:18, border:`1px solid ${C.border}`, boxShadow:C.shadow, padding:20, display:"flex", flexDirection:"column" }}>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:14 }}>
+        <h2 style={{ fontSize:15, fontWeight:800, color:C.tx1, margin:0 }}>Rejected - Manual Review ({rejected.length})</h2>
+      </div>
+      <div style={{ overflowY:"auto", maxHeight:380, display:"flex", flexDirection:"column", gap:8 }}>
+        {rejected.length === 0 ? (
+          <div style={{ padding:"48px 16px", textAlign:"center" }}>
+            <p style={{ fontSize:28, marginBottom:8 }}>✓</p>
+            <p style={{ fontSize:13.5, fontWeight:700, color:C.tx1 }}>No rejections</p>
+            <p style={{ fontSize:12, color:C.tx3, marginTop:4 }}>All transactions match POS data.</p>
+          </div>
+        ) : rejected.map(tx => (
+          <div key={tx.docId} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px", borderRadius:12, border:`1px solid ${loadingId===tx.docId?C.red:"#FCA5A5"}`, background:loadingId===tx.docId?"#FFF5F5":C.white, transition:"all .15s" }}>
+            <div style={{ flex:1, minWidth:0 }}>
+              <code style={{ fontSize:10, color:C.red, fontFamily:"monospace" }}>{tx.transactionId || "—"}</code>
+              <p style={{ fontSize:11.5, color:C.tx2, marginTop:2, marginBottom:0 }}>{tx.memberName} · {tx.storeLocation}</p>
+              <p style={{ fontSize:12, fontWeight:700, color:C.tx1, marginTop:2, marginBottom:0 }}>
+                {fmtRp(tx.amount)} · <span style={{ color:C.blue }}>{tx.potentialPoints} pts</span>
+              </p>
+            </div>
+            <div style={{ display:"flex", gap:6, flexShrink:0 }}>
+              <button
+                onClick={() => onApprove(tx)}
+                disabled={loadingId === tx.docId}
+                title="Approve despite mismatch"
+                style={{ width:32, height:32, borderRadius:9, border:"1px solid #6EE7B7", background:"#F0FDF4", color:C.green, fontSize:14, fontWeight:700, cursor:loadingId===tx.docId?"not-allowed":"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}
+              >
+                {loadingId === tx.docId ? "…" : "✓"}
+              </button>
+              <button
+                onClick={() => onReject(tx)}
+                disabled={loadingId === tx.docId}
+                title="Reject permanently"
+                style={{ width:32, height:32, borderRadius:9, border:"1px solid #FCA5A5", background:"#FFF5F5", color:C.red, fontSize:14, fontWeight:700, cursor:loadingId===tx.docId?"not-allowed":"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function PendingPanel({ pending, onVerify, onReject, onVerifyAll, loadingId }: {
   pending: Tx[];
   onVerify: (tx: Tx) => void;
@@ -247,7 +360,7 @@ export function PendingPanel({ pending, onVerify, onReject, onVerifyAll, loading
         <h2 style={{ fontSize:15, fontWeight:800, color:C.tx1, margin:0 }}>Pending ({pending.length})</h2>
         {pending.length > 0 && (
           <button onClick={onVerifyAll} style={{ height:34, padding:"0 14px", borderRadius:9, border:"none", background:C.green, color:"#fff", fontFamily:font, fontSize:12, fontWeight:700, cursor:"pointer" }}>
-            ✓ Verifikasi Semua
+            ✓ Verify All
           </button>
         )}
       </div>
@@ -255,13 +368,13 @@ export function PendingPanel({ pending, onVerify, onReject, onVerifyAll, loading
         {pending.length === 0 ? (
           <div style={{ padding:"48px 16px", textAlign:"center" }}>
             <p style={{ fontSize:28, marginBottom:8 }}>🎉</p>
-            <p style={{ fontSize:13.5, fontWeight:700, color:C.tx1 }}>Semua bersih!</p>
-            <p style={{ fontSize:12, color:C.tx3, marginTop:4 }}>Tidak ada transaksi pending.</p>
+            <p style={{ fontSize:13.5, fontWeight:700, color:C.tx1 }}>All clear!</p>
+            <p style={{ fontSize:12, color:C.tx3, marginTop:4 }}>No pending transactions.</p>
           </div>
         ) : pending.map(tx => (
           <div key={tx.docId} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px", borderRadius:12, border:`1px solid ${loadingId===tx.docId?C.blue:C.border}`, background:loadingId===tx.docId?C.blueL:C.white, transition:"all .15s" }}>
             <div style={{ flex:1, minWidth:0 }}>
-              <code style={{ fontSize:10, color:C.blue, fontFamily:"monospace" }}>{tx.transactionId || tx.docId}</code>
+              <code style={{ fontSize:10, color:C.blue, fontFamily:"monospace" }}>{tx.transactionId || "—"}</code>
               <p style={{ fontSize:11.5, color:C.tx2, marginTop:2, marginBottom:0 }}>{tx.memberName} · {tx.storeLocation}</p>
               <p style={{ fontSize:12, fontWeight:700, color:C.tx1, marginTop:2, marginBottom:0 }}>
                 {fmtRp(tx.amount)} · <span style={{ color:C.blue }}>{tx.potentialPoints} pts</span>
@@ -271,7 +384,7 @@ export function PendingPanel({ pending, onVerify, onReject, onVerifyAll, loading
               <button
                 onClick={() => onVerify(tx)}
                 disabled={loadingId === tx.docId}
-                title="Verifikasi"
+                title="Verify"
                 style={{ width:32, height:32, borderRadius:9, border:"1px solid #6EE7B7", background:"#F0FDF4", color:C.green, fontSize:14, fontWeight:700, cursor:loadingId===tx.docId?"not-allowed":"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}
               >
                 {loadingId === tx.docId ? "…" : "✓"}
@@ -279,7 +392,7 @@ export function PendingPanel({ pending, onVerify, onReject, onVerifyAll, loading
               <button
                 onClick={() => onReject(tx)}
                 disabled={loadingId === tx.docId}
-                title="Tolak"
+                title="Reject"
                 style={{ width:32, height:32, borderRadius:9, border:"1px solid #FCA5A5", background:"#FFF5F5", color:C.red, fontSize:14, fontWeight:700, cursor:loadingId===tx.docId?"not-allowed":"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}
               >
                 ✕
