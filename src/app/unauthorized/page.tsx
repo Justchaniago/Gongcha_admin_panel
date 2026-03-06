@@ -54,7 +54,7 @@ export default function UnauthorizedPage() {
             ← Kembali
           </button>
           <button
-            onClick={() => router.push("/dashboard")}
+            onClick={() => router.replace("/dashboard")}
             style={{
               height: 42, padding: "0 20px", borderRadius: 10, border: "none",
               background: "linear-gradient(135deg,#4361EE,#3A0CA3)",

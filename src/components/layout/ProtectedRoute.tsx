@@ -1,17 +1,36 @@
 "use client";
 import { useAuth } from "@/context/AuthContext";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { useEffect } from "react";
 
 export default function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
+  const { user, profile, loading, isStaff } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
 
   useEffect(() => {
-    if (!loading && !user && window.location.pathname !== "/login") {
-      router.push("/login");
+    if (!loading) {
+      // 1. Jika belum login atau profil database tidak ditemukan
+      if (!user || !profile) {
+        if (pathname !== "/login") {
+          router.replace("/login");
+        }
+        return;
+      }
+
+      // 2. Jika akun terdeteksi sebagai STAFF, aktifkan URL Blocker
+      if (isStaff) {
+        const allowedPaths = ["/dashboard", "/transactions", "/unauthorized"];
+        const isAllowed = allowedPaths.some(
+          (path) => pathname === path || pathname.startsWith(path + '/')
+        );
+        
+        if (!isAllowed) {
+          router.replace("/unauthorized");
+        }
+      }
     }
-  }, [loading, user, router]);
+  }, [loading, user, profile, router, pathname, isStaff]);
 
   if (loading) {
     return (
@@ -20,6 +39,9 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
       </div>
     );
   }
+
+  // Mencegah flash konten sebelum redirect selesai
+  if (!user || !profile) return null;
 
   return <>{children}</>;
 }

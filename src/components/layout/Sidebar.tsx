@@ -5,15 +5,16 @@ import { usePathname } from "next/navigation";
 import LogoutButton from "@/components/LogoutButton";
 import { useAuth } from "@/context/AuthContext";
 
+// Tambahkan flag 'showForStaff'
 const navItems = [
-  { href: "/dashboard",      label: "Dashboard",  badge: false },
-  { href: "/stores",         label: "Outlets",    badge: false },
-  { href: "/transactions",   label: "Transaksi",  badge: false },
-  { href: "/menus",          label: "Menu",       badge: false },
-  { href: "/users-staff",    label: "Member",     badge: false },
-  { href: "/rewards",        label: "Rewards",    badge: false },
-  { href: "/notifications",  label: "Notifikasi", badge: false },
-  { href: "/settings",       label: "Settings",   badge: false },
+  { href: "/dashboard",      label: "Dashboard",  badge: false, showForStaff: true },
+  { href: "/stores",         label: "Outlets",    badge: false, showForStaff: false },
+  { href: "/transactions",   label: "Transaksi",  badge: false, showForStaff: true },
+  { href: "/menus",          label: "Menu",       badge: false, showForStaff: false },
+  { href: "/users-staff",    label: "Member",     badge: false, showForStaff: false },
+  { href: "/rewards",        label: "Rewards",    badge: false, showForStaff: false },
+  { href: "/notifications",  label: "Notifikasi", badge: false, showForStaff: false },
+  { href: "/settings",       label: "Settings",   badge: false, showForStaff: false },
 ];
 
 const icons: Record<string, React.ReactNode> = {
@@ -27,10 +28,16 @@ const icons: Record<string, React.ReactNode> = {
   "/settings":   <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>,
 };
 
-
 export default function Sidebar() {
   const pathname = usePathname();
-  const { user } = useAuth();
+  // Tarik isStaff dari AuthContext
+  const { user, isStaff } = useAuth();
+
+  // Eksekusi filter
+  const filteredNavItems = navItems.filter((item) => {
+    if (isStaff) return item.showForStaff;
+    return true;
+  });
 
   return (
     <aside className="fixed top-0 left-0 h-screen w-[72px] flex flex-col items-center py-6 z-50 bg-white" style={{ borderRight: "1px solid #E2E8F0" }}>
@@ -38,9 +45,9 @@ export default function Sidebar() {
         <img src="/assets/images/logo1.webp" alt="Logo" className="w-12 h-12 object-contain" />
       </div>
       <nav className="flex flex-col items-center gap-1 flex-1">
-        {navItems.map((item, idx) => {
+        {filteredNavItems.map((item, idx) => {
           const active = pathname.startsWith(item.href);
-          const isLast = idx === navItems.length - 1;
+          const isLast = idx === filteredNavItems.length - 1;
           return (
             <React.Fragment key={item.href}>
               <Link href={item.href} title={item.label}

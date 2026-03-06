@@ -1,4 +1,5 @@
 import admin from "firebase-admin";
+import { getFirestore } from "firebase-admin/firestore";
 import dotenv from "dotenv";
 import path from "path";
 
@@ -22,7 +23,8 @@ if (!admin.apps?.length) {
   });
 }
 
-const db = admin.firestore();
+const firestoreDatabaseId = process.env.FIRESTORE_DATABASE_ID || "gongcha-ver001";
+const db = getFirestore(admin.app(), firestoreDatabaseId);
 
 // 31 Data JSON Minuman
 const products = [

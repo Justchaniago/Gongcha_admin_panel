@@ -1,8 +1,7 @@
-import { getStorage } from "firebase/storage";
-import { initializeApp, getApps, getApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
-import { getAuth } from "firebase/auth";
-import { getAnalytics, isSupported } from "firebase/analytics";
+import { initializeApp, getApps, getApp } from 'firebase/app';
+import { getAuth } from 'firebase/auth';
+import { getFirestore } from 'firebase/firestore';
+import { getStorage } from 'firebase/storage';
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -15,13 +14,10 @@ const firebaseConfig = {
 };
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
-const db = getFirestore(app);
-const storage = getStorage(app);
 const auth = getAuth(app);
 
-export { app, db, storage, auth };
+// Injeksi ID Database kustom di sini
+const db = getFirestore(app, "gongcha-ver001");
+const storage = getStorage(app);
 
-// ✅ Hanya jalankan analytics di browser
-export const analytics = typeof window !== "undefined"
-  ? isSupported().then(yes => yes ? getAnalytics(app) : null)
-  : null;
+export { app, auth, db, storage };

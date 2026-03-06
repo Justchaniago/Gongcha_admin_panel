@@ -104,7 +104,8 @@ async function seedStaff() {
     // Path: staff/{UID}
     const ref = adminDb.collection("staff").doc(id);
     batch.set(ref, data);
-    console.log(`  ✅ staff/${id} → ${member.name} (${member.role} @ ${member.storeLocation})`);
+    const storeLabel = member.storeLocations?.join(", ") || "—";
+    console.log(`  ✅ staff/${id} → ${member.name} (${member.role} @ ${storeLabel})`);
   }
 
   await batch.commit();

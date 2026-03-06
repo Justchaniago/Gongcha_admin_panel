@@ -14,7 +14,8 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
+const firestoreDatabaseId = process.env.NEXT_PUBLIC_FIRESTORE_DATABASE_ID || "gongcha-ver001";
 
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+export const db = getFirestore(app, firestoreDatabaseId);
 export const analytics = getAnalytics(app);

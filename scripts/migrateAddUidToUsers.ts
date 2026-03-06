@@ -1,13 +1,15 @@
 // scripts/migrateAddUidToUsers.ts
 // Jalankan: npx ts-node scripts/migrateAddUidToUsers.ts
 import admin from 'firebase-admin';
+import { getFirestore } from 'firebase-admin/firestore';
 import serviceAccount from '../serviceAccountKey.json';
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount as any),
 });
 
-const db = admin.firestore();
+const firestoreDatabaseId = process.env.FIRESTORE_DATABASE_ID || 'gongcha-ver001';
+const db = getFirestore(admin.app(), firestoreDatabaseId);
 
 async function migrate() {
   const usersSnap = await db.collection('users').get();

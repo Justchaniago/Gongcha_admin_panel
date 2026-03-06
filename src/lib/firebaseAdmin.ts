@@ -1,22 +1,43 @@
 import * as admin from "firebase-admin";
-import * as dotenv from "dotenv";
+import { getFirestore } from "firebase-admin/firestore";
 
-dotenv.config({ path: require("path").resolve(process.cwd(), ".env.local") });
+const firestoreDatabaseId = process.env.FIRESTORE_DATABASE_ID || "gongcha-ver001";
 
-if (!admin.apps.length) {
+function resolveServiceAccount() {
   const base64Key = process.env.FIREBASE_SERVICE_ACCOUNT_KEY_BASE64;
-  if (!base64Key) {
-    throw new Error("FIREBASE_SERVICE_ACCOUNT_KEY_BASE64 env var not set.");
+  if (base64Key) {
+    return JSON.parse(Buffer.from(base64Key, "base64").toString("utf-8"));
   }
-  const serviceAccount = JSON.parse(
-    Buffer.from(base64Key, "base64").toString("utf-8")
-  );
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
-  });
+
+  const rawJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+  if (rawJson) {
+    return JSON.parse(rawJson);
+  }
+
+  const projectId = process.env.FIREBASE_PROJECT_ID;
+  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+  const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n");
+  if (projectId && clientEmail && privateKey) {
+    return { projectId, clientEmail, privateKey };
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const fs = require("fs");
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const path = require("path");
+  const serviceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH ?? "./serviceAccountKey.json";
+  return JSON.parse(fs.readFileSync(path.resolve(serviceAccountPath), "utf-8"));
 }
 
-export const adminDb = admin.firestore();
-export const FieldValue = admin.firestore.FieldValue;
-export const Timestamp = admin.firestore.Timestamp;
-export const adminAuth = admin.auth();
+const serviceAccount = resolveServiceAccount();
+
+// Inisialisasi yang aman untuk Next.js Hot Reload
+const app = admin.apps.length 
+  ? admin.app() 
+  : admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount),
+    });
+
+// Ekspor Auth & DB dengan melempar 'app' secara eksplisit
+export const adminAuth = admin.auth(app);
+export const adminDb = getFirestore(app, firestoreDatabaseId);

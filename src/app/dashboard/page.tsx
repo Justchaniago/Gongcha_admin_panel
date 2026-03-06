@@ -1,106 +1,98 @@
 import { cookies } from "next/headers";
-import { redirect } from "next/navigation";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
+import { redirect } from "next/navigation";
 import DashboardClient from "./DashboardClient";
 
-// Opt-out of static caching so data is always fresh every time the page opens
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
+  const cookieStore = cookies();
+  const sessionCookie = cookieStore.get("session")?.value;
+
+  if (!sessionCookie) {
+    redirect("/login");
+  }
+
   try {
-    const cookieStore = await cookies();
-    const sessionCookie = cookieStore.get("session")?.value;
+    // 1. Verifikasi Sesi Kuki
+    const decodedToken = await adminAuth.verifySessionCookie(sessionCookie, true);
+    const uid = decodedToken.uid;
 
-    if (!sessionCookie) {
+    // 2. Ambil Profil dari Koleksi Baru (admin_users)
+    const adminDoc = await adminDb.collection("admin_users").doc(uid).get();
+    
+    if (!adminDoc.exists) {
+      redirect("/unauthorized");
+    }
+
+    const profile = adminDoc.data();
+    const role = profile?.role; // 'SUPER_ADMIN' atau 'STAFF'
+    const storeId = profile?.storeId;
+
+    if (!profile?.isActive) {
       redirect("/login");
     }
 
-    let uid = "";
-    try {
-      const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
-      uid = decodedClaims.uid;
-    } catch (error) {
-      console.error("[Dashboard] Session verify error:", error);
-      redirect("/login");
-    }
+    // 3. Tarik Data Berdasarkan Kasta (Role)
+    let transactionsSnap;
+    let storesSnap;
 
-    // Get user profile to check role
-    let userDoc, staffDoc, profile, role;
-    try {
-      userDoc = await adminDb.collection("users").doc(uid).get();
-      staffDoc = await adminDb.collection("staff").doc(uid).get();
+    if (role === "SUPER_ADMIN") {
+      // Super Admin: Tarik 50 transaksi terakhir dari SEMUA toko
+      transactionsSnap = await adminDb
+        .collection("transactions")
+        .orderBy("timestamp", "desc")
+        .limit(50)
+        .get();
+        
+      // Super Admin: Tarik semua daftar toko
+      storesSnap = await adminDb.collection("stores").get();
       
-      profile = userDoc.exists ? userDoc.data() : staffDoc.exists ? staffDoc.data() : null;
-      role = profile?.role || "cashier"; // Default fallback
-    } catch (error) {
-      console.error("[Dashboard] Profile fetch error:", error);
-      role = "cashier";
+    } else if (role === "STAFF" && storeId) {
+      // Staff: Tarik 50 transaksi HANYA dari tokonya sendiri
+      transactionsSnap = await adminDb
+        .collection("transactions")
+        .where("storeId", "==", storeId)
+        .orderBy("timestamp", "desc")
+        .limit(50)
+        .get();
+        
+      // Staff: Tarik data tokonya sendiri saja
+      storesSnap = await adminDb
+        .collection("stores")
+        .where("code", "==", storeId)
+        .get();
+    } else {
+      // Jika Staff tapi tidak punya storeId (Data Korup), tendang!
+      redirect("/unauthorized");
     }
 
-    // Tarik data awal (Initial Data) secara paralel agar cepat
-    let initialTransactions: any[] = [], initialUsers: any[] = [], initialStores: any[] = [];
-    try {
-      const [transactionsSnap, usersSnap, storesSnap] = await Promise.all([
-        adminDb.collection("transactions").orderBy("createdAt", "desc").limit(50).get(),
-        adminDb.collection("users").get(),
-        adminDb.collection("stores").get() // Fetch stores, not staff
-      ]);
+    // 4. Serialisasi Data (Mengubah Timestamp Firebase agar ramah Next.js Client)
+    const initialTransactions = transactionsSnap.docs.map((doc) => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        ...data,
+        // Konversi Timestamp ke milliseconds (angka) agar tidak error di Next.js
+        timestamp: data.timestamp?.toMillis() || Date.now(), 
+      };
+    });
 
-      initialTransactions = transactionsSnap.docs.map(doc => {
-        const data = doc.data();
-        const createdAt = data?.createdAt;
-        const type = data?.type ?? "earn"; // Default to earn (purchase) if not specified
-        return {
-          id: doc.id,
-          docId: doc.id,
-          transactionId: data?.posTransactionId ?? data?.transactionId ?? "",
-          memberName: data?.memberName ?? data?.userName ?? "—",
-          amount: data?.amount ?? data?.totalAmount ?? 0,
-          potentialPoints: data?.potentialPoints ?? 0,
-          type: type,
-          status: data?.status ?? "pending",
-          createdAt: createdAt ? (typeof createdAt.toDate === 'function' ? createdAt.toDate().toISOString() : createdAt) : null,
-          storeId: data?.storeId ?? ""
-        };
-      });
-      initialUsers = usersSnap.docs.map(doc => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          uid: doc.id,
-          ...data,
-          // Convert any Timestamp fields to ISO strings
-          createdAt: data?.createdAt ? (typeof data.createdAt.toDate === 'function' ? data.createdAt.toDate().toISOString() : data.createdAt) : null,
-          updatedAt: data?.updatedAt ? (typeof data.updatedAt.toDate === 'function' ? data.updatedAt.toDate().toISOString() : data.updatedAt) : null,
-        };
-      });
-      initialStores = storesSnap.docs.map(doc => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          uid: doc.id,
-          ...data,
-          // Convert any Timestamp fields to ISO strings
-          createdAt: data?.createdAt ? (typeof data.createdAt.toDate === 'function' ? data.createdAt.toDate().toISOString() : data.createdAt) : null,
-          updatedAt: data?.updatedAt ? (typeof data.updatedAt.toDate === 'function' ? data.updatedAt.toDate().toISOString() : data.updatedAt) : null,
-        };
-      });
-    } catch (error) {
-      console.error("[Dashboard] Data fetch error:", error);
-      // Return with empty data instead of crashing
-    }
+    const initialStores = storesSnap.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
 
     return (
       <DashboardClient 
-        initialRole={role}
-        initialTransactions={initialTransactions}
-        initialUsers={initialUsers}
-        initialStores={initialStores}
+        profile={JSON.parse(JSON.stringify(profile))} // Pastikan aman untuk Client Component
+        initialTransactions={initialTransactions} 
+        stores={initialStores} 
       />
     );
+    
   } catch (error) {
-    console.error("[Dashboard] Critical error:", error);
-    // Throw the error so Next.js can handle it with error.tsx
-    throw error;
+    console.error("[Dashboard] Session validation error:", error);
+    redirect("/login");
   }
 }

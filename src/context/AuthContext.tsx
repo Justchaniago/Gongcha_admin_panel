@@ -1,61 +1,53 @@
 "use client";
 
-import React, { createContext, useContext, ReactNode, useEffect, useState } from "react";
-import { onAuthStateChanged } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
-import { auth, db } from "@/lib/firebaseClient";
+import React, { createContext, useContext, useEffect, useState } from 'react';
+import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
+import { doc, getDoc } from 'firebase/firestore';
+import { auth, db } from '@/lib/firebaseClient';
+import { UserStaff } from '@/types/firestore';
 
-// Struktur data user disamakan dengan kebutuhan UI milikmu
-interface AuthCtx {
-  user: { name?: string | null; email?: string | null; role?: string; uid?: string } | null;
+interface AuthContextType {
+  user: FirebaseUser | null;
+  profile: UserStaff | null;
   loading: boolean;
-  logout: () => Promise<void>;
+  isAdmin: boolean;
+  isStaff: boolean;
 }
 
-// Nilai default
-const Ctx = createContext<AuthCtx>({ user: null, loading: true, logout: async () => {} });
+const AuthContext = createContext<AuthContextType>({
+  user: null,
+  profile: null,
+  loading: true,
+  isAdmin: false,
+  isStaff: false,
+});
 
-// Hook utama yang dipakai oleh semua komponen UI kamu
-export function useAuth() { return useContext(Ctx); }
-
-const font = "'Plus Jakarta Sans', system-ui, sans-serif";
-
-export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<AuthCtx['user']>(null);
+export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
+  const [user, setUser] = useState<FirebaseUser | null>(null);
+  const [profile, setProfile] = useState<UserStaff | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // 1. Sinkronisasi Data Firebase
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      setUser(firebaseUser);
+      
       if (firebaseUser) {
-        let role = "staff"; // Default
-        let name = firebaseUser.displayName || "User";
-        
         try {
-          // Cari role di Firestore
-          const userDoc = await getDoc(doc(db, "users", firebaseUser.uid));
-          if (userDoc.exists()) {
-            role = userDoc.data().role || "staff";
-            name = userDoc.data().name || name;
+          // Hanya mencari di admin_users sesuai arsitektur baru
+          const docRef = doc(db, 'admin_users', firebaseUser.uid);
+          const docSnap = await getDoc(docRef);
+          
+          if (docSnap.exists()) {
+            setProfile({ uid: docSnap.id, ...docSnap.data() } as UserStaff);
           } else {
-             const staffDoc = await getDoc(doc(db, "staff", firebaseUser.uid));
-             if (staffDoc.exists()) {
-                 role = staffDoc.data().role || "staff";
-                 name = staffDoc.data().name || name;
-             }
+            setProfile(null);
           }
         } catch (error) {
-          console.error("Gagal mengambil role Firestore:", error);
+          console.error("Error fetching admin profile:", error);
+          setProfile(null);
         }
-
-        setUser({
-          name: name,
-          email: firebaseUser.email,
-          role: role,
-          uid: firebaseUser.uid,
-        });
       } else {
-        setUser(null);
+        setProfile(null);
       }
       setLoading(false);
     });
@@ -63,39 +55,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => unsubscribe();
   }, []);
 
-  // 2. Clean Logout function
-  async function handleLogout() {
-    try {
-      await auth.signOut(); // clear client session
-      await fetch('/api/auth/logout', { method: 'POST' }); // clear server cookie
-      window.location.href = "/login"; // force reload to login
-    } catch (error) {
-      console.error("Logout error:", error);
-    }
-  }
-
-  // 3. Layar Loading Original Milikmu (Tidak Diubah)
-  if (loading) {
-    return (
-      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#F4F6FB", fontFamily: font }}>
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
-          <div style={{ width: 48, height: 48, borderRadius: 14, background: "linear-gradient(135deg,#4361EE,#3A0CA3)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 8px 24px rgba(67,97,238,.3)" }}>
-            <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="white" strokeWidth={2} style={{ animation: "spin 1s linear infinite" }}>
-              <path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" strokeOpacity=".25"/><path d="M21 12a9 9 0 00-9-9"/>
-            </svg>
-          </div>
-          <p style={{ fontSize: 13, color: "#9299B0", fontWeight: 500 }}>Memuat sesi…</p>
-        </div>
-        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-      </div>
-    );
-  }
-
-  // We remove "if (!user) return null;" here so the app can render the login page!
+  const isAdmin = profile?.role === 'SUPER_ADMIN';
+  const isStaff = profile?.role === 'STAFF';
 
   return (
-    <Ctx.Provider value={{ user, loading: false, logout: handleLogout }}>
+    <AuthContext.Provider value={{ user, profile, loading, isAdmin, isStaff }}>
       {children}
-    </Ctx.Provider>
+    </AuthContext.Provider>
   );
-}
+};
+
+export const useAuth = () => useContext(AuthContext);

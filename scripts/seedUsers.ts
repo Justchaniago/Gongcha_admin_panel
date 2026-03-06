@@ -63,6 +63,7 @@ const users: Array<{ id: string } & User> = [
         rewardId: "r1",                  // ref ke rewards_catalog/r1
         title: "Free Brown Sugar Milk Tea",
         code: "GC-FERRY01",
+        type: "catalog",
         isUsed: false,
         expiresAt: "2026-03-19T10:00:00Z",
       },
@@ -109,6 +110,7 @@ const users: Array<{ id: string } & User> = [
         rewardId: "r4",
         title: "Diskon 20%",
         code: "GC-SINTA01",
+        type: "catalog",
         isUsed: true,
         expiresAt: "2026-02-28T23:59:00Z",
       },

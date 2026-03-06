@@ -1,4 +1,5 @@
 const admin = require('firebase-admin');
+const { getFirestore } = require('firebase-admin/firestore');
 const serviceAccount = require('../serviceAccountKey.json');
 
 admin.initializeApp({
@@ -6,7 +7,8 @@ admin.initializeApp({
   projectId: serviceAccount.project_id,
 });
 
-const db = admin.firestore();
+const firestoreDatabaseId = process.env.FIRESTORE_DATABASE_ID || 'gongcha-ver001';
+const db = getFirestore(admin.app(), firestoreDatabaseId);
 
 async function updatePendingCase() {
   try {

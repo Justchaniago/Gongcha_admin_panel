@@ -1,38 +1,44 @@
-import { NextRequest, NextResponse } from "next/server";
-import { adminAuth } from "@/lib/firebaseAdmin";
-import { cookies } from "next/headers";
+import { NextResponse } from 'next/server';
+import { adminAuth, adminDb } from '@/lib/firebaseAdmin';
+import { cookies } from 'next/headers';
+import { UserStaff } from '@/types/firestore';
 
-// Memaksa API ini tidak pernah di-cache oleh Next.js (Wajib di Next 15)
-export const dynamic = "force-dynamic";
-
-export async function POST(req: NextRequest) {
+export async function POST(request: Request) {
   try {
-    const { idToken } = await req.json();
-    if (!idToken) return NextResponse.json({ error: "Missing token" }, { status: 400 });
+    const { idToken } = await request.json();
 
-    // Buat cookie session berlaku 5 hari
-    const expiresIn = 60 * 60 * 24 * 5 * 1000;
+    if (!idToken) {
+      return NextResponse.json({ error: 'Missing ID token' }, { status: 401 });
+    }
+
+    const decodedToken = await adminAuth.verifyIdToken(idToken);
+    const uid = decodedToken.uid;
+
+    // Arahkan pemeriksaan ke koleksi admin_users
+    const adminDoc = await adminDb.collection("admin_users").doc(uid).get();
+
+    if (!adminDoc.exists) {
+      return NextResponse.json({ error: 'Akses Ditolak. Anda bukan Super Admin atau Staff.' }, { status: 403 });
+    }
+
+    const userData = adminDoc.data() as UserStaff;
+    if (!userData?.isActive) {
+      return NextResponse.json({ error: 'Akun telah dinonaktifkan.' }, { status: 403 });
+    }
+
+    const expiresIn = 60 * 60 * 24 * 5 * 1000; // Sesi 5 hari
     const sessionCookie = await adminAuth.createSessionCookie(idToken, { expiresIn });
-    
-    const cookieStore = await cookies();
-    cookieStore.set("session", sessionCookie, {
-      maxAge: expiresIn / 1000, // Harus dalam satuan detik
+
+    cookies().set('session', sessionCookie, {
+      maxAge: expiresIn,
       httpOnly: true,
-      // Hanya wajibkan HTTPS jika sedang berjalan di server Vercel (bukan lokal)
-      secure: process.env.VERCEL === "1" || process.env.NODE_ENV === "production" && req.headers.get("x-forwarded-proto") === "https",
-      path: "/",
-      sameSite: "lax",
+      secure: process.env.NODE_ENV === 'production',
+      path: '/',
     });
 
-    return NextResponse.json({ success: true });
-  } catch (error: any) {
-    console.error("Session creation error:", error);
-    return NextResponse.json({ error: "Internal Error" }, { status: 500 });
+    return NextResponse.json({ success: true, user: userData });
+  } catch (error) {
+    console.error('Session creation error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
-}
-
-export async function DELETE() {
-  const cookieStore = await cookies();
-  cookieStore.delete("session");
-  return NextResponse.json({ success: true });
 }

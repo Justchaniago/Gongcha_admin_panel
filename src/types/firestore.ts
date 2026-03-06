@@ -1,164 +1,100 @@
-// ─── accounts/{id} ──────────────────────────────────────────────────────────
-export type AccountStatus = "active" | "suspended" | "pending";
-export type AccountRole   = "master" | "admin" | "manager" | "viewer";
+import { Timestamp } from 'firebase/firestore';
 
-export interface Account {
-  id?:         string;           // Firestore doc ID
-  name:        string;
-  email:       string;
-  phoneNumber: string;
-  role:        AccountRole;
-  status:      AccountStatus;
-  createdAt:   string;           // ISO timestamp
-  lastLogin:   string | null;
-  notes:       string;
+export type UserRole = 'SUPER_ADMIN' | 'STAFF';
+
+export interface UserStaff {
+  uid?: string;
+  email: string;
+  name: string;
+  role: UserRole;
+  storeId?: string; // Wajib diisi jika role === 'STAFF'
+  isActive: boolean;
+  createdAt?: Timestamp;
+  lastLogin?: Timestamp;
 }
-
-// ─── stores/{storeId} ───────────────────────────────────────────────────────
-export interface Store {
-  id:             string;
-  name:           string;
-  address:        string;
-  latitude:       number;
-  longitude:      number;
-  openHours:      string;
-  isActive:       boolean;
-  statusOverride: "open" | "closed" | "almost_close";
-}
-
-// ─── stores/{storeId}/transactions/{YYYYMMDD-POSID} ─────────────────────────
-export interface Transaction {
-  transactionId:   string;
-  amount:          number;
-  potentialPoints: number;
-  memberId:        string;
-  memberName:      string;
-  staffId:         string;
-  storeLocation:   string;
-  status:          "pending" | "verified" | "rejected";
-  createdAt:       string;
-  verifiedAt:      string | null;
-}
-
-// ─── users/{UID} ────────────────────────────────────────────────────────────
-export interface XpHistoryEntry {
-  id:            string;
-  date:          string;
-  amount:        number;
-  type:          "earn" | "redeem";
-  status:        "pending" | "verified" | "rejected";
-  context:       string;
-  location:      string;
-  transactionId: string;
-}
-
-export type VoucherType = "catalog" | "personal";
-export interface UserVoucher {
-  id:        string;
-  rewardId:  string;
-  title:     string;
-  code:      string;
-  isUsed:    boolean;
-  expiresAt: string;
-  type:      VoucherType;
-}
-
-export type UserRole = "master" | "trial" | "admin" | "member";
-export type UserTier = "Silver" | "Gold" | "Platinum";
 
 export interface User {
-  name:           string;
-  phoneNumber:    string;
-  email:          string;
-  photoURL:       string;
-  role:           UserRole;
-  tier:           UserTier;
-  currentPoints:  number;
+  uid?: string;
+  phoneNumber: string;
+  email?: string;
+  fullName: string;
+  birthDate?: string;
+  tier: 'SILVER' | 'GOLD';
+  currentPoints: number;
   lifetimePoints: number;
-  joinedDate:     string;
-  xpHistory:      XpHistoryEntry[];
-  vouchers:       UserVoucher[];
+  fcmTokens?: string[];
+  favoriteProductIds?: string[];
+  unreadNotifCount?: number;
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
 }
 
-// ─── staff/{UID} ─────────────────────────────────────────────────────────────
-export type StaffRole = "cashier" | "store_manager" | "admin";
-
-export interface Staff {
-  name:            string;
-  email:           string;
-  role:            StaffRole;
-  isActive:        boolean;
-
-  // Lama (tetap ada untuk compat)
-  // Multi-store
-  storeLocations?: string[];
-  accessAllStores?: boolean;
-}
-
-// ─── rewards_catalog/{rewardId} ──────────────────────────────────────────────
-export type RewardCategory = "Drink" | "Topping" | "Discount";
-
-export interface Reward {
-  id: string;
-  title:       string;
-  description: string;
-  pointsCost:  number;
-  imageURL:    string;
-  category:    RewardCategory;
-  isActive:    boolean;
-  type:        VoucherType; // "catalog" untuk voucher katalog, "personal" untuk voucher suntikan
-}
-
-export type RewardItem = Reward;
-
-// ─── notifications_log/{id} + users/{uid}/notifications/{id} ────────────────
-export type NotificationType =
-  | "voucher_injected"
-  | "tx_verified"
-  | "tx_rejected"
-  | "broadcast"
-  | "targeted";
-
-export type NotificationTargetType = "all" | "user";
-
-export interface AdminNotificationLog {
+export interface Transaction {
   id?: string;
-  type: NotificationType;
-  title: string;
-  body: string;
-  targetType: NotificationTargetType;
-  targetUid?: string;
-  targetName?: string;
-  sentAt: string;          // ISO timestamp
-  sentBy: string;          // admin UID
-  recipientCount: number;
+  transactionId: string;
+  posTransactionId?: string;
+  userId: string;
+  storeId: string;
+  amount: number;
+  pointsEarned: number;
+  status: 'COMPLETED' | 'NEEDS_REVIEW' | 'FLAGGED' | 'FRAUD' | 'REFUNDED';
+  timestamp: Timestamp;
 }
 
-export interface UserNotification {
-  id: string;
-  type: NotificationType;
-  title: string;
-  body: string;
-  isRead: boolean;
-  createdAt: string;       // ISO timestamp
-  data?: Record<string, unknown>;
-}
-
-// ─── products/{productId} ───────────────────────────────────────────────────
-export type ProductCategory = 
-  "Signature" | "MilkTea" | "Coffee" | "Matcha" | "Mint" | "BrownSugar" | "CreativeMix" | "BrewedTea" | "Topping";
-
-export interface ProductItem {
+export interface Store {
   id?: string;
   name: string;
-  category: ProductCategory | string;
+  code: string;
+  address: string;
+  coordinates?: {
+    latitude: number;
+    longitude: number;
+  };
+  isActive: boolean;
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
+}
+
+export interface Product {
+  id?: string;
+  name: string;
+  category: string;
   mediumPrice: number;
   availableLarge: boolean;
   availableHot: boolean;
-  description: string;
-  image: string;
-  rating: number;
-  isAvailable: boolean; // Tetap ada untuk fitur "Kosong/Tersedia" di Admin
-  createdAt?: string;
-  updatedAt?: string;
+  imageUrl: string;
+  isActive: boolean;
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
+}
+
+export interface VoucherMaster {
+  id?: string;
+  title: string;
+  pointsCost: number;
+  isActive: boolean;
+  terms: string;
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
+}
+
+export interface UserVoucher {
+  id?: string;
+  userId: string;
+  voucherMasterId: string;
+  title: string;
+  code: string;
+  status: 'ACTIVE' | 'USED' | 'EXPIRED';
+  claimedAt: Timestamp;
+  usedAt?: Timestamp | null;
+}
+
+export interface DailyMetrics {
+  id?: string; 
+  dateString: string;
+  totalRevenue: number;
+  totalTransactions: number;
+  totalVouchersUsed: number;
+  storeId?: string; 
+  updatedAt?: Timestamp;
 }

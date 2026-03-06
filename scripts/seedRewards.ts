@@ -14,6 +14,7 @@ const rewards: Array<{ id: string } & Reward> = [
     pointsCost: 1000,
     imageURL: "https://placehold.co/400x400/c8a96e/0a0a0f?text=BST",
     category: "Drink",
+    type: "catalog",
     isActive: true,
   },
   {
@@ -23,6 +24,7 @@ const rewards: Array<{ id: string } & Reward> = [
     pointsCost: 1000,
     imageURL: "https://placehold.co/400x400/c8a96e/0a0a0f?text=Taro",
     category: "Drink",
+    type: "catalog",
     isActive: true,
   },
   {
@@ -32,6 +34,7 @@ const rewards: Array<{ id: string } & Reward> = [
     pointsCost: 800,
     imageURL: "https://placehold.co/400x400/c8a96e/0a0a0f?text=CMT",
     category: "Drink",
+    type: "catalog",
     isActive: true,
   },
   {
@@ -41,6 +44,7 @@ const rewards: Array<{ id: string } & Reward> = [
     pointsCost: 500,
     imageURL: "https://placehold.co/400x400/c8a96e/0a0a0f?text=20%25",
     category: "Discount",
+    type: "catalog",
     isActive: true,
   },
   {
@@ -50,6 +54,7 @@ const rewards: Array<{ id: string } & Reward> = [
     pointsCost: 1500,
     imageURL: "https://placehold.co/400x400/c8a96e/0a0a0f?text=50%25",
     category: "Discount",
+    type: "catalog",
     isActive: true,
   },
   {
@@ -59,6 +64,7 @@ const rewards: Array<{ id: string } & Reward> = [
     pointsCost: 200,
     imageURL: "https://placehold.co/400x400/c8a96e/0a0a0f?text=Pearl",
     category: "Topping",
+    type: "catalog",
     isActive: true,
   },
   {
@@ -68,6 +74,7 @@ const rewards: Array<{ id: string } & Reward> = [
     pointsCost: 200,
     imageURL: "https://placehold.co/400x400/c8a96e/0a0a0f?text=Pudding",
     category: "Topping",
+    type: "catalog",
     isActive: true,
   },
   {
@@ -77,6 +84,7 @@ const rewards: Array<{ id: string } & Reward> = [
     pointsCost: 0,
     imageURL: "https://placehold.co/400x400/c8a96e/0a0a0f?text=🎂",
     category: "Drink",
+    type: "catalog",
     isActive: true,
   },
 ];
