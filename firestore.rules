@@ -42,10 +42,11 @@ service cloud.firestore {
 
 
     // ── /users (Customer Members) ─────────────────────────────────────────────
+    // Admins can list/read all member profiles (needed for Dashboard & Members page).
     // Members can read and lightly update their own profile.
     // Account creation / deletion goes through Admin SDK.
     match /users/{userId} {
-      allow read:   if isSignedIn() && request.auth.uid == userId;
+      allow read:   if isAdmin() || (isSignedIn() && request.auth.uid == userId);
       allow update: if isSignedIn() &&
                        request.auth.uid == userId &&
                        request.resource.data.diff(resource.data)
