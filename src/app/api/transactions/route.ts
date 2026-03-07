@@ -204,7 +204,9 @@ export async function PATCH(req: NextRequest) {
 
     const txData = txSnap.data()!;
 
-    if (txData.status !== "pending") {
+    // ✅ FIX GAP #11: Terima status lama "pending" DAN canonical "NEEDS_REVIEW"
+    const processableStatuses = ["NEEDS_REVIEW", "pending"];
+    if (!processableStatuses.includes(txData.status)) {
       return NextResponse.json(
         { message: `Transaction already has status "${txData.status}". Cannot be changed.` },
         { status: 409 }
@@ -215,8 +217,8 @@ export async function PATCH(req: NextRequest) {
     const verifiedBy = validation.token!.uid as string;
 
     if (action === "verify") {
-      // 1. Update transaction status
-      await txRef.update({ status: "verified", verifiedAt: now, verifiedBy });
+      // 1. Update transaction status — ✅ FIX GAP #11: "verified" → "COMPLETED"
+      await txRef.update({ status: "COMPLETED", verifiedAt: now, verifiedBy });
 
       // 2. Disburse points to member
       await disbursePoints(
@@ -236,8 +238,8 @@ export async function PATCH(req: NextRequest) {
         points:  txData.potentialPoints ?? 0,
       });
     } else {
-      // Reject — just update status, no points
-      await txRef.update({ status: "rejected", verifiedAt: now, verifiedBy });
+      // Reject — ✅ FIX GAP #11: "rejected" → "FRAUD"
+      await txRef.update({ status: "FRAUD", verifiedAt: now, verifiedBy });
 
       // Auto-notification to member
       await createTxNotification(txData.memberId, "rejected", txData, verifiedBy);
@@ -280,7 +282,9 @@ export async function POST(req: NextRequest) {
         const txRef  = adminDb.doc(docPath);
         const txSnap = await txRef.get();
 
-        if (!txSnap.exists || txSnap.data()!.status !== "pending") {
+        // ✅ FIX GAP #4 REMAINING: Terima "pending" (lama) DAN "NEEDS_REVIEW" (baru)
+        const processableStatuses = ["NEEDS_REVIEW", "pending"];
+        if (!txSnap.exists || !processableStatuses.includes(txSnap.data()!.status)) {
           skipCount++;
           continue;
         }
@@ -288,7 +292,8 @@ export async function POST(req: NextRequest) {
         const txData = txSnap.data()!;
 
         if (actionType === "verify") {
-          await txRef.update({ status: "verified", verifiedAt: now, verifiedBy });
+          // ✅ FIX: "verified" → "COMPLETED" (unified uppercase schema)
+          await txRef.update({ status: "COMPLETED", verifiedAt: now, verifiedBy });
           await disbursePoints(
             txData.memberId,
             txData.potentialPoints ?? 0,
@@ -298,7 +303,8 @@ export async function POST(req: NextRequest) {
           );
           await createTxNotification(txData.memberId, "verified", txData, verifiedBy);
         } else {
-          await txRef.update({ status: "rejected", verifiedAt: now, verifiedBy });
+          // ✅ FIX: "rejected" → "FRAUD" (unified uppercase schema)
+          await txRef.update({ status: "FRAUD", verifiedAt: now, verifiedBy });
           await createTxNotification(txData.memberId, "rejected", txData, verifiedBy);
         }
 

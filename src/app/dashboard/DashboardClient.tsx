@@ -352,10 +352,13 @@ export default function DashboardClient({ initialRole, initialTransactions, init
   const claimsNeedingReview = pendingCount + rejectedCount; // Pending + Rejected
   
   // FILTERED BY DATE (affected by date picker):
-  const verifiedCount = transactions.filter(t => t.status === "verified").length;
-  const totalRevenue  = transactions.filter(t => t.status === "verified").reduce((a, t) => a + t.amount, 0);
+  // ✅ FIX GAP #10: Terima "COMPLETED" (canonical) + "verified" (legacy) — transitional
+  const verifiedCount = transactions.filter(t => t.status === "COMPLETED" || t.status === "verified").length;
+  const totalRevenue  = transactions.filter(t => t.status === "COMPLETED" || t.status === "verified").reduce((a, t) => a + t.amount, 0);
   const avgTrx        = transactions.length > 0 ? Math.round(transactions.reduce((a, t) => a + t.amount, 0) / transactions.length) : 0;
-  const totalXP       = transactions.filter(t => t.status === "verified").reduce((a, t) => a + (t.potentialPoints ?? 0), 0); // XP issued in date range
+  const totalXP       = transactions
+    .filter(t => t.status === "COMPLETED" || t.status === "verified")
+    .reduce((a, t) => a + (t.potentialPoints ?? 0), 0); // XP issued in date range
   const recentTrx     = transactions.slice(0, 10);
 
   useEffect(() => {
@@ -537,7 +540,7 @@ export default function DashboardClient({ initialRole, initialTransactions, init
             </p>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <span style={{ display: "inline-flex", alignItems: "center", gap: 3, padding: "2px 9px", borderRadius: 99, fontSize: 11, fontWeight: 700, background: "rgba(18,183,106,.22)", color: "#6EE7B7" }}>
-                ↑ Verified only
+                ↑ COMPLETED only
               </span>
               <span style={{ fontSize: 12, color: "rgba(255,255,255,.55)" }}>
                 {verifiedCount} transactions {mode === "range" && dateFrom && dateTo ? "(filtered)" : ""}
@@ -577,7 +580,7 @@ export default function DashboardClient({ initialRole, initialTransactions, init
             </p>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <span style={{ display: "inline-flex", alignItems: "center", gap: 3, padding: "2px 9px", borderRadius: 99, fontSize: 11, fontWeight: 700, background: "rgba(18,183,106,.22)", color: "#6EE7B7" }}>
-                ↑ Verified only
+                ↑ COMPLETED only
               </span>
               <span style={{ fontSize: 12, color: "rgba(255,255,255,.55)" }}>
                 {verifiedCount} transactions {mode === "range" && dateFrom && dateTo ? "(filtered)" : ""}
@@ -617,7 +620,7 @@ export default function DashboardClient({ initialRole, initialTransactions, init
             icon: <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>,
           },
           {
-            label: mode === "range" && dateFrom && dateTo ? "Verified Transactions (filtered)" : "Verified Transactions", 
+            label: mode === "range" && dateFrom && dateTo ? "Completed Transactions (filtered)" : "Completed Transactions", 
             iconBg: C.greenBg, iconColor: C.green,
             value: `${verifiedCount} / ${transactions.length}`,
             icon: <path d="M20 6L9 17l-5-5"/>,
