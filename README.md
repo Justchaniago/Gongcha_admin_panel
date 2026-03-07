@@ -1,6 +1,28 @@
-# 🧋 Gong Cha Admin Panel
+# 🧋 Gong Cha Admin Panel - Enterprise Edition
 
-Pusat kendali sistem loyalitas Gong Cha Indonesia. Dibangun dengan Next.js 14 App Router + Tailwind CSS + Firebase.
+Pusat kendali sistem loyalitas Gong Cha Indonesia. Re-architected sebagai platform enterprise dengan prinsip zero-trust, atomic transactions, dan cost-optimized Firestore integrations. Dibangun dengan Next.js 15 App Router + Tailwind CSS + Firebase.
+
+---
+
+## 🚀 Key Architectural Pillars
+
+### 1. 🔒 Absolute Security (Zero-Trust UI & API)
+* **Centralized RBAC:** Migrated from fragmented legacy roles to a single source of truth (`admin_users` collection).
+* **Strict Role Gating:** Absolute division between `SUPER_ADMIN` and `STAFF`. UI components dynamically hide sensitive actions (Edit/Delete/Financials) from unauthorized users.
+* **Database Lockdown:** Secured by default-deny `firestore.rules`. All database writes are enforced strictly through Server Actions (Admin SDK), neutralizing client-side manipulation.
+
+### 2. 🛡️ Financial Integrity (EOD Audit System)
+* **Atomic Transactions:** Powered by `adminDb.runTransaction` to prevent race conditions during End-of-Day (EOD) verifications.
+* **Unified Status Schema:** Strict enforcement of canonical statuses (`NEEDS_REVIEW`, `COMPLETED`, `FRAUD`) across the entire ecosystem.
+* **Immutable Audit Trail:** Automated server-side injection of `verifiedBy`, `verifiedAt`, and `lastToggledBy` for absolute accountability on every financial and operational state change.
+
+### 3. ⚡ Maximum Stability (React Best Practices)
+* **Anti-Memory Leak:** Comprehensive `unsubscribe` cleanup on all Firebase Realtime Listeners (`onSnapshot`) across all modules.
+* **Self-Delete Protection:** Multi-layered defense (UI, State, and Server) preventing catastrophic admin lockout.
+
+### 4. 💰 Cost-Efficient Scaling (Database Optimization)
+* **Capped Reads:** Strict implementation of `.limit()` and `.orderBy()` on all dashboard and realtime queries to prevent massive billing spikes from full-table scans.
+* **Transitional Grace:** Backward-compatible logic designed to safely bridge legacy data with the new unified architecture.
 
 ---
 
@@ -106,16 +128,31 @@ rewards_catalog/{rewardId}
 
 ## 🔒 Authentication & Security
 
-- **Authentication**: Seluruh sistem kini menggunakan **Firebase Admin Session Cookies** untuk autentikasi dan otorisasi. Session cookie disimpan secara aman di browser, diverifikasi di setiap request server (API & Server Actions), dan role user selalu diambil fresh dari Firestore (users/staff) untuk memastikan RBAC (Role-Based Access Control) yang kuat dan up-to-date.
-- **RBAC**: Hanya user dengan role `admin` atau `master` yang dapat mengakses fitur administrasi sensitif (CRUD Stores, Users, Rewards, Settings, dll). Semua pengecekan role dilakukan di server, bukan di client.
+- **Authentication**: Seluruh sistem menggunakan **Firebase Admin Session Cookies** — diverifikasi di setiap request server (API & Server Actions), role selalu diambil fresh dari Firestore.
+- **Centralized RBAC**: Satu sumber kebenaran — koleksi `admin_users`. Role canonical: `SUPER_ADMIN` (akses penuh) dan `STAFF` (akses terbatas). Semua pengecekan dilakukan di server, bukan client.
+- **Transaction Status Schema**: `NEEDS_REVIEW` | `COMPLETED` | `FRAUD` | `FLAGGED` | `REFUNDED` — enforced di seluruh API handlers dan UI.
 
-## 🛠 Tech Stack
+## 🛠️ Tech Stack
 
-- **Framework**: Next.js 14 (App Router)
-- **Styling**: Tailwind CSS
-- **Database**: Firebase Firestore
+- **Framework**: Next.js 15 (App Router)
+- **Database**: Firebase / Cloud Firestore (Admin SDK & Client SDK)
+- **Styling**: Tailwind CSS + Lucide Icons
+- **Language**: TypeScript
 - **Auth**: Firebase Auth + Firebase Admin Session Cookies
 - **Seeder**: Firebase Admin SDK + ts-node
+
+---
+
+## 📜 Maintenance Scripts
+
+Located in `/scripts`:
+
+| Script | Purpose | Command |
+|--------|---------|---------|
+| `unifyTransactionStatuses.js` | Migration script to canonize legacy transaction statuses | `node scripts/unifyTransactionStatuses.js --dry-run` |
+| `archiveLegacyStaff.ts` | Safe batch-purging utility for legacy architecture deprecation | `npx ts-node scripts/archiveLegacyStaff.ts` |
+
+> Always run with `--dry-run` first before executing live migration.
 
 ---
 
