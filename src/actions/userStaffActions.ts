@@ -12,19 +12,13 @@ async function getAuthSession() {
 
   try {
     const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
-    
-    // Get role from Firestore (check users first, then staff)
-    let userDoc = await adminDb.collection("users").doc(decodedClaims.uid).get();
-    let role = userDoc.exists ? userDoc.data()?.role : null;
-    
-    if (!role) {
-      const staffDoc = await adminDb.collection("staff").doc(decodedClaims.uid).get();
-      role = staffDoc.exists ? staffDoc.data()?.role : null;
-    }
 
-    const allowedRoles = ["admin", "master", "manager", "store_manager"];
-    if (!allowedRoles.includes(role)) throw new Error("Forbidden: You do not have permission.");
-    
+    // Pilar Keamanan: selalu baca dari admin_users, role harus SUPER_ADMIN
+    const adminDoc = await adminDb.collection("admin_users").doc(decodedClaims.uid).get();
+    const role = adminDoc.exists ? adminDoc.data()?.role : null;
+
+    if (role !== "SUPER_ADMIN") throw new Error("Forbidden: Hanya SUPER_ADMIN yang dapat melakukan aksi ini.");
+
     return { uid: decodedClaims.uid, role };
   } catch (error) {
     throw new Error("Unauthorized: Invalid session.");
@@ -58,7 +52,8 @@ export async function createAccountAction(payload: any, type: "member" | "staff"
         storeLocations: storeLocations || [],
         accessAllStores: !!accessAllStores,
       };
-      await adminDb.collection("staff").doc(authUser.uid).set(staffData);
+      // Skema baru: semua admin/staff disimpan di admin_users
+      await adminDb.collection("admin_users").doc(authUser.uid).set(staffData);
     } else {
       const userData = {
         ...baseData,
@@ -80,7 +75,7 @@ export async function createAccountAction(payload: any, type: "member" | "staff"
 }
 
 // ── UPDATE ACCOUNT ──
-export async function updateAccountAction(uid: string, data: any, collection: "users" | "staff") {
+export async function updateAccountAction(uid: string, data: any, collection: "users" | "admin_users") {
   await getAuthSession();
   const cleanData = { ...data, updatedAt: new Date().toISOString() };
   
@@ -95,7 +90,7 @@ export async function updateAccountAction(uid: string, data: any, collection: "u
 }
 
 // ── DELETE ACCOUNT ──
-export async function deleteAccountAction(uid: string, collection: "users" | "staff") {
+export async function deleteAccountAction(uid: string, collection: "users" | "admin_users") {
   await getAuthSession();
   try {
     await adminAuth.deleteUser(uid);

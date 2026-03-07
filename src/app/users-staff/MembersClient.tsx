@@ -13,6 +13,7 @@ import {
 
 // Import komponen modal suntik voucher
 import InjectVoucherModalForMember from "./InjectVoucherModalForMember";
+import { useAuth } from "@/context/AuthContext";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type UserWithUid  = User  & { uid: string };
@@ -569,7 +570,7 @@ function EditStaffModal({ staff, storeIds, onClose, onSaved, toast }: {
     if (!canSave) { setError("Pilih minimal satu toko atau aktifkan akses semua toko."); return; }
     setLoading(true); setError("");
     try {
-      await updateAccountAction(staff.uid, form, "staff");
+      await updateAccountAction(staff.uid, form, "admin_users");
       toast(`${form.name} berhasil diperbarui.`, "success");
       onSaved({ name: form.name, role: form.role as StaffRole, storeLocations: form.storeLocations, accessAllStores: form.accessAllStores, isActive: form.isActive });
       onClose();
@@ -747,7 +748,7 @@ function CreateModal({ storeIds, onClose, toast }: { storeIds: string[]; onClose
 }
 
 // ── Table Row Components ──────────────────────────────────────────────────────
-function UserRow({ u, isLast, onDetail, onEdit, checked, onCheck }: { u: UserWithUid; isLast: boolean; onDetail: () => void; onEdit: () => void; checked: boolean; onCheck: (checked: boolean) => void; }) {
+function UserRow({ u, isLast, onDetail, onEdit, checked, onCheck }: { u: UserWithUid; isLast: boolean; onDetail: () => void; onEdit?: () => void; checked: boolean; onCheck: (checked: boolean) => void; }) {
   const [hovered, setHovered] = useState(false);
   const tier = TIER_CFG[u.tier] ?? TIER_CFG.Silver;
   return (
@@ -771,14 +772,14 @@ function UserRow({ u, isLast, onDetail, onEdit, checked, onCheck }: { u: UserWit
       <td style={{ padding: "14px 20px" }} onClick={e => e.stopPropagation()}>
         <div style={{ display: "flex", gap: 6 }}>
           <ActionBtn onClick={onDetail} label="Detail" />
-          <ActionBtn onClick={onEdit}   label="Edit"   />
+          {onEdit && <ActionBtn onClick={onEdit} label="Edit" />}
         </div>
       </td>
     </tr>
   );
 }
 
-function StaffRow({ s, isLast, onEdit, checked, onCheck }: { s: StaffWithUid; isLast: boolean; onEdit: () => void; checked: boolean; onCheck: (checked: boolean) => void; }) {
+function StaffRow({ s, isLast, onEdit, checked, onCheck }: { s: StaffWithUid; isLast: boolean; onEdit?: () => void; checked: boolean; onCheck: (checked: boolean) => void; }) {
   const [hovered, setHovered] = useState(false);
   const r = STAFF_CFG[s.role] ?? STAFF_CFG.cashier;
   return (
@@ -811,7 +812,7 @@ function StaffRow({ s, isLast, onEdit, checked, onCheck }: { s: StaffWithUid; is
         })()}
       </td>
       <td style={{ padding: "14px 20px", fontSize: 12.5, color: C.tx2, fontWeight: 500 }}>{s.isActive ? "Aktif" : "Nonaktif"}</td>
-      <td style={{ padding: "14px 20px" }}><ActionBtn onClick={onEdit} label="Edit" /></td>
+      <td style={{ padding: "14px 20px" }}>{onEdit && <ActionBtn onClick={onEdit} label="Edit" />}</td>
     </tr>
   );
 }
@@ -890,13 +891,16 @@ export default function MembersClient({ initialUsers, initialStaff, storeIds }: 
 
   const { toasts, show: toast, dismiss } = useToast();
   const { confirm, dialog: confirmDialog } = useConfirm();
+  // RBAC: hanya SUPER_ADMIN yang boleh mutate data
+  const { isAdmin } = useAuth();
 
   // 1. Realtime Data Sync
   useEffect(() => {
     const unsubUsers = onSnapshot(query(collection(db, "users"), orderBy("name")), (snap) => {
       setUsers(snap.docs.map(d => ({ uid: d.id, ...d.data() })) as UserWithUid[]);
     });
-    const unsubStaff = onSnapshot(query(collection(db, "staff"), orderBy("name")), (snap) => {
+    // Skema baru: admin & staff tersimpan di admin_users
+    const unsubStaff = onSnapshot(query(collection(db, "admin_users"), orderBy("name")), (snap) => {
       setStaff(snap.docs.map(d => ({ uid: d.id, ...d.data() })) as StaffWithUid[]);
     });
     return () => { unsubUsers(); unsubStaff(); };
@@ -942,7 +946,7 @@ export default function MembersClient({ initialUsers, initialStaff, storeIds }: 
       onConfirm: async () => {
         setBatchDeleting(true);
         try {
-          const col = tab === "member" ? "users" : "staff";
+          const col = tab === "member" ? "users" : "admin_users";
           await Promise.all(ids.map(uid => deleteAccountAction(uid, col)));
           toast(`${ids.length} akun berhasil dihapus.`, "success");
           tab === "member" ? setSelectedUsers(new Set()) : setSelectedStaff(new Set());
@@ -956,7 +960,7 @@ export default function MembersClient({ initialUsers, initialStaff, storeIds }: 
   async function handleBatchEditSave(payload: Record<string, any>) {
     const ids = Array.from(tab === "member" ? selectedUsers : selectedStaff);
     try {
-      const col = tab === "member" ? "users" : "staff";
+      const col = tab === "member" ? "users" : "admin_users";
       await Promise.all(ids.map(uid => updateAccountAction(uid, payload, col)));
       toast(`${ids.length} akun berhasil diperbarui.`, "success");
       setShowBatchEdit(false);
@@ -981,10 +985,12 @@ export default function MembersClient({ initialUsers, initialStaff, storeIds }: 
             <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
             Refresh
           </GcBtn>
+          {isAdmin && (
           <GcBtn variant="blue" onClick={() => setShowCreate(true)}>
             <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
             Add Account
           </GcBtn>
+          )}
         </div>
       </div>
 
@@ -1019,8 +1025,8 @@ export default function MembersClient({ initialUsers, initialStaff, storeIds }: 
           <div style={{ display: "flex", alignItems: "center", gap: 10, background: C.blueL, border: `1px solid rgba(67,97,238,.25)`, padding: "6px 12px 6px 16px", borderRadius: 10, animation: "gcFadeIn .2s ease" }}>
             <span style={{ fontSize: 13, fontWeight: 700, color: C.blue }}>{selectedCount} dipilih</span>
             <div style={{ width: 1, height: 16, background: "rgba(67,97,238,.2)" }} />
-            <GcBtn variant="ghost" onClick={() => setShowBatchEdit(true)} style={{ height: 32, background: C.white, borderColor: "rgba(67,97,238,.3)", color: C.blue }}>✏️ Bulk Edit</GcBtn>
-            <GcBtn variant="danger" onClick={handleBatchDelete} disabled={batchDeleting} style={{ height: 32, padding: "0 14px" }}>{batchDeleting ? "Menghapus…" : "🗑 Hapus"}</GcBtn>
+            {isAdmin && <GcBtn variant="ghost" onClick={() => setShowBatchEdit(true)} style={{ height: 32, background: C.white, borderColor: "rgba(67,97,238,.3)", color: C.blue }}>✏️ Bulk Edit</GcBtn>}
+            {isAdmin && <GcBtn variant="danger" onClick={handleBatchDelete} disabled={batchDeleting} style={{ height: 32, padding: "0 14px" }}>{batchDeleting ? "Menghapus…" : "🗑 Hapus"}</GcBtn>}
           </div>
         ) : (
           <div style={{ display: "flex", alignItems: "center", gap: 8, height: 40, padding: "0 13px", minWidth: 240, background: C.white, border: `1.5px solid ${sfFocus ? C.blue : C.border}`, borderRadius: 10, boxShadow: sfFocus ? "0 0 0 3px rgba(67,97,238,.1)" : "none", transition: "all .14s" }}>
@@ -1051,9 +1057,9 @@ export default function MembersClient({ initialUsers, initialStaff, storeIds }: 
           </tr></thead>
           <tbody>
             {tab === "member" ? (
-              fUsers.length === 0 ? <EmptyState query={search} type="member" /> : fUsers.map((u, i) => <UserRow key={u.uid} u={u} isLast={i === fUsers.length - 1} checked={selectedUsers.has(u.uid)} onCheck={v => toggleUser(u.uid, v)} onDetail={() => setDetailUser(u)} onEdit={() => setEditUser(u)} />)
+              fUsers.length === 0 ? <EmptyState query={search} type="member" /> : fUsers.map((u, i) => <UserRow key={u.uid} u={u} isLast={i === fUsers.length - 1} checked={selectedUsers.has(u.uid)} onCheck={v => toggleUser(u.uid, v)} onDetail={() => setDetailUser(u)} onEdit={isAdmin ? () => setEditUser(u) : undefined} />)
             ) : (
-              fStaff.length === 0 ? <EmptyState query={search} type="staff" /> : fStaff.map((s, i) => <StaffRow key={s.uid} s={s} isLast={i === fStaff.length - 1} checked={selectedStaff.has(s.uid)} onCheck={v => toggleStaff(s.uid, v)} onEdit={() => setEditStaff(s)} />)
+              fStaff.length === 0 ? <EmptyState query={search} type="staff" /> : fStaff.map((s, i) => <StaffRow key={s.uid} s={s} isLast={i === fStaff.length - 1} checked={selectedStaff.has(s.uid)} onCheck={v => toggleStaff(s.uid, v)} onEdit={isAdmin ? () => setEditStaff(s) : undefined} />)
             )}
           </tbody>
         </table>

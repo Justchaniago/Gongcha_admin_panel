@@ -5,7 +5,7 @@ import MembersClient from "./MembersClient";
 async function getData() {
   const [usersSnap, staffSnap, storesSnap] = await Promise.all([
     adminDb.collection("users").limit(50).get(),
-    adminDb.collection("staff").get(),
+    adminDb.collection("admin_users").get(),
     adminDb.collection("stores").get(),
   ]);
   const users    = usersSnap.docs.map(d => ({ ...d.data(), uid: d.id } as User  & { uid: string }));

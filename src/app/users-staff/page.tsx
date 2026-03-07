@@ -34,7 +34,7 @@ export default async function UsersStaffPage() {
   // Tarik data Users, Staff, dan Stores secara paralel
   const [usersSnap, staffSnap, storesSnap] = await Promise.all([
     adminDb.collection("users").orderBy("name").get(),
-    adminDb.collection("staff").orderBy("name").get(),
+    adminDb.collection("admin_users").orderBy("name").get(),
     adminDb.collection("stores").get()
   ]);
 
