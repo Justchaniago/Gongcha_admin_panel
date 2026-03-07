@@ -73,7 +73,8 @@ function TypeBadge({ type }: { type: string }) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 export default function NotificationsClient({ initialRole, initialLogs, members }: Props) {
-  const [tab, setTab] = useState<"send" | "history">("send");
+  const [tab, setTab] = useState<"send" | "history">(initialRole === "SUPER_ADMIN" ? "send" : "history");
+  const isSuperAdmin = initialRole === "SUPER_ADMIN";
   const [logs, setLogs] = useState<NotifLog[]>(initialLogs);
 
   // Send form state
@@ -187,7 +188,7 @@ export default function NotificationsClient({ initialRole, initialLogs, members 
       {/* Tabs */}
       <div style={{ display: "flex", gap: 4, marginBottom: 20, borderBottom: `1px solid ${C.border}`, paddingBottom: 0 }}>
         {[
-          { key: "send",    label: "📤 Kirim Notifikasi" },
+          ...(isSuperAdmin ? [{ key: "send", label: "📤 Kirim Notifikasi" }] : []),
           { key: "history", label: `📋 Riwayat (${logs.length})` },
         ].map((t) => (
           <button
@@ -212,7 +213,7 @@ export default function NotificationsClient({ initialRole, initialLogs, members 
       </div>
 
       {/* ── Tab: Send ── */}
-      {tab === "send" && (
+      {tab === "send" && isSuperAdmin && (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 400px", gap: 20 }}>
 
           {/* Compose form */}

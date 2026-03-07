@@ -19,15 +19,14 @@ async function validateSession(req: NextRequest) {
   const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
   const uid = decodedClaims.uid;
 
-  // Fresh Role Fetching
-  const userDoc = await adminDb.collection("users").doc(uid).get();
-  const staffDoc = await adminDb.collection("staff").doc(uid).get();
-  const profile = userDoc.exists ? userDoc.data() : staffDoc.exists ? staffDoc.data() : null;
-  const role = profile?.role?.toLowerCase(); // Case-insensitive
-
-  const allowedRoles = ["admin", "master", "manager", "store_manager"];
-  if (!role || !allowedRoles.includes(role)) {
-    return { error: "Access denied. Role not allowed.", status: 403 };
+  // Pilar Keamanan: selalu baca dari admin_users (skema terpusat)
+  const adminDoc = await adminDb.collection("admin_users").doc(uid).get();
+  if (!adminDoc.exists) {
+    return { error: "Access denied. Admin profile not found.", status: 403 };
+  }
+  const role: string = adminDoc.data()?.role ?? "";
+  if (!role) {
+    return { error: "Access denied. Role not assigned.", status: 403 };
   }
   return { token: decodedClaims, userRole: role, error: null };
 }
@@ -79,6 +78,17 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
       return NextResponse.json({ message: `Reward "${safeId}" tidak ditemukan.` }, { status: 404 });
     }
 
+    // RBAC: STAFF hanya boleh mengubah isActive
+    if (validation.userRole === "STAFF") {
+      const illegalFields = Object.keys(body).filter(k => k !== "isActive");
+      if (illegalFields.length > 0) {
+        return NextResponse.json(
+          { message: "Akses Ditolak: Staf hanya diizinkan mengubah ketersediaan item." },
+          { status: 403 }
+        );
+      }
+    }
+
     // Validation that are present in — only validate fields body
     if ("category" in body && !["Drink", "Topping", "Discount"].includes(body.category)) {
       return NextResponse.json({ message: "category invalid. Use: Drink, Topping, or Discount." }, { status: 400 });
@@ -104,6 +114,12 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
 
     if (Object.keys(update).length === 0) {
       return NextResponse.json({ message: "No fields to update." }, { status: 400 });
+    }
+
+    // Bonus: audit trail untuk toggle isActive saja
+    if (Object.keys(update).length === 1 && "isActive" in update) {
+      update.lastToggledBy = validation.token!.uid;
+      update.lastToggledAt = FieldValue.serverTimestamp();
     }
 
     update.updatedAt = FieldValue.serverTimestamp();

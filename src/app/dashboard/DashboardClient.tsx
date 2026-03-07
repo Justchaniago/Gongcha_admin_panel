@@ -188,6 +188,7 @@ export default function DashboardClient({ initialRole, initialTransactions, init
 
   // Check if user has limited access (cashier or store_manager)
   const isLimitedAccess = initialRole === "cashier" || initialRole === "store_manager";
+  const isSuperAdmin = initialRole === "SUPER_ADMIN";
   const canDeleteTransactions = initialRole === "admin";
 
   // Get assigned store ID for cashier/store manager
@@ -296,8 +297,8 @@ export default function DashboardClient({ initialRole, initialTransactions, init
       fetchRange();
     }
 
-    // Members
-    const memQ = query(collection(db, "users"));
+    // Members (limit untuk efisiensi biaya Firestore)
+    const memQ = query(collection(db, "users"), limit(500));
     const unsubMem = onSnapshot(memQ,
       (snap) => {
         setMembers(snap.docs.map(d => ({ uid: d.id, ...d.data() } as Member)));
@@ -306,8 +307,8 @@ export default function DashboardClient({ initialRole, initialTransactions, init
       () => setMemberStatus("error"),
     );
 
-    // Stores
-    const storeQ = query(collection(db, "stores"));
+    // Stores (limit untuk efisiensi biaya Firestore)
+    const storeQ = query(collection(db, "stores"), limit(100));
     const unsubStore = onSnapshot(storeQ,
       (snap) => {
         setStores(snap.docs.map(d => ({ uid: d.id, ...d.data() } as Store)));
@@ -318,7 +319,7 @@ export default function DashboardClient({ initialRole, initialTransactions, init
     );
 
     // All-time pending count (not affected by date picker)
-    const pendingQ = query(collection(db, "transactions"), where("status", "==", "pending"));
+    const pendingQ = query(collection(db, "transactions"), where("status", "==", "pending"), limit(500));
     const unsubPending = onSnapshot(pendingQ,
       (snap) => {
         setAllTimePendingCount(snap.size);
@@ -329,7 +330,7 @@ export default function DashboardClient({ initialRole, initialTransactions, init
     );
 
     // All-time rejected count (not affected by date picker)
-    const rejectedQ = query(collection(db, "transactions"), where("status", "==", "rejected"));
+    const rejectedQ = query(collection(db, "transactions"), where("status", "==", "rejected"), limit(500));
     const unsubRejected = onSnapshot(rejectedQ,
       (snap) => {
         setAllTimeRejectedCount(snap.size);
@@ -513,10 +514,10 @@ export default function DashboardClient({ initialRole, initialTransactions, init
 
       {/* ── BENTO ROW 1: Conditional based on role ── */}
       {isLimitedAccess ? (
-        // LIMITED ACCESS: Only Revenue + Pending Claims (2 columns)
-        <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: 14, marginBottom: 14 }}>
-          {/* Hero — Revenue */}
-          <div style={{
+        // LIMITED ACCESS: Claims Needing Review (+ Revenue untuk SUPER_ADMIN)
+        <div style={{ display: "grid", gridTemplateColumns: isSuperAdmin ? "1.5fr 1fr" : "1fr", gap: 14, marginBottom: 14 }}>
+          {/* Hero — Revenue (SUPER_ADMIN only) */}
+          {isSuperAdmin && <div style={{
             background: `linear-gradient(135deg, ${C.blue} 0%, ${C.blueD} 100%)`,
             border: "none", padding: "24px 26px", borderRadius: 18,
             boxShadow: "0 8px 32px rgba(67,97,238,.28)",
@@ -542,7 +543,7 @@ export default function DashboardClient({ initialRole, initialTransactions, init
                 {verifiedCount} transactions {mode === "range" && dateFrom && dateTo ? "(filtered)" : ""}
               </span>
             </div>
-          </div>
+          </div>}
 
           <StatCard
             label="Claims Needing Review" value={String(claimsNeedingReview)}
@@ -553,10 +554,10 @@ export default function DashboardClient({ initialRole, initialTransactions, init
           />
         </div>
       ) : (
-        // FULL ACCESS (ADMIN): All 4 stat cards
-        <div style={{ display: "grid", gridTemplateColumns: "1.35fr 1fr 1fr 1fr", gap: 14, marginBottom: 14 }}>
-          {/* Hero — Revenue */}
-          <div style={{
+        // FULL ACCESS: Stat cards (Revenue khusus SUPER_ADMIN)
+        <div style={{ display: "grid", gridTemplateColumns: isSuperAdmin ? "1.35fr 1fr 1fr 1fr" : "repeat(3, 1fr)", gap: 14, marginBottom: 14 }}>
+          {/* Hero — Revenue (SUPER_ADMIN only) */}
+          {isSuperAdmin && <div style={{
             background: `linear-gradient(135deg, ${C.blue} 0%, ${C.blueD} 100%)`,
             border: "none", padding: "24px 26px", borderRadius: 18,
             boxShadow: "0 8px 32px rgba(67,97,238,.28)",
@@ -582,7 +583,7 @@ export default function DashboardClient({ initialRole, initialTransactions, init
                 {verifiedCount} transactions {mode === "range" && dateFrom && dateTo ? "(filtered)" : ""}
               </span>
             </div>
-          </div>
+          </div>}
 
           <StatCard
             label="Active Members" value={totalMembers.toLocaleString()}
