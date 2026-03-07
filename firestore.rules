@@ -21,22 +21,10 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    // True when the caller exists in admin_users (the unified admin collection).
-    function isAdminUser() {
-      return isSignedIn() &&
-        exists(/databases/$(database)/documents/admin_users/$(request.auth.uid));
-    }
-
-    // Alias — short form used throughout rules below.
+    // True when the caller exists in the admin_users collection.
     function isAdmin() {
       return isSignedIn() &&
         exists(/databases/$(database)/documents/admin_users/$(request.auth.uid));
-    }
-
-    // True when the caller is a SUPER_ADMIN in admin_users.
-    function isSuperAdmin() {
-      return isAdmin() &&
-        get(/databases/$(database)/documents/admin_users/$(request.auth.uid)).data.role == "SUPER_ADMIN";
     }
 
 
