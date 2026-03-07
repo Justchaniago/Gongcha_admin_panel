@@ -779,7 +779,7 @@ function UserRow({ u, isLast, onDetail, onEdit, checked, onCheck }: { u: UserWit
   );
 }
 
-function StaffRow({ s, isLast, onEdit, checked, onCheck }: { s: StaffWithUid; isLast: boolean; onEdit?: () => void; checked: boolean; onCheck: (checked: boolean) => void; }) {
+function StaffRow({ s, isLast, onEdit, checked, onCheck, isSelf }: { s: StaffWithUid; isLast: boolean; onEdit?: () => void; checked: boolean; onCheck: (checked: boolean) => void; isSelf?: boolean; }) {
   const [hovered, setHovered] = useState(false);
   const r = STAFF_CFG[s.role] ?? STAFF_CFG.cashier;
   return (
@@ -787,10 +787,17 @@ function StaffRow({ s, isLast, onEdit, checked, onCheck }: { s: StaffWithUid; is
       style={{ borderBottom: isLast ? "none" : `1px solid ${C.border2}`, background: checked ? "#F5F7FF" : hovered ? "#F8F9FC" : C.white, transition: "background .1s" }}>
       <td style={{ padding: "14px 20px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <input type="checkbox" checked={checked} onChange={e => onCheck(e.target.checked)} style={{ width: 16, height: 16, cursor: "pointer", accentColor: C.blue, flexShrink: 0 }} />
+          <input
+            type="checkbox"
+            checked={checked}
+            onChange={e => onCheck(e.target.checked)}
+            disabled={isSelf}
+            title={isSelf ? "Tidak dapat memilih akun Anda sendiri" : undefined}
+            style={{ width: 16, height: 16, cursor: isSelf ? "not-allowed" : "pointer", accentColor: C.blue, flexShrink: 0, opacity: isSelf ? 0.35 : 1 }}
+          />
           <Avatar name={s.name} size={36} />
           <div>
-            <p style={{ fontSize: 13.5, fontWeight: 700, color: C.tx1, marginBottom: 2 }}>{s.name}</p>
+            <p style={{ fontSize: 13.5, fontWeight: 700, color: C.tx1, marginBottom: 2 }}>{s.name}{isSelf && <span style={{ marginLeft: 7, padding: "1px 7px", borderRadius: 99, fontSize: 10, fontWeight: 700, background: C.blueL, color: C.blue, border: `1px solid rgba(67,97,238,.2)`, verticalAlign: "middle" }}>Anda</span>}</p>
             <code style={{ fontSize: 10.5, color: C.tx3, background: C.bg, padding: "1px 6px", borderRadius: 5, border: `1px solid ${C.border2}` }}>{s.uid.slice(0, 12)}…</code>
           </div>
         </div>
@@ -892,7 +899,8 @@ export default function MembersClient({ initialUsers, initialStaff, storeIds }: 
   const { toasts, show: toast, dismiss } = useToast();
   const { confirm, dialog: confirmDialog } = useConfirm();
   // RBAC: hanya SUPER_ADMIN yang boleh mutate data
-  const { isAdmin } = useAuth();
+  const { isAdmin, user: currentUser } = useAuth();
+  const currentUid = currentUser?.uid ?? "";
 
   // 1. Realtime Data Sync
   useEffect(() => {
@@ -934,11 +942,27 @@ export default function MembersClient({ initialUsers, initialStaff, storeIds }: 
   }
 
   function toggleUser(uid: string, v: boolean) { setSelectedUsers(p => { const n = new Set(p); v ? n.add(uid) : n.delete(uid); return n; }); }
-  function toggleStaff(uid: string, v: boolean) { setSelectedStaff(p => { const n = new Set(p); v ? n.add(uid) : n.delete(uid); return n; }); }
+  function toggleStaff(uid: string, v: boolean) {
+    // Self-delete guard: tidak boleh memilih akun sendiri untuk dihapus
+    if (v && uid === currentUid) {
+      toast("Tindakan Ditolak: Anda tidak dapat memilih akun Anda sendiri.", "error");
+      return;
+    }
+    setSelectedStaff(p => { const n = new Set(p); v ? n.add(uid) : n.delete(uid); return n; });
+  }
 
   // 4. Batch Actions
   function handleBatchDelete() {
-    const ids = Array.from(tab === "member" ? selectedUsers : selectedStaff);
+    const rawIds = Array.from(tab === "member" ? selectedUsers : selectedStaff);
+
+    // Self-delete guard: keluarkan UID sendiri dari daftar
+    if (tab === "staff" && rawIds.includes(currentUid)) {
+      toast("Tindakan Ditolak: Anda tidak dapat menghapus akun Anda sendiri.", "error");
+      setSelectedStaff(p => { const n = new Set(p); n.delete(currentUid); return n; });
+      return;
+    }
+
+    const ids = rawIds;
     confirm({
       title: `Delete ${ids.length} Accounts`, 
       description: `${ids.length} accounts will be permanently deleted. This action cannot be undone.`,
@@ -1059,7 +1083,7 @@ export default function MembersClient({ initialUsers, initialStaff, storeIds }: 
             {tab === "member" ? (
               fUsers.length === 0 ? <EmptyState query={search} type="member" /> : fUsers.map((u, i) => <UserRow key={u.uid} u={u} isLast={i === fUsers.length - 1} checked={selectedUsers.has(u.uid)} onCheck={v => toggleUser(u.uid, v)} onDetail={() => setDetailUser(u)} onEdit={isAdmin ? () => setEditUser(u) : undefined} />)
             ) : (
-              fStaff.length === 0 ? <EmptyState query={search} type="staff" /> : fStaff.map((s, i) => <StaffRow key={s.uid} s={s} isLast={i === fStaff.length - 1} checked={selectedStaff.has(s.uid)} onCheck={v => toggleStaff(s.uid, v)} onEdit={isAdmin ? () => setEditStaff(s) : undefined} />)
+              fStaff.length === 0 ? <EmptyState query={search} type="staff" /> : fStaff.map((s, i) => <StaffRow key={s.uid} s={s} isLast={i === fStaff.length - 1} checked={selectedStaff.has(s.uid)} onCheck={v => toggleStaff(s.uid, v)} onEdit={isAdmin ? () => setEditStaff(s) : undefined} isSelf={s.uid === currentUid} />)
             )}
           </tbody>
         </table>
