@@ -1,117 +1,158 @@
 rules_version = '2';
 
+// ══════════════════════════════════════════════════════════════════════════════
+// Fase 7 — Architecture Hardening: Firestore Security Rules
+// Policy:
+//   • Default DENY all.
+//   • Admin-panel collections require Firebase Authentication.
+//   • All mutations to sensitive collections go through Admin SDK (API routes)
+//     and are therefore blocked at the client-SDK level (allow write: if false).
+//   • Public-facing collections (products/stores) allow unauthenticated READ
+//     so the Customer App can display menus and store info without login.
+// ══════════════════════════════════════════════════════════════════════════════
+
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ── Helpers ────────────────────────────────────────────────────────────
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    // True when the request carries a valid Firebase Auth token.
     function isSignedIn() {
       return request.auth != null;
     }
 
-    // Check if the calling user has a specific role in the /staff collection
-    function staffHasRole(roles) {
+    // True when the caller exists in admin_users (the unified admin collection).
+    function isAdminUser() {
       return isSignedIn() &&
-        exists(/databases/$(database)/documents/staff/$(request.auth.uid)) &&
-        get(/databases/$(database)/documents/staff/$(request.auth.uid)).data.isActive == true &&
-        get(/databases/$(database)/documents/staff/$(request.auth.uid)).data.role in roles;
+        exists(/databases/$(database)/documents/admin_users/$(request.auth.uid));
     }
 
-    // Check if the calling user is an admin/master in the /users collection
-    function userIsAdmin() {
-      return isSignedIn() &&
-        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'master'];
+    // True when the caller is a SUPER_ADMIN in admin_users.
+    function isSuperAdmin() {
+      return isAdminUser() &&
+        get(/databases/$(database)/documents/admin_users/$(request.auth.uid)).data.role == "SUPER_ADMIN";
     }
 
-    // ── /accounts ──────────────────────────────────────────────────────────
-    // Only admin staff or admin users may read/write accounts.
-    // Actual mutations go through API routes (Admin SDK bypasses these rules),
-    // but we restrict direct client-SDK writes as a safety net.
-    match /accounts/{accountId} {
-      allow read:   if staffHasRole(['admin', 'store_manager']) || userIsAdmin();
-      allow create: if false; // Must use /api/accounts (Admin SDK)
-      allow update: if false; // Must use /api/accounts/[id] (Admin SDK)
-      allow delete: if false; // Must use /api/accounts/[id] (Admin SDK)
+
+    // ── /admin_users ──────────────────────────────────────────────────────────
+    // Admin profile directory. An admin can read their own profile.
+    // All writes go through the Admin SDK (API routes).
+    match /admin_users/{uid} {
+      allow read:   if isSignedIn() && request.auth.uid == uid;
+      allow create: if false; // Admin SDK only (/api/setup-user)
+      allow update: if false; // Admin SDK only
+      allow delete: if false; // Admin SDK only
     }
 
-    // ── /users ─────────────────────────────────────────────────────────────
+
+    // ── /users (Customer Members) ─────────────────────────────────────────────
+    // Members can read and lightly update their own profile.
+    // Account creation / deletion goes through Admin SDK.
     match /users/{userId} {
-      // Any authenticated user can read their own document
-      allow read:   if isSignedIn() && (request.auth.uid == userId || staffHasRole(['admin', 'store_manager', 'cashier']) || userIsAdmin());
-      // Users can update their own limited fields
-      allow update: if isSignedIn() && request.auth.uid == userId &&
-                       request.resource.data.diff(resource.data).affectedKeys()
-                         .hasOnly(['phoneNumber', 'photoURL']);
-      allow create: if false; // Must use /api/members (Admin SDK)
-      allow delete: if false; // Must use /api/members/[uid] (Admin SDK)
+      allow read:   if isSignedIn() && request.auth.uid == userId;
+      allow update: if isSignedIn() &&
+                       request.auth.uid == userId &&
+                       request.resource.data.diff(resource.data)
+                         .affectedKeys().hasOnly(['phoneNumber', 'photoURL', 'fcmToken']);
+      allow create: if false; // Admin SDK only (/api/members)
+      allow delete: if false; // Admin SDK only
     }
 
-    // ── /staff ─────────────────────────────────────────────────────────────
-    match /staff/{staffId} {
-      // Staff can read their own doc; admins can read all
-      allow read:   if isSignedIn() && (request.auth.uid == staffId || staffHasRole(['admin', 'store_manager']) || userIsAdmin());
-      allow create: if false; // Must use /api/staff (Admin SDK)
-      allow update: if false; // Must use /api/staff/[uid] (Admin SDK)
-      allow delete: if false; // Must use /api/staff/[uid] (Admin SDK)
+
+    // ── /products (Menus) ─────────────────────────────────────────────────────
+    // Customer App needs unauthenticated read to display the menu.
+    // All writes are performed exclusively via Admin SDK (menuActions.ts).
+    match /products/{productId} {
+      allow read:  if true;   // Public — Customer App can fetch menu without login
+      allow write: if false;  // Admin SDK only (menuActions.ts / Server Actions)
     }
 
-    // ── /stores ────────────────────────────────────────────────────────────
+
+    // ── /stores ───────────────────────────────────────────────────────────────
+    // Customer App needs unauthenticated read to list nearby stores.
+    // All writes are performed via Admin SDK (storeActions.ts / API routes).
     match /stores/{storeId} {
-      // Anyone signed in can read store list (needed for POS UI)
-      allow read:   if isSignedIn();
-      allow write:  if staffHasRole(['admin']) || userIsAdmin();
+      allow read:  if true;   // Public — Customer App can fetch store list without login
+      allow write: if false;  // Admin SDK only
+
+      // Sub-collection: store-level transactions (if used)
+      match /transactions/{txId} {
+        allow read, write: if false; // Admin SDK only
+      }
     }
 
-    // ── /stores/{storeId}/transactions ─────────────────────────────────────
-    match /stores/{storeId}/transactions/{txId} {
-      // Cashiers can create; managers/admins can read and update status
-      allow read:   if isSignedIn() && (staffHasRole(['cashier', 'store_manager', 'admin']) || userIsAdmin());
-      allow create: if staffHasRole(['cashier', 'store_manager', 'admin']);
-      allow update: if staffHasRole(['store_manager', 'admin']) || userIsAdmin();
-      allow delete: if false;
+
+    // ── /transactions (Top-level) ─────────────────────────────────────────────
+    // All transaction mutations go through Admin SDK API routes.
+    // Read is restricted to authenticated users only.
+    match /transactions/{txId} {
+      allow read:  if isSignedIn(); // Authenticated admins & staff via client SDK
+      allow write: if false;        // Admin SDK only (/api/transactions)
     }
 
-    // ── /rewards_catalog ───────────────────────────────────────────────────
+
+    // ── /rewards ──────────────────────────────────────────────────────────────
+    // Reward catalog. Requires login (member-only feature).
+    // All writes go through Admin SDK (/api/rewards).
+    match /rewards/{rewardId} {
+      allow read:  if isSignedIn();
+      allow write: if false; // Admin SDK only
+    }
+
+    // ── /rewards_catalog (Legacy alias — kept for backwards compat) ───────────
     match /rewards_catalog/{rewardId} {
-      allow read:   if isSignedIn();
-      allow write:  if staffHasRole(['admin']) || userIsAdmin();
+      allow read:  if isSignedIn();
+      allow write: if false; // Admin SDK only
     }
 
-    // ── /settings ──────────────────────────────────────────────────────────
-    // Global app settings (e.g. settings/global).
-    // Read: any authenticated staff or admin user.
-    // Write: only admin staff or admin users — but mutations go through
-    //        /api/settings (Admin SDK), so direct client writes are blocked.
-    match /settings/{settingId} {
-      allow read:   if staffHasRole(['admin', 'store_manager', 'cashier']) || userIsAdmin();
-      allow create: if false; // Must use /api/settings (Admin SDK)
-      allow update: if false; // Must use /api/settings (Admin SDK)
-      allow delete: if false;
-    }
 
-    // ── /notifications ─────────────────────────────────────────────────────
-    // Flat collection written by Admin SDK; customer app reads its own docs.
-    // Admin panel reads via Admin SDK (bypasses rules).
+    // ── /notifications ────────────────────────────────────────────────────────
+    // Each notification document carries a userId field.
+    // Members can read/mark-as-read their own notifications only.
+    // Creation and deletion go through Admin SDK.
     match /notifications/{notifId} {
-      // Customer users can only read their own notifications
       allow read:   if isSignedIn() && resource.data.userId == request.auth.uid;
-      // Users can mark their own notification as read (update isRead only)
       allow update: if isSignedIn() &&
                        resource.data.userId == request.auth.uid &&
-                       request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead']);
-      allow create: if false; // Must use Admin SDK (API route)
+                       request.resource.data.diff(resource.data)
+                         .affectedKeys().hasOnly(['isRead']);
+      allow create: if false; // Admin SDK only (/api/notifications)
       allow delete: if false;
     }
 
-    // ── /notifications_log ─────────────────────────────────────────────────
-    // Admin-only log; all access via Admin SDK (API routes).
+
+    // ── /notifications_log ────────────────────────────────────────────────────
+    // Internal audit log written by Admin SDK. No client access.
     match /notifications_log/{logId} {
       allow read, write: if false; // Admin SDK only
     }
 
-    // ── Deny everything else ───────────────────────────────────────────────
+
+    // ── /settings ─────────────────────────────────────────────────────────────
+    // Global app config. Read by authenticated admin panel users.
+    // Writes exclusively via Admin SDK (/api/settings).
+    match /settings/{settingId} {
+      allow read:  if isSignedIn();
+      allow write: if false; // Admin SDK only
+    }
+
+
+    // ── /accounts (Legacy) ────────────────────────────────────────────────────
+    match /accounts/{accountId} {
+      allow read, write: if false; // Admin SDK only
+    }
+
+    // ── /staff (Legacy — superseded by admin_users) ───────────────────────────
+    match /staff/{staffId} {
+      allow read, write: if false; // Migrated to admin_users; no direct access
+    }
+
+
+    // ── DEFAULT DENY ──────────────────────────────────────────────────────────
+    // Any collection not explicitly matched above is fully closed.
     match /{document=**} {
       allow read, write: if false;
     }
+
   }
 }
