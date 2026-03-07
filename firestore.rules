@@ -72,9 +72,10 @@ service cloud.firestore {
       allow read:  if true;   // Public — Customer App can fetch store list without login
       allow write: if false;  // Admin SDK only
 
-      // Sub-collection: store-level transactions (if used)
+      // Sub-collection: store-level transactions
       match /transactions/{txId} {
-        allow read, write: if false; // Admin SDK only
+        allow read:  if isAdmin(); // Admin panel can read via collectionGroup/direct
+        allow write: if false;    // Admin SDK only
       }
     }
 
@@ -134,9 +135,11 @@ service cloud.firestore {
     }
 
 
-    // ── /accounts (Legacy) ────────────────────────────────────────────────────
+    // ── /accounts ─────────────────────────────────────────────────────────────
+    // AccountsClient queries this collection for the /accounts admin page.
     match /accounts/{accountId} {
-      allow read, write: if false; // Admin SDK only
+      allow read:  if isAdmin(); // Admin panel read
+      allow write: if false;    // Admin SDK only (/api/accounts)
     }
 
     // ── /staff (Legacy — superseded by admin_users) ───────────────────────────
