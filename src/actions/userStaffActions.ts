@@ -91,7 +91,13 @@ export async function updateAccountAction(uid: string, data: any, collection: "u
 
 // ── DELETE ACCOUNT ──
 export async function deleteAccountAction(uid: string, collection: "users" | "admin_users") {
-  await getAuthSession();
+  const { uid: adminUid } = await getAuthSession();
+
+  // Server-side Self-Delete Guard — "Never Trust the Client"
+  if (uid === adminUid) {
+    throw new Error("Tindakan Ditolak Server: Anda tidak dapat menghapus akun Anda sendiri.");
+  }
+
   try {
     await adminAuth.deleteUser(uid);
   } catch (e) {
