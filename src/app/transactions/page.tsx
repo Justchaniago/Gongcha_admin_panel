@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { adminDb, adminAuth } from "@/lib/firebaseAdmin";
 import TransactionsClient from "./TransactionsClient";
+import UnauthorizedOverlay from "@/components/ui/UnauthorizedOverlay";
 
 export const dynamic = "force-dynamic";
 
@@ -14,39 +15,19 @@ export default async function TransactionsPage() {
   try {
     const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
     uid = decodedClaims.uid;
-  } catch (error) {
+  } catch {
     redirect("/login");
   }
 
-  // Role check (reuse allowedRoles from users-staff)
-  const userDoc = await adminDb.collection("users").doc(uid).get();
-  const staffDoc = await adminDb.collection("staff").doc(uid).get();
-  const profile = userDoc.exists ? userDoc.data() : staffDoc.exists ? staffDoc.data() : null;
-  const role = profile?.role;
-  // Kasir juga boleh akses transaksi
-  // const allowedRoles = ["admin", "master", "manager", "store_manager"];
-  // if (!allowedRoles.includes(role)) redirect("/unauthorized");
+  // Pilar 1: Validasi Role dari admin_users
+  const adminDoc = await adminDb.collection("admin_users").doc(uid).get();
+  const profile  = adminDoc.data();
+  const role     = profile?.role ?? "";
 
-  // Fetch transactions (limit 50, order by createdAt desc)
-  const txSnap = await adminDb.collection("transactions").orderBy("createdAt", "desc").limit(50).get();
-  const initialTransactions = txSnap.docs.map(d => {
-    const data = d.data() || {};
-    return {
-      docId: d.id,
-      docPath: d.ref.path,
-      transactionId: data.posTransactionId ?? data.transactionId ?? "",
-      memberName: data.memberName ?? "",
-      memberId: data.memberId ?? "",
-      staffId: data.staffId ?? "",
-      storeLocation: data.storeLocation ?? "",
-      amount: data.amount ?? 0,
-      potentialPoints: data.potentialPoints ?? 0,
-      status: data.status ?? "pending",
-      createdAt: data.createdAt ? (typeof data.createdAt.toDate === "function" ? data.createdAt.toDate().toISOString() : String(data.createdAt)) : null,
-      verifiedAt: data.verifiedAt ? (typeof data.verifiedAt.toDate === "function" ? data.verifiedAt.toDate().toISOString() : data.verifiedAt) : null,
-      verifiedBy: data.verifiedBy ?? null,
-    };
-  });
+  if (role !== "SUPER_ADMIN") {
+    return <UnauthorizedOverlay />;
+  }
 
-  return <TransactionsClient initialTransactions={initialTransactions} initialRole={role ?? ""} />;
+  // Data diambil realtime oleh Client Component (onSnapshot)
+  return <TransactionsClient initialRole={role} />;
 }

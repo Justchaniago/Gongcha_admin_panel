@@ -7,7 +7,8 @@ import { useState, useEffect, useRef } from "react";
 export interface Tx {
   docId: string; docPath: string; transactionId: string; memberName: string;
   memberId: string; staffId: string; storeLocation: string; amount: number;
-  potentialPoints: number; type?: "earn"|"redeem"; status: "pending"|"verified"|"rejected";
+  potentialPoints: number; type?: "earn"|"redeem";
+  status: 'COMPLETED' | 'NEEDS_REVIEW' | 'FLAGGED' | 'FRAUD' | 'REFUNDED';
   createdAt: string|null; verifiedAt: string|null; verifiedBy: string|null;
 }
 
@@ -25,6 +26,7 @@ export const C = {
   green:"#059669", greenBg:"#D1FAE5",
   orange:"#D97706", orangeBg:"#FEF3C7",
   red:"#DC2626", redBg:"#FEE2E2",
+  gray:"#6B7280", grayBg:"#F3F4F6",
   shadow:"0 1px 3px rgba(16,24,40,.06)",
   shadowLg:"0 20px 60px rgba(16,24,40,.18)",
 } as const;
@@ -107,13 +109,15 @@ export function Toast({ msg, type, onDone }: { msg: string; type: "success"|"err
 }
 
 // ── Status Badge ──────────────────────────────────────────────────────────────
-const STATUS_CFG = {
-  pending:  { label:"Pending",  bg:"#FEF3C7", color:"#D97706" },
-  verified: { label:"Verified", bg:"#D1FAE5", color:"#059669" },
-  rejected: { label:"Rejected", bg:"#FEE2E2", color:"#DC2626" },
+const STATUS_CFG: Record<string, { label: string; bg: string; color: string }> = {
+  COMPLETED:    { label: "Completed",     bg: "#D1FAE5", color: "#059669" },
+  NEEDS_REVIEW: { label: "⚠ Needs Review", bg: "#FEF3C7", color: "#D97706" },
+  FLAGGED:      { label: "Flagged",        bg: "#FEE2E2", color: "#DC2626" },
+  FRAUD:        { label: "Fraud",          bg: "#FEE2E2", color: "#DC2626" },
+  REFUNDED:     { label: "Refunded",       bg: "#F3F4F6", color: "#6B7280" },
 };
 export function StatusBadge({ status }: { status: string }) {
-  const cfg = STATUS_CFG[status as keyof typeof STATUS_CFG] ?? STATUS_CFG.pending;
+  const cfg = STATUS_CFG[status] ?? { label: status, bg: "#F3F4F6", color: "#6B7280" };
   return (
     <span style={{ display:"inline-block", padding:"3px 10px", borderRadius:99, background:cfg.bg, color:cfg.color, fontSize:11, fontWeight:700 }}>
       {cfg.label}
@@ -140,6 +144,70 @@ export function ConfirmModal({ title, message, confirmLabel, confirmColor, onCon
           </button>
           <button onClick={onConfirm} disabled={loading} style={{ height:40, padding:"0 22px", borderRadius:9, border:"none", background:loading?"#9ca3af":confirmColor, color:"#fff", fontFamily:font, fontSize:13.5, fontWeight:600, cursor:loading?"not-allowed":"pointer" }}>
             {loading ? "Processing…" : confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Verify Transaction Modal ────────────────────────────────────────────────
+export function VerifyTxModal({ tx, onApprove, onReject, onClose, loading }: {
+  tx: Tx;
+  onApprove: () => void;
+  onReject: () => void;
+  onClose: () => void;
+  loading: boolean;
+}) {
+  return (
+    <div
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+      style={{ position:"fixed", inset:0, zIndex:60, display:"flex", alignItems:"center", justifyContent:"center", padding:24, background:"rgba(10,12,20,.55)", backdropFilter:"blur(8px)", fontFamily:font }}
+    >
+      <div style={{ background:C.white, borderRadius:20, width:"100%", maxWidth:460, boxShadow:C.shadowLg, padding:"32px 28px", animation:"gcRise .22s ease" }}>
+        {/* Header */}
+        <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:20 }}>
+          <div style={{ width:44, height:44, borderRadius:12, background:"#FEF3C7", display:"flex", alignItems:"center", justifyContent:"center" }}>
+            <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="#D97706" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+          </div>
+          <div>
+            <h2 style={{ fontSize:18, fontWeight:800, color:C.tx1, margin:0 }}>Verifikasi Transaksi</h2>
+            <p style={{ fontSize:12, color:C.tx3, margin:0 }}>Pilih tindakan untuk transaksi ini</p>
+          </div>
+        </div>
+        {/* Detail */}
+        <div style={{ padding:"14px 16px", background:C.bg, borderRadius:12, marginBottom:24, display:"flex", flexDirection:"column", gap:8 }}>
+          <div style={{ display:"flex", justifyContent:"space-between" }}>
+            <span style={{ fontSize:12, color:C.tx2 }}>ID Transaksi</span>
+            <span style={{ fontSize:12, fontWeight:700, color:C.blue, fontFamily:"monospace" }}>{tx.transactionId}</span>
+          </div>
+          <div style={{ display:"flex", justifyContent:"space-between" }}>
+            <span style={{ fontSize:12, color:C.tx2 }}>Nominal</span>
+            <span style={{ fontSize:13, fontWeight:800, color:C.tx1 }}>{fmtRp(tx.amount)}</span>
+          </div>
+          <div style={{ display:"flex", justifyContent:"space-between" }}>
+            <span style={{ fontSize:12, color:C.tx2 }}>Member</span>
+            <span style={{ fontSize:12, fontWeight:600, color:C.tx1 }}>{tx.memberName}</span>
+          </div>
+        </div>
+        {/* Actions */}
+        <div style={{ display:"flex", gap:10 }}>
+          <button onClick={onClose} disabled={loading} style={{ flex:1, height:42, borderRadius:10, border:`1.5px solid ${C.border}`, background:C.white, color:C.tx2, fontFamily:font, fontSize:13.5, fontWeight:600, cursor:loading?"not-allowed":"pointer" }}>
+            Batal
+          </button>
+          <button
+            onClick={onReject}
+            disabled={loading}
+            style={{ flex:1, height:42, borderRadius:10, border:"none", background:loading?"#9ca3af":C.red, color:"#fff", fontFamily:font, fontSize:13, fontWeight:700, cursor:loading?"not-allowed":"pointer" }}
+          >
+            {loading ? "..." : "Tandai FRAUD"}
+          </button>
+          <button
+            onClick={onApprove}
+            disabled={loading}
+            style={{ flex:1, height:42, borderRadius:10, border:"none", background:loading?"#9ca3af":C.green, color:"#fff", fontFamily:font, fontSize:13, fontWeight:700, cursor:loading?"not-allowed":"pointer", boxShadow:loading?"none":"0 4px 12px rgba(5,150,105,.3)" }}
+          >
+            {loading ? "..." : "Setujui ✓"}
           </button>
         </div>
       </div>
