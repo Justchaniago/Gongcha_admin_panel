@@ -48,11 +48,12 @@ export async function getDashboardData(): Promise<DashboardData> {
   // ─── 3. Transactions (collectionGroup) ─────────────────────────────────────
   // Firestore collectionGroup query: all subcollections named "transactions"
   // under stores/{storeId}/transactions
-  const allTxSnap = await adminDb.collectionGroup("transactions").get();
+  const allTxSnap = await adminDb.collectionGroup("transactions").limit(500).get();
 
   let totalRevenue = 0;
   let pendingCount = 0;
   let pendingPointsHeld = 0;
+  let fraudCount = 0;
 
   // Per-store aggregation for Top Stores
   const storeStats: Record<string, { revenue: number; txCount: number }> = {};
@@ -74,10 +75,16 @@ export async function getDashboardData(): Promise<DashboardData> {
       pendingPointsHeld += (tx.potentialPoints as number) ?? 0;
     }
 
+    // Fraud metrics — legacy "rejected" + canonical "FRAUD"
+    if (status === "rejected" || status === "FRAUD") {
+      fraudCount++;
+    }
+
     // Aggregasi per store (semua transaksi)
     if (!storeStats[storeId]) storeStats[storeId] = { revenue: 0, txCount: 0 };
     storeStats[storeId].txCount++;
-    if (status === "verified") storeStats[storeId].revenue += amount;
+    // Revenue per store: canonical COMPLETED + transitional "verified"
+    if (status === "verified" || status === "COMPLETED") storeStats[storeId].revenue += amount;
   });
 
   // ─── 4. Recent Transactions (5 terbaru) ─────────────────────────────────
@@ -122,6 +129,7 @@ export async function getDashboardData(): Promise<DashboardData> {
     totalStores,
     pendingCount,
     pendingPointsHeld,
+    fraudCount,
     recentTransactions,
     topStores,
   };

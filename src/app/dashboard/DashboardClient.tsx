@@ -17,7 +17,7 @@ interface Transaction {
   amount: number;
   potentialPoints?: number;
   type?: "earn" | "redeem"; // earn = purchase, redeem = voucher redemption
-  status: "verified" | "pending" | "rejected";
+  status: "COMPLETED" | "NEEDS_REVIEW" | "FRAUD" | "FLAGGED" | "REFUNDED" | "verified" | "pending" | "rejected";
   createdAt: string | null;
   storeId?: string;
   storeName?: string; // store name to display
@@ -87,14 +87,28 @@ function TrendBadge({ value }: { value: number }) {
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { bg: string; color: string; dot: string }> = {
+    // Canonical statuses
+    COMPLETED:    { bg: "#ECFDF3", color: "#027A48", dot: "#12B76A" },
+    NEEDS_REVIEW: { bg: "#FFFAEB", color: "#B54708", dot: "#F79009" },
+    FRAUD:        { bg: "#FEF3F2", color: "#B42318", dot: "#F04438" },
+    FLAGGED:      { bg: "#F5F3FF", color: "#5B21B6", dot: "#7C3AED" },
+    REFUNDED:     { bg: "#F0F9FF", color: "#0369A1", dot: "#0EA5E9" },
+    // Legacy fallbacks (transitional)
     verified: { bg: "#ECFDF3", color: "#027A48", dot: "#12B76A" },
     pending:  { bg: "#FFFAEB", color: "#B54708", dot: "#F79009" },
     rejected: { bg: "#FEF3F2", color: "#B42318", dot: "#F04438" },
   };
-  const s = map[status] ?? map.pending;
+  const s = map[status] ?? map.NEEDS_REVIEW;
   const labelMap: Record<string, string> = {
+    // Canonical
+    COMPLETED:    "Completed",
+    NEEDS_REVIEW: "Needs Review",
+    FRAUD:        "Fraud",
+    FLAGGED:      "Flagged",
+    REFUNDED:     "Refunded",
+    // Legacy fallbacks
     verified: "Verified",
-    pending: "Pending",
+    pending:  "Pending",
     rejected: "Rejected",
   };
   return (
@@ -189,7 +203,7 @@ export default function DashboardClient({ initialRole, initialTransactions, init
   // Check if user has limited access (cashier or store_manager)
   const isLimitedAccess = initialRole === "cashier" || initialRole === "store_manager";
   const isSuperAdmin = initialRole === "SUPER_ADMIN";
-  const canDeleteTransactions = initialRole === "admin";
+  const canDeleteTransactions = initialRole === "SUPER_ADMIN" || initialRole === "admin";
 
   // Get assigned store ID for cashier/store manager
   const userAssignedStoreId = (user as any)?.storeId || (user as any)?.assignedStoreId || null;
@@ -215,7 +229,7 @@ export default function DashboardClient({ initialRole, initialTransactions, init
       setTxStatus("connecting");
       try {
         const { getDocs, collection, query, orderBy, where, Timestamp, limit } = await import("firebase/firestore");
-        let q = query(collection(db, "transactions"), orderBy("createdAt", "desc"));
+        let q = query(collection(db, "transactions"), orderBy("createdAt", "desc"), limit(100));
         if (dateFrom && dateTo) {
           const from = Timestamp.fromDate(new Date(dateFrom + "T00:00:00"));
           const to = Timestamp.fromDate(new Date(dateTo + "T23:59:59"));
@@ -318,8 +332,8 @@ export default function DashboardClient({ initialRole, initialTransactions, init
       }
     );
 
-    // All-time pending count (not affected by date picker)
-    const pendingQ = query(collection(db, "transactions"), where("status", "==", "pending"), limit(500));
+    // All-time pending count (not affected by date picker) — canonical NEEDS_REVIEW
+    const pendingQ = query(collection(db, "transactions"), where("status", "==", "NEEDS_REVIEW"), limit(500));
     const unsubPending = onSnapshot(pendingQ,
       (snap) => {
         setAllTimePendingCount(snap.size);
@@ -329,8 +343,8 @@ export default function DashboardClient({ initialRole, initialTransactions, init
       }
     );
 
-    // All-time rejected count (not affected by date picker)
-    const rejectedQ = query(collection(db, "transactions"), where("status", "==", "rejected"), limit(500));
+    // All-time rejected count (not affected by date picker) — canonical FRAUD
+    const rejectedQ = query(collection(db, "transactions"), where("status", "==", "FRAUD"), limit(500));
     const unsubRejected = onSnapshot(rejectedQ,
       (snap) => {
         setAllTimeRejectedCount(snap.size);

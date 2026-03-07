@@ -17,14 +17,14 @@ async function verifyAdmin() {
     const decodedClaims = await adminAuth.verifySessionCookie(session, true);
     const uid = decodedClaims.uid;
 
-    // Fresh Role Check
-    const userDoc = await adminDb.collection("users").doc(uid).get();
-    const staffDoc = await adminDb.collection("staff").doc(uid).get();
-    const profile = userDoc.exists ? userDoc.data() : staffDoc.exists ? staffDoc.data() : null;
-    const role = profile?.role?.toLowerCase();
-
-    if (!["admin", "master"].includes(role)) {
-      throw new Error("Forbidden: Insufficient permissions");
+    // Canonical: hanya baca admin_users — tidak ada lagi users/staff legacy reads
+    const adminDoc = await adminDb.collection("admin_users").doc(uid).get();
+    if (!adminDoc.exists) {
+      throw new Error("Forbidden: Admin profile not found in admin_users.");
+    }
+    const role: string = adminDoc.data()?.role ?? "";
+    if (!["SUPER_ADMIN", "STAFF"].includes(role)) {
+      throw new Error("Forbidden: Insufficient permissions. Role: " + role);
     }
 
     return uid;
