@@ -27,18 +27,26 @@ service cloud.firestore {
         exists(/databases/$(database)/documents/admin_users/$(request.auth.uid));
     }
 
+    // Alias — short form used throughout rules below.
+    function isAdmin() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/admin_users/$(request.auth.uid));
+    }
+
     // True when the caller is a SUPER_ADMIN in admin_users.
     function isSuperAdmin() {
-      return isAdminUser() &&
+      return isAdmin() &&
         get(/databases/$(database)/documents/admin_users/$(request.auth.uid)).data.role == "SUPER_ADMIN";
     }
 
 
     // ── /admin_users ──────────────────────────────────────────────────────────
-    // Admin profile directory. An admin can read their own profile.
+    // Admin profile directory.
+    // Any admin can list ALL admin_users (needed for Staff page & Dashboard).
+    // A signed-in user can always read their own profile.
     // All writes go through the Admin SDK (API routes).
-    match /admin_users/{uid} {
-      allow read:   if isSignedIn() && request.auth.uid == uid;
+    match /admin_users/{userId} {
+      allow read:   if isAdmin() || (isSignedIn() && request.auth.uid == userId);
       allow create: if false; // Admin SDK only (/api/setup-user)
       allow update: if false; // Admin SDK only
       allow delete: if false; // Admin SDK only
@@ -84,19 +92,19 @@ service cloud.firestore {
 
     // ── /transactions (Top-level) ─────────────────────────────────────────────
     // All transaction mutations go through Admin SDK API routes.
-    // Read is restricted to authenticated users only.
+    // Only verified admins may list/read transactions.
     match /transactions/{txId} {
-      allow read:  if isSignedIn(); // Authenticated admins & staff via client SDK
-      allow write: if false;        // Admin SDK only (/api/transactions)
+      allow read:  if isAdmin(); // Admin-only — prevents unauthorized listing
+      allow write: if false;     // Admin SDK only (/api/transactions)
     }
 
 
     // ── /rewards ──────────────────────────────────────────────────────────────
-    // Reward catalog. Requires login (member-only feature).
+    // Reward catalog. Only admins may list rewards via the admin panel.
     // All writes go through Admin SDK (/api/rewards).
     match /rewards/{rewardId} {
-      allow read:  if isSignedIn();
-      allow write: if false; // Admin SDK only
+      allow read:  if isAdmin(); // Admin-only (add "|| true" here if public read needed later)
+      allow write: if false;     // Admin SDK only
     }
 
     // ── /rewards_catalog (Legacy alias — kept for backwards compat) ───────────
