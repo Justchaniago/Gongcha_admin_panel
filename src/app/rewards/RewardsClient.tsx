@@ -5,6 +5,7 @@ import { useState, useMemo, useEffect, useCallback } from "react";
 import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { db, storage } from "@/lib/firebaseClient";
+import { useAuth } from "@/context/AuthContext";
 import { Reward } from "@/types/firestore";
 
 type RewardWithId = Reward & { id: string };
@@ -614,7 +615,7 @@ function RewardModal({ reward, onClose, onSaved }:
 
 // ── TICKET CARD ────────────────────────────────────────────────────────────────
 function RewardCard({ reward, onEdit, onDelete, onToggleActive }:
-  { reward:RewardWithId; onEdit:()=>void; onDelete:()=>void; onToggleActive:()=>void }) {
+  { reward:RewardWithId; onEdit?:()=>void; onDelete?:()=>void; onToggleActive:()=>void }) {
   const cat = CAT_CFG[reward.category as Category] ?? CAT_CFG.Drink;
   const notch = 14;
 
@@ -713,12 +714,14 @@ function RewardCard({ reward, onEdit, onDelete, onToggleActive }:
           </code>
           <CategoryChip category={reward.category as Category}/>
           <div style={{ flex:1 }}/>
-          <button onClick={onEdit} className="gc-action-edit" style={{ height:28, padding:'0 10px', borderRadius:7, fontFamily:font, fontSize:11.5, fontWeight:600, cursor:'pointer', border:`1.5px solid ${C.border}`, background:C.white, color:C.tx2, display:'inline-flex', alignItems:'center', gap:4, transition:'all .13s', flexShrink:0 }}>
-            <svg width="10" height="10" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-              <path d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
-            </svg>
-            Edit
-          </button>
+          {onEdit && (
+            <button onClick={onEdit} className="gc-action-edit" style={{ height:28, padding:'0 10px', borderRadius:7, fontFamily:font, fontSize:11.5, fontWeight:600, cursor:'pointer', border:`1.5px solid ${C.border}`, background:C.white, color:C.tx2, display:'inline-flex', alignItems:'center', gap:4, transition:'all .13s', flexShrink:0 }}>
+              <svg width="10" height="10" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+              </svg>
+              Edit
+            </button>
+          )}
           <button onClick={onToggleActive} className={reward.isActive ? 'gc-action-deactivate' : 'gc-action-activate'} style={{ height:28, padding:'0 10px', borderRadius:7, fontFamily:font, fontSize:11.5, fontWeight:600, cursor:'pointer', transition:'all .13s', border:`1.5px solid ${reward.isActive?'#FECACA':'#A7F3D0'}`, background:C.white, color:reward.isActive?'#EF4444':'#16A34A', display:'inline-flex', alignItems:'center', gap:4, flexShrink:0 }}>
             {reward.isActive ? (
               <><svg width="9" height="9" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>Nonaktifkan</>
@@ -726,11 +729,13 @@ function RewardCard({ reward, onEdit, onDelete, onToggleActive }:
               <><svg width="9" height="9" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round"><path d="M20 6L9 17l-5-5"/></svg>Aktifkan</>
             )}
           </button>
-          <button onClick={onDelete} className="gc-action-delete" style={{ width:28, height:28, borderRadius:7, cursor:'pointer', border:`1.5px solid ${C.border}`, background:C.white, color:C.tx3, display:'inline-flex', alignItems:'center', justifyContent:'center', flexShrink:0, transition:'all .13s' }}>
-            <svg width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M9 6V4h6v2"/>
-            </svg>
-          </button>
+          {onDelete && (
+            <button onClick={onDelete} className="gc-action-delete" style={{ width:28, height:28, borderRadius:7, cursor:'pointer', border:`1.5px solid ${C.border}`, background:C.white, color:C.tx3, display:'inline-flex', alignItems:'center', justifyContent:'center', flexShrink:0, transition:'all .13s' }}>
+              <svg width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M9 6V4h6v2"/>
+              </svg>
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -773,6 +778,7 @@ export default function RewardsClient({ initialRewards = [], showAddTrigger }:
   const [togglingId,   setTogglingId]   = useState<string | null>(null);
 
   const showToast = useCallback((msg:string, type:'success'|'error'='success') => setToast({msg,type}), []);
+  const { isAdmin } = useAuth();
 
   useEffect(() => {
     const q = query(collection(db,'rewards_catalog'), orderBy('title'));
@@ -807,10 +813,12 @@ export default function RewardsClient({ initialRewards = [], showAddTrigger }:
         <style>{globalStyles}</style>
         <div style={{ display:'flex', alignItems:'center', gap:12 }}>
           <LiveBadge status={syncStatus}/>
-          <button onClick={() => setShowAdd(true)} className="gc-btn-primary" style={{ height:40, padding:'0 18px', borderRadius:10, border:'none', background:C.blue, color:'#fff', fontFamily:font, fontSize:13.5, fontWeight:600, cursor:'pointer', display:'inline-flex', alignItems:'center', gap:7, boxShadow:'0 2px 12px rgba(58,86,232,.30)' }}>
-            <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round"><path d="M12 4.5v15m7.5-7.5h-15"/></svg>
-            Add Voucher
-          </button>
+          {isAdmin && (
+            <button onClick={() => setShowAdd(true)} className="gc-btn-primary" style={{ height:40, padding:'0 18px', borderRadius:10, border:'none', background:C.blue, color:'#fff', fontFamily:font, fontSize:13.5, fontWeight:600, cursor:'pointer', display:'inline-flex', alignItems:'center', gap:7, boxShadow:'0 2px 12px rgba(58,86,232,.30)' }}>
+              <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round"><path d="M12 4.5v15m7.5-7.5h-15"/></svg>
+              Add Voucher
+            </button>
+          )}
         </div>
         {showAdd && <RewardModal reward={null} onClose={()=>setShowAdd(false)} onSaved={msg=>{showToast(msg);setShowAdd(false);}}/>}
         {toast && <Toast msg={toast.msg} type={toast.type} onDone={()=>setToast(null)}/>}
@@ -880,7 +888,7 @@ export default function RewardsClient({ initialRewards = [], showAddTrigger }:
             style={{ 
               height:36, padding:'0 16px', borderRadius:10, border:'none', 
               background:C.blue, color:'#fff', fontFamily:font, fontSize:13, 
-              fontWeight:600, cursor:'pointer', display:'inline-flex', 
+              fontWeight:600, cursor:'pointer', display: isAdmin ? 'inline-flex' : 'none', 
               alignItems:'center', gap:6, boxShadow:'0 2px 10px rgba(58,86,232,.25)' 
             }}
           >
@@ -897,9 +905,11 @@ export default function RewardsClient({ initialRewards = [], showAddTrigger }:
         <div style={{ background:C.white, borderRadius:18, border:`1px solid ${C.border}`, boxShadow:C.shadow, padding:'70px 24px', textAlign:'center' }}>
           <p style={{ fontSize:15, fontWeight:700, color:C.tx1, marginBottom:6, fontFamily:font }}>No rewards yet</p>
           <p style={{ fontSize:13, color:C.tx3, marginBottom:22, fontFamily:font }}>Start adding your first voucher.</p>
-          <button onClick={()=>setShowAdd(true)} className="gc-btn-primary" style={{ height:40, padding:'0 22px', borderRadius:10, border:'none', background:C.blue, color:'#fff', fontFamily:font, fontSize:13.5, fontWeight:600, cursor:'pointer', boxShadow:'0 4px 16px rgba(58,86,232,.30)' }}>
-            + Add First Voucher
-          </button>
+          {isAdmin && (
+            <button onClick={()=>setShowAdd(true)} className="gc-btn-primary" style={{ height:40, padding:'0 22px', borderRadius:10, border:'none', background:C.blue, color:'#fff', fontFamily:font, fontSize:13.5, fontWeight:600, cursor:'pointer', boxShadow:'0 4px 16px rgba(58,86,232,.30)' }}>
+              + Add First Voucher
+            </button>
+          )}
         </div>
       ) : filtered.length===0 ? (
         <div style={{ background:C.white, borderRadius:18, border:`1px solid ${C.border}`, boxShadow:C.shadow, padding:'50px 24px', textAlign:'center' }}>
@@ -912,14 +922,14 @@ export default function RewardsClient({ initialRewards = [], showAddTrigger }:
             <div key={reward.id} style={{ animation:`gcSlideUp .24s ease both`, animationDelay:`${i*30}ms` }}>
               <RewardCard
                 reward={{ ...reward, isActive: togglingId===reward.id ? !reward.isActive : reward.isActive }}
-                onEdit={()=>setEditTarget(reward)}
-                onDelete={()=>setDeleteTarget(reward)}
+                onEdit={isAdmin ? ()=>setEditTarget(reward) : undefined}
+                onDelete={isAdmin ? ()=>setDeleteTarget(reward) : undefined}
                 onToggleActive={()=>handleToggleActive(reward)}
               />
             </div>
           ))}
           <div style={{ animation:`gcSlideUp .24s ease both`, animationDelay:`${filtered.length*30}ms` }}>
-            <AddTicket onClick={()=>setShowAdd(true)}/>
+            {isAdmin && <AddTicket onClick={()=>setShowAdd(true)}/>}
           </div>
         </div>
       )}

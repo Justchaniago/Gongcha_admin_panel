@@ -6,6 +6,7 @@ import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { db, storage } from "@/lib/firebaseClient";
 import { ProductItem } from "@/types/firestore";
 import { createMenu, updateMenu, deleteMenu } from "@/actions/menuActions";
+import { useAuth } from "@/context/AuthContext";
 
 type ProductWithId = ProductItem & { id: string };
 type SyncStatus = "connecting" | "live" | "error";
@@ -453,7 +454,7 @@ function MenuModal({ menu, onClose, onSaved }: {
 }
 
 // ── Table Row ──────────────────────────────────────────────────────────────────
-function MenuRow({ menu, isLast, onEdit, onDelete }: { menu: ProductWithId; isLast: boolean; onEdit: () => void; onDelete: () => void }) {
+function MenuRow({ menu, isLast, onEdit, onDelete }: { menu: ProductWithId; isLast: boolean; onEdit?: () => void; onDelete?: () => void }) {
   const [h, setH] = useState(false);
   const [bh, setBH] = useState(false);
   const [dh, setDH] = useState(false);
@@ -496,16 +497,20 @@ function MenuRow({ menu, isLast, onEdit, onDelete }: { menu: ProductWithId; isLa
       <td style={{ padding: '14px 18px' }}><StatusPill active={menu.isAvailable !== false}/></td>
       <td style={{ padding: '14px 18px' }}>
         <div style={{ display: 'flex', gap: 6 }}>
-          <button onClick={onEdit} onMouseOver={() => setBH(true)} onMouseOut={() => setBH(false)}
-            style={{ height: 32, padding: '0 12px', borderRadius: 7, fontFamily: font, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: `1.5px solid ${bh ? C.blue : C.border}`, background: bh ? C.blueL : C.white, color: bh ? C.blue : C.tx2, display: 'inline-flex', alignItems: 'center', gap: 5, transition: 'all .13s' }}>
-            <svg width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
-            Edit
-          </button>
-          <button onClick={onDelete} onMouseOver={() => setDH(true)} onMouseOut={() => setDH(false)}
-            style={{ height: 32, padding: '0 12px', borderRadius: 7, fontFamily: font, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: `1.5px solid ${dh ? C.red : C.border}`, background: dh ? C.redBg : C.white, color: dh ? C.red : C.tx2, display: 'inline-flex', alignItems: 'center', gap: 5, transition: 'all .13s' }}>
-            <svg width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M9 6V4h6v2"/></svg>
-            Delete
-          </button>
+          {onEdit && (
+            <button onClick={onEdit} onMouseOver={() => setBH(true)} onMouseOut={() => setBH(false)}
+              style={{ height: 32, padding: '0 12px', borderRadius: 7, fontFamily: font, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: `1.5px solid ${bh ? C.blue : C.border}`, background: bh ? C.blueL : C.white, color: bh ? C.blue : C.tx2, display: 'inline-flex', alignItems: 'center', gap: 5, transition: 'all .13s' }}>
+              <svg width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+              Edit
+            </button>
+          )}
+          {onDelete && (
+            <button onClick={onDelete} onMouseOver={() => setDH(true)} onMouseOut={() => setDH(false)}
+              style={{ height: 32, padding: '0 12px', borderRadius: 7, fontFamily: font, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: `1.5px solid ${dh ? C.red : C.border}`, background: dh ? C.redBg : C.white, color: dh ? C.red : C.tx2, display: 'inline-flex', alignItems: 'center', gap: 5, transition: 'all .13s' }}>
+              <svg width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M9 6V4h6v2"/></svg>
+              Delete
+            </button>
+          )}
         </div>
       </td>
     </tr>
@@ -525,6 +530,7 @@ export default function MenusClient({ initialMenus, showAddTrigger }: { initialM
   const [searchFocus, setSearchFocus] = useState(false);
 
   const showToast = useCallback((msg: string, type: 'success'|'error' = 'success') => setToast({ msg, type }), []);
+  const { isAdmin } = useAuth();
 
   useEffect(() => {
     const q = query(collection(db, "products"), orderBy("name"));
@@ -547,12 +553,14 @@ export default function MenusClient({ initialMenus, showAddTrigger }: { initialM
       <>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <LiveBadge status={syncStatus}/>
-          <button onClick={() => setShowAdd(true)} style={{ height: 42, padding: '0 20px', borderRadius: 10, border: 'none', background: C.tx1, color: '#fff', fontFamily: font, fontSize: 13.5, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8, transition: 'all .15s' }}
-            onMouseOver={e => { e.currentTarget.style.background = C.red; e.currentTarget.style.transform = 'translateY(-1px)'; }}
-            onMouseOut={e  => { e.currentTarget.style.background = C.tx1; e.currentTarget.style.transform = 'none'; }}>
-            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
-            Add Product
-          </button>
+          {isAdmin && (
+            <button onClick={() => setShowAdd(true)} style={{ height: 42, padding: '0 20px', borderRadius: 10, border: 'none', background: C.tx1, color: '#fff', fontFamily: font, fontSize: 13.5, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8, transition: 'all .15s' }}
+              onMouseOver={e => { e.currentTarget.style.background = C.red; e.currentTarget.style.transform = 'translateY(-1px)'; }}
+              onMouseOut={e  => { e.currentTarget.style.background = C.tx1; e.currentTarget.style.transform = 'none'; }}>
+              <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+              Add Product
+            </button>
+          )}
         </div>
         {showAdd && <MenuModal menu={null} onClose={() => setShowAdd(false)} onSaved={msg => { showToast(msg); setShowAdd(false); }}/>}
         {toast && <Toast msg={toast.msg} type={toast.type} onDone={() => setToast(null)}/>}
@@ -598,7 +606,7 @@ export default function MenusClient({ initialMenus, showAddTrigger }: { initialM
             {filtered.length === 0 ? (
               <tr><td colSpan={5} style={{ padding: '40px', textAlign: 'center', color: C.tx3 }}>No products found.</td></tr>
             ) : filtered.map((m, i) => (
-              <MenuRow key={m.id} menu={m} isLast={i === filtered.length - 1} onEdit={() => setEditTarget(m)} onDelete={() => setDeleteTarget(m)} />
+              <MenuRow key={m.id} menu={m} isLast={i === filtered.length - 1} onEdit={isAdmin ? () => setEditTarget(m) : undefined} onDelete={isAdmin ? () => setDeleteTarget(m) : undefined} />
             ))}
           </tbody>
         </table>
