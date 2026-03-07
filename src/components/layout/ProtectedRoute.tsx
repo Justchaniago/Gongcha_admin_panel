@@ -3,12 +3,19 @@ import { useAuth } from "@/context/AuthContext";
 import { useRouter, usePathname } from "next/navigation";
 import { useEffect } from "react";
 
+const PUBLIC_ROUTES = ["/login"];
+
 export default function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, profile, loading, isStaff } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
+  const isPublicRoute = PUBLIC_ROUTES.some(
+    (route) => pathname === route || pathname.startsWith(route + "/")
+  );
 
   useEffect(() => {
+    if (isPublicRoute) return;
+
     if (!loading) {
       // 1. Jika belum login atau profil database tidak ditemukan
       if (!user || !profile) {
@@ -31,6 +38,10 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
       }
     }
   }, [loading, user, profile, router, pathname, isStaff]);
+
+  if (isPublicRoute) {
+    return <>{children}</>;
+  }
 
   if (loading) {
     return (

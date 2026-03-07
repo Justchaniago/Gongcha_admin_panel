@@ -15,7 +15,9 @@ async function validateSession() {
   }
   const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
   const userRole = decodedClaims.role as string;
-  if (!["admin", "master"].includes(userRole)) {
+  
+  // Kita tambahkan SUPER_ADMIN juga agar tidak tertolak oleh logic lama
+  if (!["admin", "master", "SUPER_ADMIN"].includes(userRole)) {
     return { error: "Access denied. You do not have permission.", status: 403 };
   }
   return { token: decodedClaims, userRole, error: null };
@@ -23,14 +25,10 @@ async function validateSession() {
 
 // POST /api/members/[uid]/vouchers — Suntik voucher ke user
 export async function POST(req: NextRequest, { params }: { params: Promise<{ uid: string }> }) {
-  // Debug log
-  // eslint-disable-next-line no-console
   const awaitedParams = await params;
-  console.log('API /api/members/[uid]/vouchers params:', awaitedParams);
   const { uid } = awaitedParams;
+  
   if (!uid) {
-    // eslint-disable-next-line no-console
-    console.error('API /api/members/[uid]/vouchers: UID kosong!', { awaitedParams });
     return NextResponse.json({ message: "UID diperlukan." }, { status: 400 });
   }
 
@@ -42,18 +40,29 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ uid
   try {
     const body = await req.json();
     const { rewardId, title, code, expiresAt } = body;
+    
     if (!rewardId || !title || !code || !expiresAt) {
       return NextResponse.json({ message: "Semua field wajib diisi." }, { status: 400 });
     }
-    const voucher: UserVoucher = {
+    
+    // FIX: Bypass TypeScript dengan 'as UserVoucher' dan penuhi field yang wajib
+    // Memakai admin.firestore.Timestamp agar tidak perlu import baru
+    const voucher = {
       id: uuidv4(),
-      rewardId,
+      userId: uid,
+      voucherMasterId: rewardId,
       title,
       code,
+      status: 'ACTIVE',
+      claimedAt: admin.firestore.Timestamp.now() as any,
+      
+      // -- Legacy Fields --
+      rewardId,
       isUsed: false,
       expiresAt,
       type: "personal" as VoucherType,
-    };
+    } as UserVoucher;
+    
     const userRef = adminDb.collection("users").doc(uid);
     await userRef.update({ vouchers: admin.firestore.FieldValue.arrayUnion(voucher) });
 
@@ -91,11 +100,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ uid
       recipientCount: 1,
     };
 
-    // Write both in parallel — user notif to flat 'notifications' collection (customer app reads here)
+    // Write both in parallel
     await Promise.all([
       adminDb.collection("notifications").doc(notifId).set({
         userId:    uid,
-        type:      "gift",             // matches customer app NotificationType
+        type:      "gift",
         title:     userNotif.title,
         body:      userNotif.body,
         isRead:    false,

@@ -14,7 +14,6 @@ export async function POST(request: Request) {
     const decodedToken = await adminAuth.verifyIdToken(idToken);
     const uid = decodedToken.uid;
 
-    // Arahkan pemeriksaan ke koleksi admin_users
     const adminDoc = await adminDb.collection("admin_users").doc(uid).get();
 
     if (!adminDoc.exists) {
@@ -29,8 +28,10 @@ export async function POST(request: Request) {
     const expiresIn = 60 * 60 * 24 * 5 * 1000; // Sesi 5 hari
     const sessionCookie = await adminAuth.createSessionCookie(idToken, { expiresIn });
 
-    cookies().set('session', sessionCookie, {
-      maxAge: expiresIn,
+    // FIX: Await cookies() untuk Next.js 15
+    const cookieStore = await cookies();
+    cookieStore.set('session', sessionCookie, {
+      maxAge: expiresIn / 1000,
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       path: '/',
