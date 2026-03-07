@@ -132,7 +132,7 @@ export default function NotificationsClient({ initialRole, initialLogs, members 
       setMemberSearch("");
 
       // Refresh log
-      const logRes = await fetch("/api/notifications");
+      const logRes = await fetch("/api/notifications?limit=50");
       if (logRes.ok) {
         const logData = await logRes.json();
         setLogs(logData.logs ?? []);
@@ -424,7 +424,7 @@ export default function NotificationsClient({ initialRole, initialLogs, members 
             <h2 style={{ fontSize: 16, fontWeight: 700, color: C.tx1, margin: 0 }}>Riwayat Notifikasi Terkirim</h2>
             <button
               onClick={async () => {
-                const res = await fetch("/api/notifications");
+                const res = await fetch("/api/notifications?limit=50");
                 if (res.ok) { const d = await res.json(); setLogs(d.logs ?? []); }
               }}
               style={{ fontSize: 12, fontWeight: 600, color: C.blue, background: C.blueL, border: "none", borderRadius: 8, padding: "7px 14px", cursor: "pointer" }}

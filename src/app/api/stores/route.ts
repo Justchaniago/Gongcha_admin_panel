@@ -16,14 +16,15 @@ export async function POST(req: NextRequest) {
     const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
     const uid = decodedClaims.uid;
 
-    // 3. Fresh Role Check
-    const userDoc = await adminDb.collection("users").doc(uid).get();
-    const staffDoc = await adminDb.collection("staff").doc(uid).get();
-    const profile = userDoc.exists ? userDoc.data() : staffDoc.exists ? staffDoc.data() : null;
-    const role = profile?.role?.toLowerCase();
-
-    if (!["admin", "master"].includes(role)) {
-      return NextResponse.json({ message: "Akses Ditolak" }, { status: 403 });
+    // 3. Fresh Role Check — canonical admin_users only
+    // ✅ FIX GAP #1
+    const adminDoc = await adminDb.collection("admin_users").doc(uid).get();
+    if (!adminDoc.exists) {
+      return NextResponse.json({ message: "Akses Ditolak: Profil admin tidak ditemukan." }, { status: 403 });
+    }
+    const role: string = adminDoc.data()?.role ?? "";
+    if (role !== "SUPER_ADMIN") {
+      return NextResponse.json({ message: "Akses Ditolak: Hanya SUPER_ADMIN." }, { status: 403 });
     }
 
     // 4. Proses Data

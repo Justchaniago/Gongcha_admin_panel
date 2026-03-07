@@ -23,18 +23,15 @@ async function validateSession() {
     const decoded = await adminAuth.verifySessionCookie(sessionCookie, true);
     const uid = decoded.uid as string;
 
-    // Role is stored in Firestore, not JWT claims — always do Firestore lookup
-    let role = (decoded.role as string) ?? "";
-    if (!role) {
-      const userDoc  = await adminDb.collection("users").doc(uid).get();
-      const staffDoc = await adminDb.collection("staff").doc(uid).get();
-      const profile  = userDoc.exists ? userDoc.data() : staffDoc.exists ? staffDoc.data() : null;
-      role = profile?.role ?? "";
+    // ✅ FIX GAP #1: Canonical — hanya baca admin_users
+    const adminDoc = await adminDb.collection("admin_users").doc(uid).get();
+    if (!adminDoc.exists) {
+      return { error: "Access denied. Admin profile not found.", status: 403, token: null };
     }
-
-    if (!["admin", "master"].includes(role))
+    const role: string = adminDoc.data()?.role ?? "";
+    if (!["SUPER_ADMIN", "STAFF"].includes(role))
       return { error: "Access denied.", status: 403, token: null };
-    return { error: null, status: 200, token: { ...decoded, uid } };
+    return { error: null, status: 200, token: { ...decoded, uid, role } };
   } catch {
     return { error: "Invalid session.", status: 401, token: null };
   }
@@ -50,7 +47,7 @@ export async function GET(req: NextRequest) {
     const snap = await adminDb
       .collection("notifications_log")
       .orderBy("sentAt", "desc")
-      .limit(100)
+      .limit(50)
       .get();
 
     const logs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));

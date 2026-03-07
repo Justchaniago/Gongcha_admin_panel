@@ -25,23 +25,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
-        let role = "staff"; // Default
+        let role = "STAFF"; // Default — akan di-override dari admin_users
         let name = firebaseUser.displayName || "User";
         
         try {
-          const userDoc = await getDoc(doc(db, "users", firebaseUser.uid));
-          if (userDoc.exists()) {
-            role = userDoc.data().role || "staff";
-            name = userDoc.data().name || name;
+          // ✅ FIX GAP #2: Canonical — hanya baca admin_users (hapus legacy users/staff)
+          const adminDoc = await getDoc(doc(db, "admin_users", firebaseUser.uid));
+          if (adminDoc.exists()) {
+            role = adminDoc.data()?.role ?? "STAFF";
+            name = adminDoc.data()?.name || name;
           } else {
-             const staffDoc = await getDoc(doc(db, "staff", firebaseUser.uid));
-             if (staffDoc.exists()) {
-                 role = staffDoc.data().role || "staff";
-                 name = staffDoc.data().name || name;
-             }
+            // User tidak terdaftar sebagai admin → tolak sesi
+            setUser(null);
+            setLoading(false);
+            return;
           }
         } catch (error) {
-          console.error("Gagal mengambil role dari Firestore:", error);
+          console.error("Gagal mengambil role dari admin_users:", error);
         }
 
         setUser({

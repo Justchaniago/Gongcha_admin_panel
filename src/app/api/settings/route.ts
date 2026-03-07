@@ -36,17 +36,16 @@ async function validateAdmin() {
   const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
   const uid = decodedClaims.uid;
 
-  // Fresh Role Fetching
-  const userDoc = await adminDb.collection("users").doc(uid).get();
-  const staffDoc = await adminDb.collection("staff").doc(uid).get();
-  const profile = userDoc.exists ? userDoc.data() : staffDoc.exists ? staffDoc.data() : null;
-  const role = profile?.role?.toLowerCase(); 
-
-  const allowedRoles = ["admin", "master"];
-  if (!role || !allowedRoles.includes(role)) {
+  // ✅ FIX GAP #1: Canonical — hanya baca admin_users
+  const adminDoc = await adminDb.collection("admin_users").doc(uid).get();
+  if (!adminDoc.exists) {
+    return { error: "Access denied. Admin profile not found.", status: 403, token: null };
+  }
+  const role: string = adminDoc.data()?.role ?? "";
+  if (role !== "SUPER_ADMIN") {
     return { error: "Access denied. Your role is not permitted to modify settings.", status: 403, token: null };
   }
-  return { token: decodedClaims, error: null, status: 200 };
+  return { token: { ...decodedClaims, role }, error: null, status: 200 };
 }
 
 // ── GET — read settings ───────────────────────────────────────────────────────

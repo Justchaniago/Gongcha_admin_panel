@@ -63,13 +63,13 @@ export async function getDashboardData(): Promise<DashboardData> {
     const amount = (tx.amount as number) ?? 0;
     const status = tx.status as string;
 
-    // Hanya hitung revenue dari yang verified
-    if (status === "verified") {
+    // Hitung revenue dari yang verified (legacy) atau COMPLETED (canonical)
+    if (status === "verified" || status === "COMPLETED") {
       totalRevenue += amount;
     }
 
-    // Pending metrics
-    if (status === "pending") {
+    // Pending metrics — legacy "pending" + canonical "NEEDS_REVIEW"
+    if (status === "pending" || status === "NEEDS_REVIEW") {
       pendingCount++;
       pendingPointsHeld += (tx.potentialPoints as number) ?? 0;
     }
@@ -80,9 +80,12 @@ export async function getDashboardData(): Promise<DashboardData> {
     if (status === "verified") storeStats[storeId].revenue += amount;
   });
 
-  // ─── 4. Recent Transactions (5 terbaru, sort di memory) ──────────────────
+  // ─── 4. Recent Transactions (5 terbaru) ─────────────────────────────────
+  // ✅ FIX GAP #7: Tambahkan .orderBy("createdAt","desc").limit(50)
   const recentSnap = await adminDb
     .collectionGroup("transactions")
+    .orderBy("createdAt", "desc")
+    .limit(50)
     .get();
 
   const recentTransactions = recentSnap.docs

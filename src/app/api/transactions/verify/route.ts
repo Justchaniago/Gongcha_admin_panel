@@ -45,7 +45,9 @@ export async function POST(req: NextRequest) {
       }
 
       const txData = doc.data()!;
-      if (txData.status !== "NEEDS_REVIEW") {
+      // ✅ FIX: Accept legacy "pending" and canonical "NEEDS_REVIEW"
+      const processableStatuses = ["NEEDS_REVIEW", "pending"];
+      if (!processableStatuses.includes(txData.status)) {
         throw new Error(`Transaksi sudah diproses (Status saat ini: ${txData.status}).`);
       }
 

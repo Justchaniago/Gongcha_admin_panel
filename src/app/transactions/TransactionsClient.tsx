@@ -31,12 +31,13 @@ export default function TransactionsClient({ initialRole }: Props) {
     setToast({ msg, type });
   }, []);
 
-  // ── Pilar 4: Efisiensi Query — onSnapshot + orderBy(timestamp,desc) + limit(100) ──
+  // ✅ FIX GAP #8: Efisiensi Query — onSnapshot + orderBy(createdAt,desc) + limit(100)
   useEffect(() => {
     setSyncStatus("connecting");
     const q = query(
       collection(db, "transactions"),
-      orderBy("timestamp", "desc"),
+      // ✅ "timestamp" → "createdAt" (sesuai schema Firestore & composite index)
+      orderBy("createdAt", "desc"),
       limit(100)
     );
 
@@ -45,6 +46,12 @@ export default function TransactionsClient({ initialRole }: Props) {
       (snap) => {
         const rows: Tx[] = snap.docs.map((doc) => {
           const d = doc.data();
+          // ✅ FIX: Normalise legacy lowercase statuses to canonical uppercase
+          let rawStatus: string = d.status ?? "NEEDS_REVIEW";
+          if (rawStatus === "verified")  rawStatus = "COMPLETED";
+          if (rawStatus === "rejected")  rawStatus = "FRAUD";
+          if (rawStatus === "pending")   rawStatus = "NEEDS_REVIEW";
+          if (rawStatus === "completed") rawStatus = "COMPLETED";
           return {
             docId:           doc.id,
             docPath:         doc.ref.path,
@@ -55,8 +62,8 @@ export default function TransactionsClient({ initialRole }: Props) {
             storeLocation:   d.storeLocation ?? "-",
             amount:          d.amount        ?? 0,
             potentialPoints: d.potentialPoints ?? 0,
-            status:          (d.status ?? "NEEDS_REVIEW") as Tx["status"],
-            createdAt:   d.timestamp  ? d.timestamp.toDate().toISOString()  : null,
+            status:          rawStatus as Tx["status"],
+            createdAt:   d.createdAt  ? (d.createdAt.toDate  ? d.createdAt.toDate().toISOString()  : d.createdAt)  : d.timestamp ? (d.timestamp.toDate ? d.timestamp.toDate().toISOString() : d.timestamp) : null,
             verifiedAt:  d.verifiedAt ? d.verifiedAt.toDate().toISOString() : null,
             verifiedBy:  d.verifiedBy ?? null,
           };

@@ -15,15 +15,14 @@ async function validateSession(req: NextRequest) {
   const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
   const uid = decodedClaims.uid;
 
-  // Fresh Role Fetching
-  const userDoc = await adminDb.collection("users").doc(uid).get();
-  const staffDoc = await adminDb.collection("staff").doc(uid).get();
-  const profile = userDoc.exists ? userDoc.data() : staffDoc.exists ? staffDoc.data() : null;
-  const role = profile?.role?.toLowerCase(); // Case-insensitive
-
-  const allowedRoles = ["admin", "master", "manager", "store_manager"];
-  if (!role || !allowedRoles.includes(role)) {
-    return { error: "Access denied. Role not allowed.", status: 403 };
+  // ✅ FIX GAP #1: Canonical — hanya baca admin_users
+  const adminDoc = await adminDb.collection("admin_users").doc(uid).get();
+  if (!adminDoc.exists) {
+    return { error: "Access denied. Admin profile not found.", status: 403, token: null, userRole: null };
+  }
+  const role: string = adminDoc.data()?.role ?? "";
+  if (!["SUPER_ADMIN", "STAFF"].includes(role)) {
+    return { error: "Access denied. Role not allowed.", status: 403, token: null, userRole: null };
   }
   return { token: decodedClaims, userRole: role, error: null };
 }
