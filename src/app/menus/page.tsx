@@ -20,13 +20,12 @@ export default async function MenusPage() {
     redirect("/login");
   }
 
-  const userDoc = await adminDb.collection("users").doc(uid).get();
-  const staffDoc = await adminDb.collection("staff").doc(uid).get();
-  const profile = userDoc.exists ? userDoc.data() : staffDoc.exists ? staffDoc.data() : null;
+  const adminDoc = await adminDb.collection("admin_users").doc(uid).get();
+  const profile = adminDoc.data();
   const role = profile?.role;
 
-  const allowedRoles = ["admin", "master", "manager"];
-  if (!allowedRoles.includes(role?.toLowerCase?.() || role)) {
+  // Hanya Super Admin yang boleh mengakses halaman ini
+  if (role !== "SUPER_ADMIN") {
     return <UnauthorizedOverlay />;
   }
 

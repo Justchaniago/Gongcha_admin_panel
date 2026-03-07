@@ -21,16 +21,15 @@ export default async function NotificationsPage() {
     redirect("/login");
   }
 
-  // If token claim missing, fallback to Firestore profile (same pattern as dashboard)
+  // If token claim missing, fallback to Firestore profile
   if (!role) {
-    const userDoc  = await adminDb.collection("users").doc(uid).get();
-    const staffDoc = await adminDb.collection("staff").doc(uid).get();
-    const profile  = userDoc.exists ? userDoc.data() : staffDoc.exists ? staffDoc.data() : null;
+    const adminDoc = await adminDb.collection("admin_users").doc(uid).get();
+    const profile  = adminDoc.data();
     role = profile?.role ?? "";
   }
 
-  // Admin + master only
-  if (!["admin", "master"].includes(role)) {
+  // Hanya Super Admin yang boleh mengakses halaman ini
+  if (role !== "SUPER_ADMIN") {
     return <UnauthorizedOverlay />;
   }
 
