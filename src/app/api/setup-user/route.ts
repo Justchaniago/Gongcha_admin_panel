@@ -75,6 +75,7 @@ export async function POST(request: Request) {
       email,
       name,
       role: "STAFF",
+      assignedStoreId: null,
       isActive: true,
       createdAt: new Date(),
       updatedAt: new Date()

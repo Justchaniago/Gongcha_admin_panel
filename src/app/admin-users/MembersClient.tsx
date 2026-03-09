@@ -893,10 +893,10 @@ function TierFilter({ value, onChange }: { value: string; onChange: (v: string) 
 }
 
 // ── Main Component ────────────────────────────────────────────────────────────
-export default function MembersClient({ initialUsers, initialStaff, storeIds }: {
-  initialUsers: UserWithUid[];
-  initialStaff: StaffWithUid[];
-  storeIds: string[];
+export default function MembersClient({ initialUsers = [], initialStaff = [], storeIds = [] }: {
+  initialUsers?: UserWithUid[];
+  initialStaff?: StaffWithUid[];
+  storeIds?: string[];
 }) {
   const { user: authUser } = useAuth();
   const canManageStaff = authUser?.role === "SUPER_ADMIN";

@@ -24,9 +24,9 @@ interface Member {
 }
 
 interface Props {
-  initialRole: string;
-  initialLogs: NotifLog[];
-  members: Member[];
+  initialRole?: string;
+  initialLogs?: NotifLog[];
+  members?: Member[];
 }
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
@@ -73,7 +73,7 @@ function TypeBadge({ type }: { type: string }) {
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
-export default function NotificationsClient({ initialRole, initialLogs, members }: Props) {
+export default function NotificationsClient({ initialRole = "", initialLogs = [], members = [] }: Props) {
   const { user } = useAuth();
   const canMutate = user?.role === "SUPER_ADMIN";
   const [tab, setTab] = useState<"send" | "history">("send");

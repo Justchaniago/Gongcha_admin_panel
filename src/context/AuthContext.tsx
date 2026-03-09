@@ -5,7 +5,7 @@ import { onAuthStateChanged, signOut } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { usePathname, useRouter } from "next/navigation";
 import { auth, db } from "@/lib/firebaseClient";
-import { AdminUser, adminUserConverter } from "@/types/firestore";
+import { AdminUser, AdminRole, adminUserConverter } from "@/types/firestore";
 
 interface AuthCtx {
   user: AdminUser | null;
@@ -27,15 +27,76 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
 
+  const normalizeRole = (rawRole: unknown): AdminUser["role"] => {
+    const role = String(rawRole ?? "").toUpperCase();
+    if (["SUPER_ADMIN", "ADMIN", "MASTER"].includes(role)) return "SUPER_ADMIN";
+    if (["STAFF", "MANAGER"].includes(role)) return "STAFF";
+    return "STAFF";
+  };
+
+  const hydrateAdminUser = async (uid: string, fallbackEmail?: string | null, fallbackName?: string | null) => {
+    const adminRef = doc(db, "admin_users", uid).withConverter(adminUserConverter);
+    let adminSnap = await getDoc(adminRef);
+
+    // Auto-setup once if admin profile does not exist yet.
+    if (!adminSnap.exists()) {
+      console.log("[AuthContext] Admin doc not found, attempting auto-setup...", uid);
+      try {
+        const res = await fetch("/api/setup-user", { method: "POST" });
+        if (res.ok) {
+          console.log("[AuthContext] Setup API returned ok, retrying doc fetch...");
+          // Retry with short delay to ensure Firestore write completes
+          await new Promise(resolve => setTimeout(resolve, 500));
+          adminSnap = await getDoc(adminRef);
+          if (!adminSnap.exists()) {
+            console.warn("[AuthContext] Doc still missing after setup retry");
+          }
+        } else {
+          console.error("[AuthContext] Setup API failed:", res.status, await res.text());
+        }
+      } catch (err) {
+        console.error("[AuthContext] Setup API error:", err);
+      }
+    }
+
+    // Fallback: if doc still missing, allow with default STAFF role (Firebase Auth already verified)
+    if (!adminSnap.exists()) {
+      console.warn("[AuthContext] Using fallback user for authenticated Firebase user:", uid);
+      return {
+        uid,
+        email: fallbackEmail ?? "",
+        name: fallbackName ?? fallbackEmail?.split("@")[0] ?? "Admin",
+        role: "STAFF" as AdminRole,
+        isActive: true,
+        assignedStoreId: null,
+      } as AdminUser;
+    }
+
+    const data = adminSnap.data();
+    return {
+      ...data,
+      uid,
+      email: data.email ?? fallbackEmail ?? "",
+      name: data.name ?? fallbackName ?? fallbackEmail?.split("@")[0] ?? "Admin",
+      role: normalizeRole(data.role),
+      // Legacy compatibility: if field absent, treat as active.
+      isActive: data.isActive !== false,
+      assignedStoreId: data.assignedStoreId ?? null,
+    } as AdminUser;
+  };
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
         try {
-          const adminRef = doc(db, "admin_users", firebaseUser.uid).withConverter(adminUserConverter);
-          const adminSnap = await getDoc(adminRef);
+          const hydratedUser = await hydrateAdminUser(
+            firebaseUser.uid,
+            firebaseUser.email,
+            firebaseUser.displayName
+          );
 
-          if (adminSnap.exists() && adminSnap.data().isActive === true) {
-            setUser(adminSnap.data());
+          if (hydratedUser && hydratedUser.isActive) {
+            setUser(hydratedUser);
           } else {
             await signOut(auth);
             setUser(null);

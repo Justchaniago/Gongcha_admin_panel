@@ -6,16 +6,18 @@ import {
   Tx, C, font, fmtRp, fmtDate, StatusBadge,
   Toast, ConfirmModal, CsvPanel, PendingPanel,
 } from "./tx-helpers";
+import { useAuth } from "@/context/AuthContext";
 
 type SyncStatus   = "idle"|"loading"|"live"|"error";
 type FilterStatus = "all"|"pending"|"verified"|"rejected";
 
 interface TransactionsClientProps {
-  initialTransactions: Tx[];
+  initialTransactions?: Tx[];
   initialRole: string;
 }
 
-export default function TransactionsClient({ initialTransactions, initialRole }: TransactionsClientProps) {
+export default function TransactionsClient({ initialTransactions = [], initialRole }: TransactionsClientProps) {
+  const { user } = useAuth();
   const [txs,            setTxs]            = useState<Tx[]>(initialTransactions);
   const [syncStatus,     setSyncStatus]     = useState<SyncStatus>("idle");
   const [search,         setSearch]         = useState("");
@@ -30,7 +32,7 @@ export default function TransactionsClient({ initialTransactions, initialRole }:
   const [searchFocus,    setSearchFocus]    = useState(false);
   const [selectedDocPaths, setSelectedDocPaths] = useState<string[]>([]);
 
-  const isAdmin = initialRole === "admin";
+  const isAdmin = user?.role === "SUPER_ADMIN" || initialRole === "admin" || initialRole === "SUPER_ADMIN";
 
   const showToast = useCallback((msg: string, type: "success"|"error" = "success") => {
     setToast({ msg, type });
@@ -298,15 +300,15 @@ export default function TransactionsClient({ initialTransactions, initialRole }:
 
   return (
     <>
-      <div style={{ padding:"32px 32px 48px", maxWidth:1400, fontFamily:font }}>
+      <div style={{ padding:"28px 32px 48px", maxWidth:1400, fontFamily:font, background:C.bg, minHeight:"100vh" }}>
 
         {/* ── Header ── */}
-        <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:28 }}>
+        <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:24 }}>
           <div>
-            <h1 style={{ fontSize:24, fontWeight:800, color:C.tx1, margin:0, letterSpacing:"-.02em" }}>
+            <h1 style={{ fontSize:26, fontWeight:800, color:C.tx1, margin:0, letterSpacing:"-.025em" }}>
               Transaction Audit &amp; CSV Sync
             </h1>
-            <p style={{ fontSize:13.5, color:C.tx2, marginTop:6, marginBottom:0 }}>
+            <p style={{ fontSize:13, color:C.tx2, marginTop:8, marginBottom:0 }}>
               Upload CSV POS → Auto-match → Verify → Disburse points to members.
             </p>
           </div>
@@ -315,19 +317,19 @@ export default function TransactionsClient({ initialTransactions, initialRole }:
               <span style={{ width:7, height:7, borderRadius:"50%", background:syncCfg.color, display:"inline-block" }}/>
               {syncCfg.label}
             </span>
-            <button onClick={fetchTxs} style={{ height:36, padding:"0 14px", borderRadius:9, border:`1.5px solid ${C.border}`, background:C.white, color:C.tx2, fontFamily:font, fontSize:12.5, fontWeight:600, cursor:"pointer" }}>
+            <button onClick={fetchTxs} style={{ height:38, padding:"0 14px", borderRadius:7, border:`1px solid ${C.border}`, background:C.white, color:C.tx2, fontFamily:font, fontSize:12, fontWeight:700, cursor:"pointer", transition:"all 150ms ease" }}>
               ↻ Refresh
             </button>
-            <button onClick={handleExport} style={{ height:36, padding:"0 14px", borderRadius:9, border:`1.5px solid ${C.border}`, background:C.white, color:C.tx2, fontFamily:font, fontSize:12.5, fontWeight:600, cursor:"pointer" }}>
+            <button onClick={handleExport} style={{ height:38, padding:"0 14px", borderRadius:7, border:`1px solid ${C.border}`, background:C.white, color:C.tx2, fontFamily:font, fontSize:12, fontWeight:700, cursor:"pointer", transition:"all 150ms ease" }}>
               ⬇ Export CSV
             </button>
           </div>
         </div>
 
         {/* ── Summary cards ── */}
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:14, marginBottom:20 }}>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:14, marginBottom:24 }}>
           {summaryCards.map(c => (
-            <div key={c.label} style={{ background:C.white, borderRadius:16, border:`1px solid ${c.bdr}`, boxShadow:C.shadow, padding:20 }}>
+            <div key={c.label} style={{ background:C.white, borderRadius:16, border:`1px solid ${c.bdr}`, boxShadow:C.shadow, padding:"16px 20px" }}>
               <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
                 <p style={{ fontSize:12, fontWeight:600, color:C.tx2, margin:0 }}>{c.label}</p>
                 <span style={{ fontSize:10, fontWeight:700, padding:"2px 8px", borderRadius:99, background:c.bg, color:c.color }}>{c.label}</span>
@@ -343,7 +345,7 @@ export default function TransactionsClient({ initialTransactions, initialRole }:
         </div>
 
         {/* ── CSV + Pending row ── */}
-        <div style={{ display:"grid", gridTemplateColumns:"2fr 3fr", gap:14, marginBottom:14 }}>
+        <div style={{ display:"grid", gridTemplateColumns:"2fr 3fr", gap:14, marginBottom:16 }}>
           <CsvPanel
             pendingTxs={pending}
             stores={uniqueStores}
@@ -363,7 +365,7 @@ export default function TransactionsClient({ initialTransactions, initialRole }:
         <div style={{ background:C.white, borderRadius:18, border:`1px solid ${C.border}`, boxShadow:C.shadow, overflow:"hidden" }}>
 
           {/* Table toolbar */}
-          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"16px 20px", borderBottom:`1px solid ${C.border2}` }}>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"14px 20px", borderBottom:`1px solid ${C.border2}` }}>
             <h2 style={{ fontSize:15, fontWeight:800, color:C.tx1, margin:0 }}>
               Complete History ({filtered.length})
             </h2>
@@ -376,14 +378,14 @@ export default function TransactionsClient({ initialTransactions, initialRole }:
                   <button
                     onClick={handleDeleteSelected}
                     style={{
-                      height:36,
+                      height:32,
                       padding:"0 12px",
-                      borderRadius:9,
+                      borderRadius:7,
                       border:"1px solid #FCA5A5",
                       background:"#FFF5F5",
                       color:C.red,
                       fontFamily:font,
-                      fontSize:12.5,
+                      fontSize:11,
                       fontWeight:700,
                       cursor:"pointer",
                     }}
@@ -393,7 +395,7 @@ export default function TransactionsClient({ initialTransactions, initialRole }:
                 </>
               )}
               {/* Search */}
-              <div style={{ display:"flex", alignItems:"center", gap:8, height:36, padding:"0 12px", background:C.bg, border:`1.5px solid ${searchFocus?C.blue:C.border}`, borderRadius:9, transition:"all .14s", minWidth:220 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:8, height:38, padding:"0 12px", background:C.bg, border:`1.5px solid ${searchFocus?C.blue:C.border}`, borderRadius:9, transition:"all .14s", minWidth:220 }}>
                 <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke={C.tx3} strokeWidth={2}>
                   <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
                 </svg>
@@ -413,13 +415,13 @@ export default function TransactionsClient({ initialTransactions, initialRole }:
           </div>
 
           {/* Filter tabs */}
-          <div style={{ display:"flex", gap:0, padding:"0 20px", borderBottom:`1px solid ${C.border2}` }}>
+          <div style={{ display:"flex", gap:0, padding:"0 20px", borderBottom:`1px solid ${C.border2}`, background:C.white }}>
             {filterTabs.map(tab => (
               <button
                 key={tab.key}
                 onClick={() => setFilterStatus(tab.key)}
                 style={{
-                  height:40, padding:"0 16px", border:"none", background:"transparent",
+                  height:38, padding:"0 16px", border:"none", background:"transparent",
                   fontFamily:font, fontSize:12.5, fontWeight:filterStatus===tab.key?700:500,
                   color:filterStatus===tab.key?C.blue:C.tx2, cursor:"pointer",
                   borderBottom:filterStatus===tab.key?`2px solid ${C.blue}`:"2px solid transparent",
@@ -443,7 +445,7 @@ export default function TransactionsClient({ initialTransactions, initialRole }:
           ) : (
             <div style={{ overflowX:"auto" }}>
               <table style={{ width:"100%", borderCollapse:"collapse" }}>
-                <thead style={{ background:"#F8FAFF" }}>
+                <thead style={{ background:C.bg }}>
                   <tr>
                     {[
                       isAdmin ? "Select" : null,
@@ -502,14 +504,14 @@ export default function TransactionsClient({ initialTransactions, initialRole }:
                             <button
                               onClick={() => handleAction(tx, "verify")}
                               disabled={loadingId === tx.docId}
-                              style={{ height:30, padding:"0 12px", borderRadius:8, border:"1px solid #6EE7B7", background:"#F0FDF4", color:C.green, fontFamily:font, fontSize:11.5, fontWeight:700, cursor:loadingId===tx.docId?"not-allowed":"pointer" }}
+                              style={{ height:28, padding:"0 10px", borderRadius:7, border:"1px solid #A7F3D0", background:C.greenBg, color:C.green, fontFamily:font, fontSize:11, fontWeight:700, cursor:loadingId===tx.docId?"not-allowed":"pointer" }}
                             >
                               {loadingId === tx.docId ? "…" : "✓ Verifikasi"}
                             </button>
                             <button
                               onClick={() => handleAction(tx, "reject")}
                               disabled={loadingId === tx.docId}
-                              style={{ height:30, padding:"0 12px", borderRadius:8, border:"1px solid #FCA5A5", background:"#FFF5F5", color:C.red, fontFamily:font, fontSize:11.5, fontWeight:700, cursor:loadingId===tx.docId?"not-allowed":"pointer" }}
+                              style={{ height:28, padding:"0 10px", borderRadius:7, border:"1px solid #FCA5A5", background:"#FFF5F5", color:C.red, fontFamily:font, fontSize:11, fontWeight:700, cursor:loadingId===tx.docId?"not-allowed":"pointer" }}
                             >
                               ✕ Tolak
                             </button>
@@ -517,7 +519,7 @@ export default function TransactionsClient({ initialTransactions, initialRole }:
                               <button
                                 onClick={() => handleDeleteSingle(tx)}
                                 disabled={loadingId === tx.docId}
-                                style={{ height:30, padding:"0 12px", borderRadius:8, border:"1px solid #FCA5A5", background:"#FFF5F5", color:C.red, fontFamily:font, fontSize:11.5, fontWeight:700, cursor:loadingId===tx.docId?"not-allowed":"pointer" }}
+                                style={{ height:28, padding:"0 10px", borderRadius:7, border:"1px solid #FCA5A5", background:"#FFF5F5", color:C.red, fontFamily:font, fontSize:11, fontWeight:700, cursor:loadingId===tx.docId?"not-allowed":"pointer" }}
                               >
                                 🗑 Delete
                               </button>
@@ -532,7 +534,7 @@ export default function TransactionsClient({ initialTransactions, initialRole }:
                             {isAdmin && (
                               <button
                                 onClick={() => handleDeleteSingle(tx)}
-                                style={{ height:26, padding:"0 10px", borderRadius:8, border:"1px solid #FCA5A5", background:"#FFF5F5", color:C.red, fontFamily:font, fontSize:11, fontWeight:700, cursor:"pointer" }}
+                                style={{ height:26, padding:"0 10px", borderRadius:7, border:"1px solid #FCA5A5", background:"#FFF5F5", color:C.red, fontFamily:font, fontSize:11, fontWeight:700, cursor:"pointer" }}
                               >
                                 🗑 Delete
                               </button>
@@ -574,7 +576,7 @@ export default function TransactionsClient({ initialTransactions, initialRole }:
               gap:8,
               background:C.white,
               border:`1px solid ${C.border}`,
-              borderRadius:10,
+              borderRadius:9,
               padding:"8px 12px",
               boxShadow:C.shadow,
               fontSize:12.5,

@@ -7,6 +7,11 @@ import * as admin from "firebase-admin";
 import { v4 as uuidv4 } from "uuid";
 import type { AdminNotificationLog, UserNotification } from "@/types/firestore";
 
+function isFirestoreNotFoundError(err: any): boolean {
+  const msg = String(err?.message ?? "");
+  return err?.code === 5 || msg.includes("5 NOT_FOUND") || msg.includes("NOT_FOUND");
+}
+
 // ── Notification helper ───────────────────────────────────────────────────────
 async function createTxNotification(
   memberId: string,
@@ -133,12 +138,28 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    // collectionGroup + orderBy requires a composite index that may not exist yet.
-    // Fetch without orderBy and sort in-memory instead.
-    const snap = await adminDb
-      .collectionGroup("transactions")
-      .limit(500)
-      .get();
+    // Prefer collectionGroup, but fall back to root collection when collectionGroup
+    // is unavailable in certain environments/configurations.
+    let snap: FirebaseFirestore.QuerySnapshot<FirebaseFirestore.DocumentData>;
+    try {
+      snap = await adminDb
+        .collectionGroup("transactions")
+        .limit(500)
+        .get();
+    } catch (err: any) {
+      if (!isFirestoreNotFoundError(err)) throw err;
+      console.warn("[GET /api/transactions] collectionGroup unavailable, fallback to root collection", err?.message ?? err);
+      try {
+        snap = await adminDb
+          .collection("transactions")
+          .limit(500)
+          .get();
+      } catch (fallbackErr: any) {
+        if (!isFirestoreNotFoundError(fallbackErr)) throw fallbackErr;
+        console.warn("[GET /api/transactions] root transactions collection not found, returning empty list");
+        return NextResponse.json([]);
+      }
+    }
 
     const txs = snap.docs
       .map((d) => {

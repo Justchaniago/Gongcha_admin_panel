@@ -1,7 +1,9 @@
+import MembersClient from './MembersClient';
 
-import MembersClient from "./MembersClient";
-
-export const metadata = { title: "Admin Users | Gong Cha Admin" };
+export const metadata = {
+  title: 'User & Staff | Gong Cha Admin',
+  description: 'Manajemen akun pelanggan dan staf'
+};
 
 export default function AdminUsersPage() {
   return <MembersClient />;

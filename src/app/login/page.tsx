@@ -46,9 +46,7 @@ export default function LoginPage() {
       if (!response.ok) throw new Error("Failed to create session on server.");
 
       setSuccess(true);
-      setTimeout(() => {
-        window.location.href = "/dashboard";
-      }, 800);
+      router.replace("/dashboard");
 
     } catch (err: any) {
       if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {

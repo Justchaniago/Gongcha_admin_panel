@@ -38,20 +38,21 @@ function getTodayString(): string {
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
 const C = {
-  bg: '#F4F6FB', white: '#FFFFFF', border: '#EAECF2', border2: '#F0F2F7',
-  tx1: '#0F1117', tx2: '#4A5065', tx3: '#9299B0', tx4: '#BCC1D3',
-  blue: '#4361EE', blueL: '#EEF2FF', blueD: '#3A0CA3',
-  green: '#12B76A', greenBg: '#ECFDF3',
-  amber: '#F79009', amberBg: '#FFFAEB',
-  red: '#C8102E', redBg: '#FEF3F2',
-  shadow: '0 1px 3px rgba(16,24,40,.06), 0 1px 2px rgba(16,24,40,.04)',
-  shadowMd: '0 4px 16px rgba(16,24,40,.08), 0 2px 4px rgba(16,24,40,.04)',
+  bg: '#F9FAFB', white: '#FFFFFF', border: '#E5E7EB', border2: '#F3F4F6',
+  tx1: '#111827', tx2: '#374151', tx3: '#6B7280', tx4: '#9CA3AF',
+  blue: '#3B82F6', blueL: '#DBEAFE', blueD: '#1D4ED8',
+  green: '#059669', greenBg: '#D1FAE5',
+  amber: '#D97706', amberBg: '#FEF3C7',
+  red: '#DC2626', redBg: '#FEE2E2',
+  shadow: '0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04)',
+  shadowMd: '0 4px 12px rgba(0,0,0,.10)',
 } as const;
 
-const font = "'Plus Jakarta Sans', system-ui, sans-serif";
+const font = "Inter, system-ui, sans-serif";
+const monoFont = "ui-monospace, 'Cascadia Code', monospace";
 const card: React.CSSProperties = {
   background: C.white, border: `1px solid ${C.border}`,
-  borderRadius: 18, boxShadow: C.shadow,
+  borderRadius: 16, boxShadow: C.shadow,
 };
 
 // ── Sub-components ────────────────────────────────────────────────────────────
@@ -483,13 +484,13 @@ export default function DashboardClient({ initialRole, initialTransactions, init
   const barColors = [C.blue, "#7C3AED", C.green, C.amber];
 
   return (
-    <div style={{ padding: "28px 32px", maxWidth: 1400, fontFamily: font, WebkitFontSmoothing: "antialiased" }}>
+    <div style={{ padding: "28px 32px", maxWidth: 1400, fontFamily: font, WebkitFontSmoothing: "antialiased", background: C.bg, minHeight: "100vh" }}>
 
       {/* ── TOP BAR ── */}
       <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", marginBottom: 28 }}>
         <div>
           <p style={{ fontSize: 13, color: C.tx3, marginBottom: 4 }}>{dateStr}</p>
-          <h1 style={{ fontSize: 28, fontWeight: 800, letterSpacing: "-.025em", color: C.tx1, lineHeight: 1.1, margin: 0 }}>
+          <h1 style={{ fontSize: 26, fontWeight: 800, letterSpacing: "-.025em", color: C.tx1, lineHeight: 1.1, margin: 0 }}>
             {greeting}, {userName}! 👋
           </h1>
           <p style={{ fontSize: 14, color: C.tx2, marginTop: 5, display: "flex", alignItems: "center", gap: 10 }}>
@@ -511,7 +512,7 @@ export default function DashboardClient({ initialRole, initialTransactions, init
             <select
               value={mode}
               onChange={e => setMode(e.target.value as "realtime" | "range")}
-              style={{ padding: "7px 14px", borderRadius: 8, border: "1.5px solid " + C.blueL, background: C.white, fontWeight: 600, color: C.tx1, fontSize: 13 }}
+              style={{ padding: "7px 14px", borderRadius: 9, border: "1.5px solid " + C.border, background: C.white, fontWeight: 600, color: C.tx1, fontSize: 13 }}
             >
               <option value="realtime">Real-time</option>
               <option value="range">Date Range</option>
@@ -522,14 +523,14 @@ export default function DashboardClient({ initialRole, initialTransactions, init
                   type="date"
                   value={dateFrom}
                   onChange={e => setDateFrom(e.target.value)}
-                  style={{ padding: "7px 10px", borderRadius: 8, border: "1.5px solid " + C.border, background: C.white, fontSize: 13, color: C.tx1 }}
+                  style={{ padding: "7px 10px", borderRadius: 9, border: "1.5px solid " + C.border, background: C.white, fontSize: 13, color: C.tx1 }}
                 />
                 <span style={{ color: C.tx3, fontWeight: 600 }}>to</span>
                 <input
                   type="date"
                   value={dateTo}
                   onChange={e => setDateTo(e.target.value)}
-                  style={{ padding: "7px 10px", borderRadius: 8, border: "1.5px solid " + C.border, background: C.white, fontSize: 13, color: C.tx1 }}
+                  style={{ padding: "7px 10px", borderRadius: 9, border: "1.5px solid " + C.border, background: C.white, fontSize: 13, color: C.tx1 }}
                 />
               </>
             )}
@@ -538,7 +539,7 @@ export default function DashboardClient({ initialRole, initialTransactions, init
               <select
                 value={selectedStoreId}
                 onChange={e => setSelectedStoreId(e.target.value)}
-                style={{ padding: "7px 14px", borderRadius: 8, border: "1.5px solid " + C.border, background: C.white, fontWeight: 600, color: C.tx1, fontSize: 13, minWidth: 150 }}
+                style={{ padding: "7px 14px", borderRadius: 9, border: "1.5px solid " + C.border, background: C.white, fontWeight: 600, color: C.tx1, fontSize: 13, minWidth: 150 }}
               >
                 <option value="all">🏪 Semua Toko (Global)</option>
                 {stores.map(store => (
@@ -694,7 +695,7 @@ export default function DashboardClient({ initialRole, initialTransactions, init
       <div style={{ display: "grid", gridTemplateColumns: "1fr 310px", gap: 14 }}>
 
         {/* Transactions table */}
-        <div style={{ ...card, overflow: "hidden" }}>
+        <div style={{ ...card, borderRadius: 18, overflow: "hidden" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "20px 24px 16px", borderBottom: `1px solid ${C.border2}` }}>
             <div>
               <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: C.tx3, marginBottom: 3 }}>Activity</p>
@@ -714,15 +715,16 @@ export default function DashboardClient({ initialRole, initialTransactions, init
                     color: C.red,
                     background: "#FFF5F5",
                     border: "1px solid #FCA5A5",
-                    borderRadius: 8,
-                    padding: "7px 12px",
+                    borderRadius: 7,
+                    padding: "5px 12px",
+                    height: 32,
                     cursor: deleteBusy ? "not-allowed" : "pointer",
                   }}
                 >
                   {deleteBusy ? "Deleting…" : `🗑 Delete Selected (${selectedTxDocPaths.length})`}
                 </button>
               )}
-              <a href="/transactions" style={{ fontSize: 13, fontWeight: 600, color: C.blue, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 5, padding: "7px 14px", borderRadius: 8, border: `1.5px solid ${C.blueL}`, background: C.blueL }}>
+              <a href="/transactions" style={{ fontSize: 12, fontWeight: 700, color: C.blue, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 5, padding: "5px 12px", height: 32, borderRadius: 7, border: `1px solid ${C.blueL}`, background: C.blueL }}>
               View all
               <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                 <path d="M7 17L17 7M17 7H7M17 7v10"/>
@@ -744,7 +746,7 @@ export default function DashboardClient({ initialRole, initialTransactions, init
           ) : (
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
-                <tr style={{ background: "#F8F9FC" }}>
+                <tr style={{ background: C.bg }}>
                   {[canDeleteTransactions && "Select", "Transaction ID", "Type", "Member", "Amount", !isLimitedAccess && "Store", "Status", "Date", canDeleteTransactions && "Action"]
                     .filter(Boolean)
                     .map(h => (
@@ -767,7 +769,7 @@ export default function DashboardClient({ initialRole, initialTransactions, init
                       </td>
                     )}
                     <td style={{ padding: "14px 20px" }}>
-                      <code style={{ fontSize: 12, background: C.blueL, padding: "3px 9px", borderRadius: 6, color: C.blue, border: `1px solid rgba(67,97,238,.15)` }}>
+                      <code style={{ fontSize: 12, fontFamily: monoFont, background: C.blueL, padding: "3px 9px", borderRadius: 6, color: C.blue, border: `1px solid rgba(67,97,238,.15)` }}>
                         {trx.transactionId || "—"}
                       </code>
                     </td>

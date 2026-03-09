@@ -434,7 +434,7 @@ function StoreRow({ store, isLast, onEdit, onDelete, canManage }: { store: Store
 }
 
 // ── Main ───────────────────────────────────────────────────────────────────────
-export default function StoresClient({ initialStores, showAddTrigger }: { initialStores: StoreWithId[]; showAddTrigger?: boolean }) {
+export default function StoresClient({ initialStores = [], showAddTrigger }: { initialStores?: StoreWithId[]; showAddTrigger?: boolean }) {
   const [stores,       setStores]       = useState<StoreWithId[]>(initialStores);
   const [syncStatus,   setSyncStatus]   = useState<SyncStatus>("connecting");
   const [search,       setSearch]       = useState('');

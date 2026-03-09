@@ -16,6 +16,11 @@ interface VerifyResponse {
   message: string;
 }
 
+function isFirestoreNotFoundError(err: any): boolean {
+  const msg = String(err?.message ?? "");
+  return err?.code === 5 || msg.includes("5 NOT_FOUND") || msg.includes("NOT_FOUND");
+}
+
 async function validateSession() {
   const cookieStore = await cookies();
   const sessionCookie = cookieStore.get("session")?.value;
@@ -54,19 +59,38 @@ export async function POST(req: NextRequest): Promise<NextResponse<VerifyRespons
     }
 
     // ── Fetch transaction by cashier-entered POS transaction ID ──
-    let txQuery = await adminDb
-      .collectionGroup("transactions")
-      .where("posTransactionId", "==", transactionId)
-      .limit(1)
-      .get();
+    let txQuery;
+    try {
+      txQuery = await adminDb
+        .collectionGroup("transactions")
+        .where("posTransactionId", "==", transactionId)
+        .limit(1)
+        .get();
+    } catch (err: any) {
+      if (!isFirestoreNotFoundError(err)) throw err;
+      txQuery = await adminDb
+        .collection("transactions")
+        .where("posTransactionId", "==", transactionId)
+        .limit(1)
+        .get();
+    }
 
     // Backward compatibility for older records
     if (txQuery.empty) {
-      txQuery = await adminDb
-        .collectionGroup("transactions")
-        .where("transactionId", "==", transactionId)
-        .limit(1)
-        .get();
+      try {
+        txQuery = await adminDb
+          .collectionGroup("transactions")
+          .where("transactionId", "==", transactionId)
+          .limit(1)
+          .get();
+      } catch (err: any) {
+        if (!isFirestoreNotFoundError(err)) throw err;
+        txQuery = await adminDb
+          .collection("transactions")
+          .where("transactionId", "==", transactionId)
+          .limit(1)
+          .get();
+      }
     }
 
     if (txQuery.empty) {

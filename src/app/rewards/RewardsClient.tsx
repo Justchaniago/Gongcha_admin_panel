@@ -769,7 +769,7 @@ function AddTicket({ onClick }: { onClick: () => void }) {
 
 // ── Main ───────────────────────────────────────────────────────────────────────
 export default function RewardsClient({ initialRewards = [], showAddTrigger }:
-  { initialRewards?:RewardWithId[]; showAddTrigger?:boolean }) {
+  { initialRewards?: RewardWithId[]; showAddTrigger?: boolean }) {
   const { user } = useAuth();
   const canMutate = user?.role === "SUPER_ADMIN";
   const [rewards,      setRewards]      = useState<RewardWithId[]>(initialRewards);

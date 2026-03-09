@@ -527,7 +527,7 @@ function MenuRow({ menu, isLast, onEdit, onDelete, canManage }: { menu: ProductW
 }
 
 // ── Main ───────────────────────────────────────────────────────────────────────
-export default function MenusClient({ initialMenus, showAddTrigger }: { initialMenus: ProductWithId[]; showAddTrigger?: boolean }) {
+export default function MenusClient({ initialMenus = [], showAddTrigger }: { initialMenus?: ProductWithId[]; showAddTrigger?: boolean }) {
   const [menus, setMenus] = useState<ProductWithId[]>(initialMenus);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>("connecting");
   const [search, setSearch] = useState('');

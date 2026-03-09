@@ -19,16 +19,16 @@ export interface CsvRow {
 }
 
 export const C = {
-  bg:"#F4F6FB", white:"#FFFFFF", border:"#EAECF2", border2:"#F0F2F7",
-  tx1:"#0F1117", tx2:"#4A5065", tx3:"#9299B0",
-  blue:"#4361EE", blueL:"#EEF2FF",
+  bg:"#F9FAFB", white:"#FFFFFF", border:"#E5E7EB", border2:"#F3F4F6",
+  tx1:"#111827", tx2:"#374151", tx3:"#6B7280",
+  blue:"#3B82F6", blueL:"#DBEAFE",
   green:"#059669", greenBg:"#D1FAE5",
   orange:"#D97706", orangeBg:"#FEF3C7",
   red:"#DC2626", redBg:"#FEE2E2",
-  shadow:"0 1px 3px rgba(16,24,40,.06)",
-  shadowLg:"0 20px 60px rgba(16,24,40,.18)",
+  shadow:"0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04)",
+  shadowLg:"0 20px 60px rgba(0,0,0,.18), 0 4px 16px rgba(0,0,0,.10)",
 } as const;
-export const font = "'Plus Jakarta Sans',system-ui,sans-serif";
+export const font = "Inter, system-ui, sans-serif";
 export const fmtRp = (n: number) => "Rp " + n.toLocaleString("id-ID");
 export const fmtDate = (iso: string|null) => {
   if (!iso) return "-";
@@ -131,7 +131,7 @@ export function ConfirmModal({ title, message, confirmLabel, confirmColor, onCon
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}
       style={{ position:"fixed", inset:0, zIndex:50, display:"flex", alignItems:"center", justifyContent:"center", padding:24, background:"rgba(10,12,20,.52)", backdropFilter:"blur(8px)", fontFamily:font }}
     >
-      <div style={{ background:C.white, borderRadius:20, width:"100%", maxWidth:440, boxShadow:C.shadowLg, padding:"32px 28px", animation:"gcRise .22s ease" }}>
+      <div style={{ background:C.white, borderRadius:18, width:"100%", maxWidth:440, boxShadow:C.shadowLg, padding:"28px 24px", animation:"gcRise .22s ease" }}>
         <h2 style={{ fontSize:20, fontWeight:800, color:C.tx1, marginBottom:10 }}>{title}</h2>
         <p style={{ fontSize:13.5, color:C.tx2, lineHeight:1.6, marginBottom:24 }}>{message}</p>
         <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
@@ -210,7 +210,7 @@ export function CsvPanel({ pendingTxs, stores, onMatchVerify, onToast }: {
   const btnDisabled = matched.length === 0 || loading;
 
   return (
-    <div style={{ background:C.white, borderRadius:18, border:`1px solid ${C.border}`, boxShadow:C.shadow, padding:20, display:"flex", flexDirection:"column", gap:14 }}>
+    <div style={{ background:C.white, borderRadius:16, border:`1px solid ${C.border}`, boxShadow:C.shadow, padding:20, display:"flex", flexDirection:"column", gap:14 }}>
       <h2 style={{ fontSize:15, fontWeight:800, color:C.tx1, margin:0 }}>Upload CSV from POS</h2>
 
       {/* Drop zone */}
@@ -219,7 +219,7 @@ export function CsvPanel({ pendingTxs, stores, onMatchVerify, onToast }: {
         onDragLeave={() => setDragging(false)}
         onDrop={e => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files[0]; if (f) processFile(f); }}
         onClick={() => fileRef.current?.click()}
-        style={{ border:`2px dashed ${dragging?C.blue:"#C7D2FE"}`, borderRadius:14, padding:"24px 16px", textAlign:"center", cursor:"pointer", transition:"all .2s", background:dragging?C.blueL:"#FAFBFF" }}
+        style={{ border:`2px dashed ${dragging?C.blue:C.border}`, borderRadius:14, padding:"24px 16px", textAlign:"center", cursor:"pointer", transition:"all .2s", background:dragging?C.blueL:C.bg }}
       >
         <div style={{ width:44, height:44, borderRadius:12, background:C.blueL, display:"flex", alignItems:"center", justifyContent:"center", margin:"0 auto 10px" }}>
           <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke={C.blue} strokeWidth={1.8}>
@@ -243,14 +243,14 @@ export function CsvPanel({ pendingTxs, stores, onMatchVerify, onToast }: {
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
         <div>
           <p style={{ fontSize:11, color:C.tx2, fontWeight:600, marginBottom:5 }}>Filter Outlet</p>
-          <select style={{ width:"100%", height:36, borderRadius:9, border:`1.5px solid ${C.border}`, background:C.bg, padding:"0 10px", fontFamily:font, fontSize:12.5, color:C.tx1, outline:"none" }}>
+          <select style={{ width:"100%", height:38, borderRadius:9, border:`1.5px solid ${C.border}`, background:C.bg, padding:"0 12px", fontFamily:font, fontSize:13, color:C.tx1, outline:"none" }}>
             <option value="all">All Outlets</option>
             {stores.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
         </div>
         <div>
           <p style={{ fontSize:11, color:C.tx2, fontWeight:600, marginBottom:5 }}>Date</p>
-          <input type="date" style={{ width:"100%", height:36, borderRadius:9, border:`1.5px solid ${C.border}`, background:C.bg, padding:"0 10px", fontFamily:font, fontSize:12.5, color:C.tx1, outline:"none", boxSizing:"border-box" }}/>
+          <input type="date" style={{ width:"100%", height:38, borderRadius:9, border:`1.5px solid ${C.border}`, background:C.bg, padding:"0 12px", fontFamily:font, fontSize:13, color:C.tx1, outline:"none", boxSizing:"border-box" }}/>
         </div>
       </div>
 
@@ -274,7 +274,7 @@ export function CsvPanel({ pendingTxs, stores, onMatchVerify, onToast }: {
       <button
         onClick={handleBulkVerify}
         disabled={btnDisabled}
-        style={{ width:"100%", height:42, borderRadius:11, border:"none", background:btnDisabled?"#9ca3af":"linear-gradient(135deg,#4361EE,#3A0CA3)", color:"#fff", fontFamily:font, fontSize:13.5, fontWeight:700, cursor:btnDisabled?"not-allowed":"pointer", transition:"all .2s" }}
+        style={{ width:"100%", height:42, borderRadius:9, border:"none", background:btnDisabled?"#F3F4F6":C.green, color:btnDisabled?C.tx3:"#fff", fontFamily:font, fontSize:13.5, fontWeight:700, cursor:btnDisabled?"not-allowed":"pointer", transition:"all .15s" }}
       >
         {loading ? "Verifying with POS data…" : matched.length > 0 ? `✓ Verify ${matched.length} Transactions vs POS` : "Verify & Match POS"}
       </button>
@@ -302,7 +302,7 @@ export function RejectedPanel({ rejected, onApprove, onReject, loadingId }: {
   loadingId: string|null;
 }) {
   return (
-    <div style={{ background:C.white, borderRadius:18, border:`1px solid ${C.border}`, boxShadow:C.shadow, padding:20, display:"flex", flexDirection:"column" }}>
+    <div style={{ background:C.white, borderRadius:16, border:`1px solid ${C.border}`, boxShadow:C.shadow, padding:20, display:"flex", flexDirection:"column" }}>
       <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:14 }}>
         <h2 style={{ fontSize:15, fontWeight:800, color:C.tx1, margin:0 }}>Rejected - Manual Review ({rejected.length})</h2>
       </div>
@@ -355,11 +355,11 @@ export function PendingPanel({ pending, onVerify, onReject, onVerifyAll, loading
   loadingId: string|null;
 }) {
   return (
-    <div style={{ background:C.white, borderRadius:18, border:`1px solid ${C.border}`, boxShadow:C.shadow, padding:20, display:"flex", flexDirection:"column" }}>
+    <div style={{ background:C.white, borderRadius:16, border:`1px solid ${C.border}`, boxShadow:C.shadow, padding:20, display:"flex", flexDirection:"column" }}>
       <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:14 }}>
         <h2 style={{ fontSize:15, fontWeight:800, color:C.tx1, margin:0 }}>Pending ({pending.length})</h2>
         {pending.length > 0 && (
-          <button onClick={onVerifyAll} style={{ height:34, padding:"0 14px", borderRadius:9, border:"none", background:C.green, color:"#fff", fontFamily:font, fontSize:12, fontWeight:700, cursor:"pointer" }}>
+          <button onClick={onVerifyAll} style={{ height:34, padding:"0 14px", borderRadius:7, border:"none", background:C.green, color:"#fff", fontFamily:font, fontSize:12, fontWeight:700, cursor:"pointer" }}>
             ✓ Verify All
           </button>
         )}
