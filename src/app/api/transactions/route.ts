@@ -8,35 +8,26 @@ import { v4 as uuidv4 } from "uuid";
 import type { AdminNotificationLog, UserNotification } from "@/types/firestore";
 
 // ── Notification helper ───────────────────────────────────────────────────────
+// action "verified" = COMPLETED, "rejected" = FRAUD (legacy param, canonical storage)
 async function createTxNotification(
   memberId: string,
   action: "verified" | "rejected",
   txData: FirebaseFirestore.DocumentData,
   adminUid: string,
 ) {
-  if (!memberId) return;
   try {
     const notifId = uuidv4();
     const now     = new Date().toISOString();
-    const txId    = txData.posTransactionId ?? txData.transactionId ?? "";
-    const amount  = `Rp ${(txData.amount ?? 0).toLocaleString("id-ID")}`;
+    const txId    = (txData.posTransactionId ?? txData.transactionId ?? "") as string;
+    const amount  = (txData.amount ?? 0) as number;
 
     const title = action === "verified"
-      ? "✅ Transaksi Kamu Diverifikasi!"
-      : "❌ Transaksi Ditolak";
-    const body  = action === "verified"
-      ? `Transaksi ${txId} (${amount}) telah diverifikasi. Poin kamu sudah bertambah!`
-      : `Transaksi ${txId} (${amount}) ditolak. Hubungi kasir jika ada pertanyaan.`;
+      ? "Transaksi Diverifikasi ✅"
+      : "Transaksi Ditolak ❌";
+    const body = action === "verified"
+      ? `Transaksi Rp ${amount.toLocaleString("id-ID")} telah diverifikasi. Poin akan segera dikreditkan.`
+      : `Transaksi Rp ${amount.toLocaleString("id-ID")} ditolak. Hubungi staff untuk informasi lebih lanjut.`;
 
-    const userNotif: UserNotification = {
-      id:        notifId,
-      type:      action === "verified" ? "tx_verified" : "tx_rejected",
-      title,
-      body,
-      isRead:    false,
-      createdAt: now,
-      data:      { txId, amount: txData.amount ?? 0 },
-    };
     const adminLog: AdminNotificationLog = {
       type:           action === "verified" ? "tx_verified" : "tx_rejected",
       title,
@@ -47,22 +38,22 @@ async function createTxNotification(
       sentBy:         adminUid,
       recipientCount: 1,
     };
+
     await Promise.all([
-      // Write to flat 'notifications' collection — customer app reads from here
       adminDb.collection("notifications").doc(notifId).set({
         userId:    memberId,
-        type:      action === "verified" ? "points" : "system", // customer app types
+        type:      action === "verified" ? "points" : "system",
         title,
         body,
         isRead:    false,
         createdAt: now,
-        data:      userNotif.data,
+        data:      { txId, amount },
       }),
       adminDb.collection("notifications_log").doc(notifId).set(adminLog),
     ]);
   } catch (err) {
     console.error("[createTxNotification]", err);
-    // Non-fatal — don't let notif failure break the main action
+    // Non-fatal — jangan biarkan notif failure menghentikan main action
   }
 }
 
@@ -70,12 +61,24 @@ async function createTxNotification(
 async function validateSession(req: NextRequest) {
   const cookieStore = await cookies();
   const sessionCookie = cookieStore.get("session")?.value;
-  if (!sessionCookie) {
-    return { error: "Session not found. Please login again.", status: 403, token: null };
+  if (!sessionCookie) return { error: "Session not found.", status: 401, token: null };
+
+  try {
+    const decoded = await adminAuth.verifySessionCookie(sessionCookie, true);
+    const uid = decoded.uid as string;
+
+    const adminDoc = await adminDb.collection("admin_users").doc(uid).get();
+    if (!adminDoc.exists) {
+      return { error: "Access denied. Admin profile not found.", status: 403, token: null };
+    }
+    const role: string = adminDoc.data()?.role ?? "";
+    if (!["SUPER_ADMIN", "STAFF"].includes(role)) {
+      return { error: "Access denied. Role not permitted.", status: 403, token: null };
+    }
+    return { error: null, status: 200, token: { ...decoded, uid, role } };
+  } catch {
+    return { error: "Invalid or expired session.", status: 401, token: null };
   }
-  const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
-  const userRole = decodedClaims.role as string;
-  return { token: decodedClaims, userRole, error: null, status: 200 };
 }
 
 // ── Points disbursement helper ────────────────────────────────────────────────
@@ -84,46 +87,31 @@ async function disbursePoints(
   points: number,
   txData: FirebaseFirestore.DocumentData,
   txId: string,
-  verifiedBy: string
+  adminUid: string,
 ) {
   if (!memberId || points <= 0) return;
+  try {
+    const userRef = adminDb.collection("users").doc(memberId);
+    await adminDb.runTransaction(async (t) => {
+      const userSnap = await t.get(userRef);
+      if (!userSnap.exists) return;
 
-  const memberRef = adminDb.collection("users").doc(memberId);
+      const current  = (userSnap.data()?.currentPoints  as number) ?? 0;
+      const lifetime = (userSnap.data()?.lifetimePoints as number) ?? 0;
 
-  await adminDb.runTransaction(async (t) => {
-    const memberSnap = await t.get(memberRef);
-    if (!memberSnap.exists) return;
-
-    const memberData = memberSnap.data()!;
-    const newCurrentPoints  = (memberData.currentPoints  ?? 0) + points;
-    const newLifetimePoints = (memberData.lifetimePoints ?? 0) + points;
-
-    // Auto-upgrade tier
-    let tier = "Silver";
-    if (newLifetimePoints >= 50000) tier = "Platinum";
-    else if (newLifetimePoints >= 10000) tier = "Gold";
-
-    const xpEntry = {
-      id:            `${txId}_${Date.now()}`,
-      date:          new Date().toISOString(),
-      amount:        points,
-      type:          "earn",
-      status:        "verified",
-      context:       `Transaction ${txData.posTransactionId ?? txData.transactionId ?? txId}`,
-      location:      txData.storeLocation ?? "",
-      transactionId: txData.posTransactionId ?? txData.transactionId ?? txId,
-    };
-
-    t.update(memberRef, {
-      currentPoints:  newCurrentPoints,
-      lifetimePoints: newLifetimePoints,
-      tier,
-      xpHistory: admin.firestore.FieldValue.arrayUnion(xpEntry),
-      pointsLastUpdatedAt: new Date().toISOString(),
-      pointsLastUpdatedBy: verifiedBy,
+      t.update(userRef, {
+        currentPoints:  current  + points,
+        lifetimePoints: lifetime + points,
+        updatedAt:      new Date().toISOString(),
+      });
     });
-  });
+  } catch (err) {
+    console.error("[disbursePoints]", err);
+  }
 }
+
+// Status values yang dapat diproses (legacy + canonical)
+const PROCESSABLE_STATUSES = ["NEEDS_REVIEW", "pending"];
 
 // ── GET — list all transactions ───────────────────────────────────────────────
 export async function GET(req: NextRequest) {
@@ -133,48 +121,49 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    // collectionGroup + orderBy requires a composite index that may not exist yet.
-    // Fetch without orderBy and sort in-memory instead.
     const snap = await adminDb
       .collectionGroup("transactions")
       .limit(500)
       .get();
 
-    const txs = snap.docs
-      .map((d) => {
-        const data = d.data();
-        const type = data.type ?? "earn"; // Default to earn if not specified
-        return {
-          docId:           d.id,
-          docPath:         d.ref.path,
-          transactionId:   data.posTransactionId ?? data.transactionId ?? "",
-          memberName:      data.memberName       ?? "-",
-          memberId:        data.memberId         ?? "",
-          staffId:         data.staffId          ?? "",
-          storeLocation:   data.storeLocation    ?? "-",
-          amount:          data.amount           ?? 0,
-          potentialPoints: data.potentialPoints  ?? 0,
-          type:            type,
-          status:          data.status           ?? "pending",
-          createdAt:       data.createdAt?.toDate?.()?.toISOString() ?? data.createdAt ?? null,
-          verifiedAt:      data.verifiedAt?.toDate?.()?.toISOString() ?? data.verifiedAt ?? null,
-          verifiedBy:      data.verifiedBy       ?? null,
-        };
-      })
-      // Filter: only show "earn" (purchase) transactions, exclude "redeem"
-      .filter((tx) => tx.type === "earn")
-      // Sort newest-first in memory (avoids needing a Firestore collection-group index)
-      .sort((a, b) => {
-        const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-        const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-        return tb - ta;
-      })
-      .slice(0, 200);
+    const txs = snap.docs.map((d) => {
+      const data    = d.data();
+      // Normalise status ke canonical schema
+      let status    = (data.status ?? "NEEDS_REVIEW") as string;
+      if (status === "verified") status = "COMPLETED";
+      if (status === "rejected") status = "FRAUD";
+      if (status === "pending")  status = "NEEDS_REVIEW";
 
-    return NextResponse.json(txs);
+      return {
+        docId:           d.id,
+        docPath:         d.ref.path,
+        transactionId:   data.posTransactionId ?? data.transactionId ?? "",
+        memberName:      data.memberName       ?? "-",
+        memberId:        data.memberId         ?? "",
+        staffId:         data.staffId          ?? "",
+        storeId:         data.storeId          ?? data.storeLocation ?? "",
+        amount:          data.amount           ?? 0,
+        potentialPoints: data.potentialPoints  ?? 0,
+        status,
+        type:            data.type             ?? "earn",
+        createdAt:       data.createdAt?.toDate?.()?.toISOString?.() ?? null,
+        verifiedAt:      data.verifiedAt       ?? null,
+        verifiedBy:      data.verifiedBy       ?? null,
+      };
+    });
+
+    // Sort in-memory (descending createdAt)
+    txs.sort((a, b) => {
+      if (!a.createdAt && !b.createdAt) return 0;
+      if (!a.createdAt) return 1;
+      if (!b.createdAt) return -1;
+      return b.createdAt.localeCompare(a.createdAt);
+    });
+
+    return NextResponse.json({ transactions: txs });
   } catch (e: any) {
     console.error("[GET /api/transactions]", e);
-    return NextResponse.json({ message: e.message }, { status: 500 });
+    return NextResponse.json({ message: e.message ?? "Internal server error" }, { status: 500 });
   }
 }
 
@@ -204,51 +193,40 @@ export async function PATCH(req: NextRequest) {
 
     const txData = txSnap.data()!;
 
-    // ✅ FIX GAP #11: Terima status lama "pending" DAN canonical "NEEDS_REVIEW"
-    const processableStatuses = ["NEEDS_REVIEW", "pending"];
-    if (!processableStatuses.includes(txData.status)) {
-      return NextResponse.json(
-        { message: `Transaction already has status "${txData.status}". Cannot be changed.` },
-        { status: 409 }
-      );
+    // ✅ Terima status lama (transitional) DAN canonical baru
+    if (!PROCESSABLE_STATUSES.includes(txData.status)) {
+      return NextResponse.json({
+        message: `Transaksi sudah diproses (Status: ${txData.status}).`,
+      }, { status: 409 });
     }
 
     const now        = new Date().toISOString();
     const verifiedBy = validation.token!.uid as string;
 
     if (action === "verify") {
-      // 1. Update transaction status — ✅ FIX GAP #11: "verified" → "COMPLETED"
+      // ✅ Canonical: "COMPLETED" (bukan "verified")
       await txRef.update({ status: "COMPLETED", verifiedAt: now, verifiedBy });
-
-      // 2. Disburse points to member
       await disbursePoints(
         txData.memberId,
         txData.potentialPoints ?? 0,
         txData,
         txData.posTransactionId ?? txData.transactionId ?? txSnap.id,
-        verifiedBy
+        verifiedBy,
       );
-
-      // 3. Auto-notification to member
       await createTxNotification(txData.memberId, "verified", txData, verifiedBy);
-
-      return NextResponse.json({
-        success: true,
-        action:  "verified",
-        points:  txData.potentialPoints ?? 0,
-      });
     } else {
-      // Reject — ✅ FIX GAP #11: "rejected" → "FRAUD"
+      // ✅ Canonical: "FRAUD" (bukan "rejected")
       await txRef.update({ status: "FRAUD", verifiedAt: now, verifiedBy });
-
-      // Auto-notification to member
       await createTxNotification(txData.memberId, "rejected", txData, verifiedBy);
-
-      return NextResponse.json({ success: true, action: "rejected" });
     }
-  } catch (e: any) {
-    console.error("[PATCH /api/transactions]", e);
-    return NextResponse.json({ message: e.message ?? "Internal server error" }, { status: 500 });
+
+    return NextResponse.json({
+      success: true,
+      message: `Transaksi berhasil ${action === "verify" ? "diverifikasi (COMPLETED)" : "ditolak (FRAUD)"}`,
+    });
+  } catch (err: any) {
+    console.error("[PATCH /api/transactions]", err);
+    return NextResponse.json({ message: err.message ?? "Internal server error." }, { status: 500 });
   }
 }
 
@@ -260,15 +238,13 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const { docPaths, action } = await req.json();
+    const { docPaths, actionType } = await req.json();
 
     if (!Array.isArray(docPaths) || docPaths.length === 0) {
-      return NextResponse.json({ message: "docPaths must be a non-empty array." }, { status: 400 });
+      return NextResponse.json({ message: "docPaths harus berupa array." }, { status: 400 });
     }
-
-    const actionType = action ?? "verify";
     if (!["verify", "reject"].includes(actionType)) {
-      return NextResponse.json({ message: "action harus 'verify' atau 'reject'." }, { status: 400 });
+      return NextResponse.json({ message: "actionType harus 'verify' atau 'reject'." }, { status: 400 });
     }
 
     const now        = new Date().toISOString();
@@ -282,9 +258,7 @@ export async function POST(req: NextRequest) {
         const txRef  = adminDb.doc(docPath);
         const txSnap = await txRef.get();
 
-        // ✅ FIX GAP #4 REMAINING: Terima "pending" (lama) DAN "NEEDS_REVIEW" (baru)
-        const processableStatuses = ["NEEDS_REVIEW", "pending"];
-        if (!txSnap.exists || !processableStatuses.includes(txSnap.data()!.status)) {
+        if (!txSnap.exists || !PROCESSABLE_STATUSES.includes(txSnap.data()!.status)) {
           skipCount++;
           continue;
         }
@@ -292,18 +266,18 @@ export async function POST(req: NextRequest) {
         const txData = txSnap.data()!;
 
         if (actionType === "verify") {
-          // ✅ FIX: "verified" → "COMPLETED" (unified uppercase schema)
+          // ✅ Canonical: "COMPLETED"
           await txRef.update({ status: "COMPLETED", verifiedAt: now, verifiedBy });
           await disbursePoints(
             txData.memberId,
             txData.potentialPoints ?? 0,
             txData,
             txData.posTransactionId ?? txData.transactionId ?? txSnap.id,
-            verifiedBy
+            verifiedBy,
           );
           await createTxNotification(txData.memberId, "verified", txData, verifiedBy);
         } else {
-          // ✅ FIX: "rejected" → "FRAUD" (unified uppercase schema)
+          // ✅ Canonical: "FRAUD"
           await txRef.update({ status: "FRAUD", verifiedAt: now, verifiedBy });
           await createTxNotification(txData.memberId, "rejected", txData, verifiedBy);
         }
@@ -315,11 +289,11 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({
-      success:      true,
+      success: true,
       successCount,
       skipCount,
-      errorCount:   errors.length,
-      errors:       errors.slice(0, 5),
+      errorCount: errors.length,
+      errors:     errors.slice(0, 5),
     });
   } catch (e: any) {
     console.error("[POST /api/transactions]", e);
@@ -327,48 +301,32 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// ── DELETE — bulk/single delete transactions (admin only) ────────────────────
+// ── DELETE — bulk/single delete transactions ──────────────────────────────────
 export async function DELETE(req: NextRequest) {
   const validation = await validateSession(req);
   if (validation.error) {
     return NextResponse.json({ message: validation.error }, { status: validation.status });
   }
-
-  if (validation.userRole !== "admin") {
-    return NextResponse.json(
-      { message: "Only admin is allowed to delete transactions." },
-      { status: 403 }
-    );
+  // Only SUPER_ADMIN can delete
+  if (validation.token?.role !== "SUPER_ADMIN") {
+    return NextResponse.json({ message: "Forbidden: Super Admin only." }, { status: 403 });
   }
 
   try {
     const { docPaths } = await req.json();
     if (!Array.isArray(docPaths) || docPaths.length === 0) {
-      return NextResponse.json(
-        { message: "docPaths must be a non-empty array." },
-        { status: 400 }
-      );
+      return NextResponse.json({ message: "docPaths wajib berupa array." }, { status: 400 });
     }
 
-    let successCount = 0;
-    let skipCount = 0;
+    let   successCount = 0;
+    let   skipCount    = 0;
     const errors: string[] = [];
 
     for (const docPath of docPaths) {
       try {
-        if (typeof docPath !== "string" || !docPath.trim()) {
-          skipCount++;
-          continue;
-        }
-
-        const txRef = adminDb.doc(docPath);
+        const txRef  = adminDb.doc(docPath);
         const txSnap = await txRef.get();
-
-        if (!txSnap.exists) {
-          skipCount++;
-          continue;
-        }
-
+        if (!txSnap.exists) { skipCount++; continue; }
         await txRef.delete();
         successCount++;
       } catch (e: any) {
@@ -376,13 +334,7 @@ export async function DELETE(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({
-      success: true,
-      successCount,
-      skipCount,
-      errorCount: errors.length,
-      errors: errors.slice(0, 5),
-    });
+    return NextResponse.json({ success: true, successCount, skipCount, errorCount: errors.length, errors: errors.slice(0, 5) });
   } catch (e: any) {
     console.error("[DELETE /api/transactions]", e);
     return NextResponse.json({ message: e.message ?? "Internal server error" }, { status: 500 });
