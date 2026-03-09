@@ -9,27 +9,23 @@ import { adminAuth } from "@/lib/firebaseAdmin";
 // Next.js 14+ App Router: params is a Promise
 type RouteContext = { params: Promise<{ id: string }> };
 
-// Helper untuk validasi session
-async function validateSession(req: NextRequest) {
+async function validateSession() {
   const cookieStore = await cookies();
   const sessionCookie = cookieStore.get("session")?.value;
   if (!sessionCookie) {
     return { error: "Session not found. Please login again.", status: 403 };
   }
-  const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
-  const uid = decodedClaims.uid;
-
-  // Fresh Role Fetching
-  const userDoc = await adminDb.collection("users").doc(uid).get();
-  const staffDoc = await adminDb.collection("staff").doc(uid).get();
-  const profile = userDoc.exists ? userDoc.data() : staffDoc.exists ? staffDoc.data() : null;
-  const role = profile?.role?.toLowerCase(); // Case-insensitive
-
-  const allowedRoles = ["admin", "master", "manager", "store_manager"];
-  if (!role || !allowedRoles.includes(role)) {
-    return { error: "Access denied. Role not allowed.", status: 403 };
+  try {
+    const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
+    const profileSnap = await adminDb.collection("admin_users").doc(decodedClaims.uid).get();
+    const profile = profileSnap.data();
+    if (profile?.isActive !== true || profile?.role !== "SUPER_ADMIN") {
+      return { error: "Access denied. SUPER_ADMIN required.", status: 403 };
+    }
+    return { token: decodedClaims, userRole: profile.role, error: null };
+  } catch {
+    return { error: "Invalid session.", status: 401 };
   }
-  return { token: decodedClaims, userRole: role, error: null };
 }
 
 function guardId(id: unknown): string | null {
@@ -40,7 +36,7 @@ function guardId(id: unknown): string | null {
 // ── GET /api/rewards/:id ───────────────────────────────────────────────────────
 export async function GET(req: NextRequest, ctx: RouteContext) {
   // Validasi session
-  const validation = await validateSession(req);
+  const validation = await validateSession();
   if (validation.error) {
     return NextResponse.json({ message: validation.error }, { status: validation.status });
   }
@@ -49,7 +45,7 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
   const safeId = guardId(id);
   if (!safeId) return NextResponse.json({ message: 'Reward ID tidak valid.' }, { status: 400 });
   try {
-    const doc = await adminDb.collection("rewards_catalog").doc(safeId).get();
+    const doc = await adminDb.collection("rewards").doc(safeId).get();
     if (!doc.exists) {
       return NextResponse.json({ message: `Reward "${safeId}" tidak ditemukan.` }, { status: 404 });
     }
@@ -62,7 +58,7 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
 // ── PATCH /api/rewards/:id ────────────────────────────────────────────────────
 export async function PATCH(req: NextRequest, ctx: RouteContext) {
   // Validasi session
-  const validation = await validateSession(req);
+  const validation = await validateSession();
   if (validation.error) {
     return NextResponse.json({ message: validation.error }, { status: validation.status });
   }
@@ -72,7 +68,7 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
   if (!safeId) return NextResponse.json({ message: 'Reward ID tidak valid.' }, { status: 400 });
   try {
     const body = await req.json();
-    const docRef = adminDb.collection("rewards_catalog").doc(safeId);
+    const docRef = adminDb.collection("rewards").doc(safeId);
 
     const existing = await docRef.get();
     if (!existing.exists) {
@@ -80,26 +76,29 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
     }
 
     // Validation that are present in — only validate fields body
-    if ("category" in body && !["Drink", "Topping", "Discount"].includes(body.category)) {
+    if ("category" in body && body.category && !["Drink", "Topping", "Discount"].includes(body.category)) {
       return NextResponse.json({ message: "category invalid. Use: Drink, Topping, or Discount." }, { status: 400 });
     }
-    if ("pointsCost" in body && (typeof body.pointsCost !== "number" || body.pointsCost < 0)) {
-      return NextResponse.json({ message: "pointsCost harus angka positif." }, { status: 400 });
+
+    const pointsPayload = body.pointsRequired ?? body.pointsCost;
+    if (pointsPayload !== undefined && (typeof pointsPayload !== "number" || pointsPayload < 0)) {
+      return NextResponse.json({ message: "pointsRequired harus angka positif." }, { status: 400 });
     }
 
     // Build safe update payload (whitelist fields)
-    const allowed = ["title", "description", "pointsCost", "category", "isActive", "type"] as const;
+    const allowed = ["title", "description", "category", "isActive"] as const;
     const update: Record<string, unknown> = {};
     for (const key of allowed) {
       if (key in body) {
-        if (key === "type") {
-          update[key] = body[key] === "personal" ? "personal" : "catalog";
-        } else {
-          update[key] = key === "title" || key === "description"
-            ? (body[key] as string).trim?.() ?? body[key]
-            : body[key];
-        }
+        update[key] = key === "title" || key === "description"
+          ? (body[key] as string).trim?.() ?? body[key]
+          : body[key];
       }
+    }
+
+    if (pointsPayload !== undefined) update.pointsRequired = Number(pointsPayload);
+    if (body.imageUrl !== undefined || body.imageURL !== undefined) {
+      update.imageUrl = String(body.imageUrl ?? body.imageURL ?? "").trim();
     }
 
     if (Object.keys(update).length === 0) {
@@ -121,7 +120,7 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
 // ── DELETE /api/rewards/:id ───────────────────────────────────────────────────
 export async function DELETE(req: NextRequest, ctx: RouteContext) {
   // Validasi session
-  const validation = await validateSession(req);
+  const validation = await validateSession();
   if (validation.error) {
     return NextResponse.json({ message: validation.error }, { status: validation.status });
   }
@@ -130,7 +129,7 @@ export async function DELETE(req: NextRequest, ctx: RouteContext) {
   const safeId = guardId(id);
   if (!safeId) return NextResponse.json({ message: 'Reward ID tidak valid.' }, { status: 400 });
   try {
-    const docRef = adminDb.collection("rewards_catalog").doc(safeId);
+    const docRef = adminDb.collection("rewards").doc(safeId);
 
     const existing = await docRef.get();
     if (!existing.exists) {

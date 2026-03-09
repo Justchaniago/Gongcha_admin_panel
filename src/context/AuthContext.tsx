@@ -1,13 +1,14 @@
 "use client";
 
 import React, { createContext, useContext, ReactNode, useEffect, useState } from "react";
-import { onAuthStateChanged } from "firebase/auth";
+import { onAuthStateChanged, signOut } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
+import { usePathname, useRouter } from "next/navigation";
 import { auth, db } from "@/lib/firebaseClient";
+import { AdminUser, adminUserConverter } from "@/types/firestore";
 
-// Struktur data user disamakan dengan kebutuhan UI milikmu
 interface AuthCtx {
-  user: { name?: string | null; email?: string | null; role?: string; uid?: string } | null;
+  user: AdminUser | null;
   loading: boolean;
   logout: () => Promise<void>;
 }
@@ -23,37 +24,33 @@ const font = "'Plus Jakarta Sans', system-ui, sans-serif";
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthCtx['user']>(null);
   const [loading, setLoading] = useState(true);
+  const router = useRouter();
+  const pathname = usePathname();
 
-  // 1. Sinkronisasi Data Firebase
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
-        let role = "staff"; // Default
-        let name = firebaseUser.displayName || "User";
-        
         try {
-          // Cari role di Firestore
-          const userDoc = await getDoc(doc(db, "users", firebaseUser.uid));
-          if (userDoc.exists()) {
-            role = userDoc.data().role || "staff";
-            name = userDoc.data().name || name;
+          const adminRef = doc(db, "admin_users", firebaseUser.uid).withConverter(adminUserConverter);
+          const adminSnap = await getDoc(adminRef);
+
+          if (adminSnap.exists() && adminSnap.data().isActive === true) {
+            setUser(adminSnap.data());
           } else {
-             const staffDoc = await getDoc(doc(db, "staff", firebaseUser.uid));
-             if (staffDoc.exists()) {
-                 role = staffDoc.data().role || "staff";
-                 name = staffDoc.data().name || name;
-             }
+            await signOut(auth);
+            setUser(null);
+            if (pathname !== "/login") {
+              router.push("/unauthorized");
+            }
           }
         } catch (error) {
-          console.error("Gagal mengambil role Firestore:", error);
+          console.error("Gagal memverifikasi admin user:", error);
+          await signOut(auth);
+          setUser(null);
+          if (pathname !== "/login") {
+            router.push("/unauthorized");
+          }
         }
-
-        setUser({
-          name: name,
-          email: firebaseUser.email,
-          role: role,
-          uid: firebaseUser.uid,
-        });
       } else {
         setUser(null);
       }
@@ -61,20 +58,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [pathname, router]);
 
-  // 2. Clean Logout function
   async function handleLogout() {
     try {
-      await auth.signOut(); // clear client session
-      await fetch('/api/auth/logout', { method: 'POST' }); // clear server cookie
-      window.location.href = "/login"; // force reload to login
+      await signOut(auth);
+      setUser(null);
+      router.push("/login");
     } catch (error) {
       console.error("Logout error:", error);
     }
   }
 
-  // 3. Layar Loading Original Milikmu (Tidak Diubah)
   if (loading) {
     return (
       <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#F4F6FB", fontFamily: font }}>
@@ -90,8 +85,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       </div>
     );
   }
-
-  // We remove "if (!user) return null;" here so the app can render the login page!
 
   return (
     <Ctx.Provider value={{ user, loading: false, logout: handleLogout }}>

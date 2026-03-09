@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useAuth } from "@/context/AuthContext";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface NotifLog {
@@ -73,6 +74,8 @@ function TypeBadge({ type }: { type: string }) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 export default function NotificationsClient({ initialRole, initialLogs, members }: Props) {
+  const { user } = useAuth();
+  const canMutate = user?.role === "SUPER_ADMIN";
   const [tab, setTab] = useState<"send" | "history">("send");
   const [logs, setLogs] = useState<NotifLog[]>(initialLogs);
 
@@ -94,6 +97,10 @@ export default function NotificationsClient({ initialRole, initialLogs, members 
   const selectedMember = members.find((m) => m.uid === targetUid);
 
   async function handleSend() {
+    if (!canMutate) {
+      setSendResult({ ok: false, msg: "Hanya SUPER_ADMIN yang dapat mengirim notifikasi." });
+      return;
+    }
     if (!title.trim() || !message.trim()) {
       setSendResult({ ok: false, msg: "Judul dan pesan tidak boleh kosong." });
       return;
@@ -346,17 +353,17 @@ export default function NotificationsClient({ initialRole, initialLogs, members 
 
             <button
               onClick={handleSend}
-              disabled={sending || !title.trim() || !message.trim() || (targetType === "user" && !targetUid)}
+              disabled={!canMutate || sending || !title.trim() || !message.trim() || (targetType === "user" && !targetUid)}
               style={{
                 width: "100%",
                 padding: "13px",
                 borderRadius: 12,
                 border: "none",
-                background: sending || !title.trim() || !message.trim() ? C.border : C.blue,
-                color: sending || !title.trim() || !message.trim() ? C.tx3 : "#FFFFFF",
+                background: !canMutate || sending || !title.trim() || !message.trim() ? C.border : C.blue,
+                color: !canMutate || sending || !title.trim() || !message.trim() ? C.tx3 : "#FFFFFF",
                 fontSize: 14,
                 fontWeight: 700,
-                cursor: sending || !title.trim() || !message.trim() ? "not-allowed" : "pointer",
+                cursor: !canMutate || sending || !title.trim() || !message.trim() ? "not-allowed" : "pointer",
                 transition: "background .15s",
               }}
             >

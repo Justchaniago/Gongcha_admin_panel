@@ -5,39 +5,58 @@ import { FieldValue } from "firebase-admin/firestore";
 import { cookies } from "next/headers";
 import { adminAuth } from "@/lib/firebaseAdmin";
 
-// Helper untuk validasi session
-async function validateSession(req: NextRequest) {
+async function validateSession() {
   const cookieStore = await cookies();
   const sessionCookie = cookieStore.get("session")?.value;
   if (!sessionCookie) {
     return { error: "Session not found. Please login again.", status: 403 };
   }
-  const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
-  const uid = decodedClaims.uid;
-
-  // Fresh Role Fetching
-  const userDoc = await adminDb.collection("users").doc(uid).get();
-  const staffDoc = await adminDb.collection("staff").doc(uid).get();
-  const profile = userDoc.exists ? userDoc.data() : staffDoc.exists ? staffDoc.data() : null;
-  const role = profile?.role?.toLowerCase(); // Case-insensitive
-
-  const allowedRoles = ["admin", "master", "manager", "store_manager"];
-  if (!role || !allowedRoles.includes(role)) {
-    return { error: "Access denied. Role not allowed.", status: 403 };
+  try {
+    const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
+    const profileSnap = await adminDb.collection("admin_users").doc(decodedClaims.uid).get();
+    const profile = profileSnap.data();
+    if (profile?.isActive !== true || profile?.role !== "SUPER_ADMIN") {
+      return { error: "Access denied. SUPER_ADMIN required.", status: 403 };
+    }
+    return { token: decodedClaims, userRole: profile.role, error: null };
+  } catch {
+    return { error: "Invalid session.", status: 401 };
   }
-  return { token: decodedClaims, userRole: role, error: null };
+}
+
+function parseRewardBody(body: any) {
+  const title = String(body.title ?? "").trim();
+  const description = String(body.description ?? "").trim();
+  const pointsRequired = Number(body.pointsRequired ?? body.pointsCost ?? 0);
+  const imageUrl = String(body.imageUrl ?? body.imageURL ?? "").trim();
+  const category = body.category;
+  const isActive = body.isActive !== false;
+
+  if (!title) throw new Error("title wajib diisi.");
+  if (!Number.isFinite(pointsRequired) || pointsRequired < 0) {
+    throw new Error("pointsRequired harus angka positif.");
+  }
+
+  return {
+    title,
+    description,
+    pointsRequired,
+    imageUrl,
+    isActive,
+    ...(category ? { category } : {}),
+  };
 }
 
 // ── GET /api/rewards ───────────────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
   // Validasi session
-  const validation = await validateSession(req);
+  const validation = await validateSession();
   if (validation.error) {
     return NextResponse.json({ message: validation.error }, { status: validation.status });
   }
 
   try {
-    const snap = await adminDb.collection("rewards_catalog").get();
+    const snap = await adminDb.collection("rewards").get();
     const rewards = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     return NextResponse.json({ rewards });
   } catch (err: any) {
@@ -48,27 +67,23 @@ export async function GET(req: NextRequest) {
 // ── POST /api/rewards ─────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   // Validasi session
-  const validation = await validateSession(req);
+  const validation = await validateSession();
   if (validation.error) {
     return NextResponse.json({ message: validation.error }, { status: validation.status });
   }
 
   try {
     const body = await req.json();
-    const { rewardId, title, description, pointsCost, category, isActive, type } = body;
+    const { rewardId } = body;
 
     // Validation
     if (!rewardId?.trim())  return NextResponse.json({ message: "rewardId wajib diisi." },  { status: 400 });
-    if (!title?.trim())     return NextResponse.json({ message: "title wajib diisi." },      { status: 400 });
-    if (!["Drink", "Topping", "Discount"].includes(category)) {
-      return NextResponse.json({ message: "category invalid. Use: Drink, Topping, or Discount." }, { status: 400 });
-    }
 
     const docId = rewardId.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
     if (!docId) {
       return NextResponse.json({ message: "Reward ID invalid. Use lowercase letters, numbers, or underscore." }, { status: 400 });
     }
-    const docRef = adminDb.collection("rewards_catalog").doc(docId);
+    const docRef = adminDb.collection("rewards").doc(docId);
 
     // Check duplicate
     const existing = await docRef.get();
@@ -76,13 +91,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ message: `Reward ID "${docId}" sudah digunakan.` }, { status: 409 });
     }
 
+    const parsed = parseRewardBody(body);
+
     const payload = {
-      title:       title.trim(),
-      description: (description ?? "").trim(),
-      pointsCost:  typeof pointsCost === "number" ? pointsCost : 0,
-      category,
-      isActive:    isActive !== false,
-      type:        type === "personal" ? "personal" : "catalog", // default ke catalog
+      ...parsed,
       createdAt:   FieldValue.serverTimestamp(),
       updatedAt:   FieldValue.serverTimestamp(),
     };

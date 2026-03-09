@@ -91,7 +91,7 @@ export default function InjectVoucherModalForMember({ uid, onClose, onSuccess }:
         <h2 style={{ fontSize: 20, fontWeight: 800, color: C.tx1, marginBottom: 18 }}>Suntik Voucher ke User</h2>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>
-            <FL required>Pilih Voucher</FL>
+            <FL>Pilih Voucher</FL>
             <select
               value={rewardId}
               onChange={e => {
@@ -110,16 +110,16 @@ export default function InjectVoucherModalForMember({ uid, onClose, onSuccess }:
             </select>
           </div>
           <div>
-            <FL required>Judul Voucher</FL>
+            <FL>Judul Voucher</FL>
             <GcInput placeholder="Judul voucher" value={title} onChange={e => setTitle(e.target.value)} />
           </div>
           <div>
-            <FL required>Kode Voucher</FL>
+            <FL>Kode Voucher</FL>
             <GcInput placeholder="Kode unik voucher" value={code} onChange={e => setCode(e.target.value)} />
             <div style={{ fontSize: 11, color: C.tx2, marginTop: 2 }}>Otomatis terisi, bisa diganti manual jika perlu.</div>
           </div>
           <div>
-            <FL required>Tanggal Kadaluarsa</FL>
+            <FL>Tanggal Kadaluarsa</FL>
             <GcInput type="date" value={expiresAt} onChange={e => setExpiresAt(e.target.value)} />
           </div>
           {error && <div style={{ color: C.red, fontSize: 13, marginTop: 6 }}>{error}</div>}

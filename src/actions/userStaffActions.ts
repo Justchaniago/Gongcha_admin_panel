@@ -13,17 +13,12 @@ async function getAuthSession() {
   try {
     const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
     
-    // Get role from Firestore (check users first, then staff)
-    let userDoc = await adminDb.collection("users").doc(decodedClaims.uid).get();
-    let role = userDoc.exists ? userDoc.data()?.role : null;
-    
-    if (!role) {
-      const staffDoc = await adminDb.collection("staff").doc(decodedClaims.uid).get();
-      role = staffDoc.exists ? staffDoc.data()?.role : null;
+    const adminSnap = await adminDb.collection("admin_users").doc(decodedClaims.uid).get();
+    const adminData = adminSnap.data();
+    const role = adminData?.role;
+    if (!adminData || adminData.isActive !== true || !["SUPER_ADMIN", "STAFF"].includes(role)) {
+      throw new Error("Forbidden: You do not have permission.");
     }
-
-    const allowedRoles = ["admin", "master", "manager", "store_manager"];
-    if (!allowedRoles.includes(role)) throw new Error("Forbidden: You do not have permission.");
     
     return { uid: decodedClaims.uid, role };
   } catch (error) {
@@ -34,7 +29,7 @@ async function getAuthSession() {
 // ├── CREATE ACCOUNT (MEMBER OR STAFF) ──
 export async function createAccountAction(payload: any, type: "member" | "staff") {
   await getAuthSession();
-  const { email, password, name, role, storeLocations, accessAllStores, phoneNumber, tier } = payload;
+  const { email, password, name, role, assignedStoreId, phoneNumber, tier } = payload;
 
   try {
     // 1. Create in Firebase Auth
@@ -54,20 +49,21 @@ export async function createAccountAction(payload: any, type: "member" | "staff"
     if (type === "staff") {
       const staffData = {
         ...baseData,
-        role: role || "cashier",
-        storeLocations: storeLocations || [],
-        accessAllStores: !!accessAllStores,
+        uid: authUser.uid,
+        role: role === "SUPER_ADMIN" ? "SUPER_ADMIN" : "STAFF",
+        assignedStoreId: role === "SUPER_ADMIN" ? null : (assignedStoreId ?? null),
       };
-      await adminDb.collection("staff").doc(authUser.uid).set(staffData);
+      await adminDb.collection("admin_users").doc(authUser.uid).set(staffData);
     } else {
       const userData = {
         ...baseData,
-        phoneNumber: phoneNumber || "",
-        tier: tier || "Silver",
+        phone: phoneNumber || "",
+        tier: (tier || "SILVER").toUpperCase(),
         role: "member",
-        currentPoints: 0,
-        lifetimePoints: 0,
-        vouchers: [],
+        points: 0,
+        xp: 0,
+        activeVouchers: [],
+        fcmTokens: [],
       };
       await adminDb.collection("users").doc(authUser.uid).set(userData);
     }
@@ -80,7 +76,7 @@ export async function createAccountAction(payload: any, type: "member" | "staff"
 }
 
 // ── UPDATE ACCOUNT ──
-export async function updateAccountAction(uid: string, data: any, collection: "users" | "staff") {
+export async function updateAccountAction(uid: string, data: any, collection: "users" | "staff" | "admin_users") {
   await getAuthSession();
   const cleanData = { ...data, updatedAt: new Date().toISOString() };
   
@@ -95,7 +91,7 @@ export async function updateAccountAction(uid: string, data: any, collection: "u
 }
 
 // ── DELETE ACCOUNT ──
-export async function deleteAccountAction(uid: string, collection: "users" | "staff") {
+export async function deleteAccountAction(uid: string, collection: "users" | "staff" | "admin_users") {
   await getAuthSession();
   try {
     await adminAuth.deleteUser(uid);
@@ -110,6 +106,9 @@ export async function deleteAccountAction(uid: string, collection: "users" | "st
 export async function updatePointsAction(uid: string, points: number, lifetime: number) {
   await getAuthSession();
   await adminDb.collection("users").doc(uid).update({
+    points,
+    xp: lifetime,
+    // legacy mirror for old UI that still reads these fields
     currentPoints: points,
     lifetimePoints: lifetime,
     updatedAt: new Date().toISOString(),

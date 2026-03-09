@@ -23,14 +23,11 @@ export default async function StoresPage() {
     redirect("/login");
   }
 
-  // Fresh role fetch
-  const userDoc = await adminDb.collection("users").doc(uid).get();
-  const staffDoc = await adminDb.collection("staff").doc(uid).get();
-  const profile = userDoc.exists ? userDoc.data() : staffDoc.exists ? staffDoc.data() : null;
+  const profileSnap = await adminDb.collection("admin_users").doc(uid).get();
+  const profile = profileSnap.data();
   const role = profile?.role;
 
-  const allowedRoles = ["admin", "master", "manager", "store_manager"];
-  if (!allowedRoles.includes(role?.toLowerCase?.() || role)) {
+  if (profile?.isActive !== true || !["SUPER_ADMIN", "STAFF"].includes(role)) {
     return <UnauthorizedOverlay />;
   }
 
@@ -72,7 +69,7 @@ export default async function StoresPage() {
           { label: 'Total Stores', value: stores.length,                                              color: '#4361EE', bg: '#EEF2FF', icon: 'store' },
           { label: 'Active',        value: activeCount,                                                color: '#12B76A', bg: '#ECFDF3', icon: 'check' },
           { label: 'Inactive',     value: inactiveCount,                                              color: '#F04438', bg: '#FEF3F2', icon: 'x'     },
-          { label: 'With GPS',   value: stores.filter(s => s.latitude && s.longitude).length,       color: '#F79009', bg: '#FFFAEB', icon: 'pin'   },
+          { label: 'With GPS',   value: stores.filter(s => s.location).length,                       color: '#F79009', bg: '#FFFAEB', icon: 'pin'   },
         ].map((s) => (
           <div key={s.label} style={{
             background: '#fff', border: '1px solid #EAECF2',

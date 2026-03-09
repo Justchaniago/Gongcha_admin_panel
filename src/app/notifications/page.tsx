@@ -21,16 +21,11 @@ export default async function NotificationsPage() {
     redirect("/login");
   }
 
-  // If token claim missing, fallback to Firestore profile (same pattern as dashboard)
-  if (!role) {
-    const userDoc  = await adminDb.collection("users").doc(uid).get();
-    const staffDoc = await adminDb.collection("staff").doc(uid).get();
-    const profile  = userDoc.exists ? userDoc.data() : staffDoc.exists ? staffDoc.data() : null;
-    role = profile?.role ?? "";
-  }
+  const adminProfileSnap = await adminDb.collection("admin_users").doc(uid).get();
+  const adminProfile = adminProfileSnap.data();
+  role = role || adminProfile?.role || "";
 
-  // Admin + master only
-  if (!["admin", "master"].includes(role)) {
+  if (adminProfile?.isActive !== true || !["SUPER_ADMIN", "STAFF"].includes(role)) {
     return <UnauthorizedOverlay />;
   }
 
@@ -47,7 +42,7 @@ export default async function NotificationsPage() {
   const usersSnap = await adminDb.collection("users").get();
   const members = usersSnap.docs.map((d) => {
     const data = d.data();
-    return { uid: d.id, name: data.name ?? "", email: data.email ?? "" };
+    return { uid: d.id, name: data.name ?? "", email: data.phone ?? "" };
   });
 
   return (

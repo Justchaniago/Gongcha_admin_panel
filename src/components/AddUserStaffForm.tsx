@@ -17,7 +17,7 @@ export default function AddUserStaffForm() {
 
   // Pengecekan permission dari currentUser?.role
   const currentUserRole = currentUser?.role;
-  const hasPermission = currentUserRole === "admin" || currentUserRole === "master" || currentUserRole === "manager";
+  const hasPermission = currentUserRole === "SUPER_ADMIN";
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();

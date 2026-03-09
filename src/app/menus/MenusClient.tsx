@@ -4,11 +4,24 @@ import { useState, useMemo, useEffect, useCallback } from "react";
 import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { db, storage } from "@/lib/firebaseClient";
-import { ProductItem } from "@/types/firestore";
+import { Product, productConverter } from "@/types/firestore";
 import { createMenu, updateMenu, deleteMenu } from "@/actions/menuActions";
+import { useAuth } from "@/context/AuthContext";
 
-type ProductWithId = ProductItem & { id: string };
+type ProductWithId = Product;
 type SyncStatus = "connecting" | "live" | "error";
+
+function generateProductId(name: string): string {
+  return name
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9\s_-]/g, "")
+    .replace(/[\s-]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
 
 const C = {
   bg: '#F4F6FB', white: '#FFFFFF', border: '#EAECF2', border2: '#F0F2F7',
@@ -176,13 +189,13 @@ function DeleteModal({ menu, onClose, onDeleted }: { menu: ProductWithId; onClos
 type MenuForm = {
   name: string;
   description: string;
-  mediumPrice: string;
+  basePrice: string;
   category: string;
-  image: string;
+  imageUrl: string;
   rating: string;
   isAvailable: boolean;
-  availableHot: boolean;
-  availableLarge: boolean;
+  isHotAvailable: boolean;
+  isLargeAvailable: boolean;
 };
 
 function MenuModal({ menu, onClose, onSaved }: {
@@ -192,14 +205,14 @@ function MenuModal({ menu, onClose, onSaved }: {
 
   const [form, setForm] = useState<MenuForm>({
     name:           menu?.name ?? '',
-    description:    menu?.description ?? '',
-    mediumPrice:    menu?.mediumPrice ? String(menu.mediumPrice) : '',
+    description:    (menu as any)?.description ?? '',
+    basePrice:      menu?.basePrice ? String(menu.basePrice) : '',
     category:       menu?.category ?? 'MilkTea',
-    image:          menu?.image ?? '',
-    rating:         menu?.rating ? String(menu.rating) : '5.0',
+    imageUrl:       menu?.imageUrl ?? '',
+    rating:         (menu as any)?.rating ? String((menu as any)?.rating) : '5.0',
     isAvailable:    menu?.isAvailable ?? true,
-    availableHot:   menu?.availableHot ?? false,
-    availableLarge: menu?.availableLarge ?? true,
+    isHotAvailable: menu?.isHotAvailable ?? false,
+    isLargeAvailable: menu?.isLargeAvailable ?? true,
   });
 
   const [loading, setLoading] = useState(false);
@@ -235,7 +248,8 @@ function MenuModal({ menu, onClose, onSaved }: {
       const compressedBlob = await compressImageToWebP(file, 800, 800, 0.8);
       
       // 2. Upload blob WebP ke Firebase Storage
-      const fileName = `products/${Date.now()}_${Math.random().toString(36).substring(2, 8)}.webp`;
+      const productId = generateProductId(form.name || menu?.name || "product");
+      const fileName = `products/${productId || Date.now().toString()}.webp`;
       const storageRef = ref(storage, fileName);
 
       const uploadTask = uploadBytesResumable(storageRef, compressedBlob);
@@ -253,7 +267,7 @@ function MenuModal({ menu, onClose, onSaved }: {
         },
         async () => {
           const url = await getDownloadURL(uploadTask.snapshot.ref);
-          setForm(p => ({ ...p, image: url }));
+          setForm(p => ({ ...p, imageUrl: url }));
           setUploadProgress(null);
         }
       );
@@ -265,21 +279,19 @@ function MenuModal({ menu, onClose, onSaved }: {
 
   async function handleSave() {
     if (!form.name.trim()) { setError('Product name is required.'); return; }
-    if (!form.mediumPrice.trim() || isNaN(Number(form.mediumPrice))) { setError('Price must be a valid number.'); return; }
+    if (!form.basePrice.trim() || isNaN(Number(form.basePrice))) { setError('Price must be a valid number.'); return; }
     if (uploadProgress !== null || processingImage) { setError('Wait for image processing to complete.'); return; }
 
     setLoading(true); setError('');
     try {
       const payload = {
         name: form.name.trim(),
-        description: form.description.trim(),
-        mediumPrice: Number(form.mediumPrice),
+        basePrice: Number(form.basePrice),
         category: form.category,
-        image: form.image.trim(),
-        rating: Number(form.rating) || 5.0,
+        imageUrl: form.imageUrl.trim(),
         isAvailable: form.isAvailable,
-        availableHot: form.availableHot,
-        availableLarge: form.availableLarge,
+        isHotAvailable: form.isHotAvailable,
+        isLargeAvailable: form.isLargeAvailable,
       };
 
       if (isNew) {
@@ -340,8 +352,8 @@ function MenuModal({ menu, onClose, onSaved }: {
               </GcSelect>
             </div>
             <div>
-              <FL required>Medium Price (mediumPrice)</FL>
-              <GcInput type="number" placeholder="29000" value={form.mediumPrice} onChange={set('mediumPrice')}/>
+              <FL required>Base Price (basePrice)</FL>
+              <GcInput type="number" placeholder="29000" value={form.basePrice} onChange={set('basePrice')}/>
             </div>
           </div>
           <div>
@@ -355,9 +367,9 @@ function MenuModal({ menu, onClose, onSaved }: {
               <div>
                 <span style={{ fontSize: 12.5, fontWeight: 700, color: C.tx1, display: 'block' }}>🔥 HOT (availableHot)</span>
               </div>
-              <button type="button" onClick={() => setForm(p => ({ ...p, availableHot: !p.availableHot }))}
-                style={{ width: 36, height: 20, borderRadius: 99, border: 'none', cursor: 'pointer', background: form.availableHot ? '#E11D48' : C.border, position: 'relative', transition: 'background .2s' }}>
-                <span style={{ position: 'absolute', top: 2, borderRadius: '50%', width: 16, height: 16, background: '#fff', boxShadow: '0 1px 4px rgba(0,0,0,.2)', left: form.availableHot ? 18 : 2, transition: 'left .2s cubic-bezier(.34,1.56,.64,1)' }}/>
+              <button type="button" onClick={() => setForm(p => ({ ...p, isHotAvailable: !p.isHotAvailable }))}
+                style={{ width: 36, height: 20, borderRadius: 99, border: 'none', cursor: 'pointer', background: form.isHotAvailable ? '#E11D48' : C.border, position: 'relative', transition: 'background .2s' }}>
+                <span style={{ position: 'absolute', top: 2, borderRadius: '50%', width: 16, height: 16, background: '#fff', boxShadow: '0 1px 4px rgba(0,0,0,.2)', left: form.isHotAvailable ? 18 : 2, transition: 'left .2s cubic-bezier(.34,1.56,.64,1)' }}/>
               </button>
             </div>
 
@@ -365,9 +377,9 @@ function MenuModal({ menu, onClose, onSaved }: {
                <div>
                 <span style={{ fontSize: 12.5, fontWeight: 700, color: C.tx1, display: 'block' }}>🥤 LARGE (availableLarge)</span>
               </div>
-              <button type="button" onClick={() => setForm(p => ({ ...p, availableLarge: !p.availableLarge }))}
-                style={{ width: 36, height: 20, borderRadius: 99, border: 'none', cursor: 'pointer', background: form.availableLarge ? '#2563EB' : C.border, position: 'relative', transition: 'background .2s' }}>
-                <span style={{ position: 'absolute', top: 2, borderRadius: '50%', width: 16, height: 16, background: '#fff', boxShadow: '0 1px 4px rgba(0,0,0,.2)', left: form.availableLarge ? 18 : 2, transition: 'left .2s cubic-bezier(.34,1.56,.64,1)' }}/>
+              <button type="button" onClick={() => setForm(p => ({ ...p, isLargeAvailable: !p.isLargeAvailable }))}
+                style={{ width: 36, height: 20, borderRadius: 99, border: 'none', cursor: 'pointer', background: form.isLargeAvailable ? '#2563EB' : C.border, position: 'relative', transition: 'background .2s' }}>
+                <span style={{ position: 'absolute', top: 2, borderRadius: '50%', width: 16, height: 16, background: '#fff', boxShadow: '0 1px 4px rgba(0,0,0,.2)', left: form.isLargeAvailable ? 18 : 2, transition: 'left .2s cubic-bezier(.34,1.56,.64,1)' }}/>
               </button>
             </div>
           </div>
@@ -377,9 +389,9 @@ function MenuModal({ menu, onClose, onSaved }: {
             <div>
               <FL>Upload Product Image (WebP)</FL>
               <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                {form.image && (
+                {form.imageUrl && (
                   <img
-                    src={form.image}
+                    src={form.imageUrl}
                     alt={form.name}
                     style={{
                       width: '100%',
@@ -453,7 +465,7 @@ function MenuModal({ menu, onClose, onSaved }: {
 }
 
 // ── Table Row ──────────────────────────────────────────────────────────────────
-function MenuRow({ menu, isLast, onEdit, onDelete }: { menu: ProductWithId; isLast: boolean; onEdit: () => void; onDelete: () => void }) {
+function MenuRow({ menu, isLast, onEdit, onDelete, canManage }: { menu: ProductWithId; isLast: boolean; onEdit: () => void; onDelete: () => void; canManage: boolean }) {
   const [h, setH] = useState(false);
   const [bh, setBH] = useState(false);
   const [dh, setDH] = useState(false);
@@ -463,9 +475,9 @@ function MenuRow({ menu, isLast, onEdit, onDelete }: { menu: ProductWithId; isLa
       <td style={{ padding: '14px 18px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
           <div style={{ width: 48, height: 48, borderRadius: 12, background: C.bg, overflow: 'hidden', border: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            {menu.image ? (
+            {menu.imageUrl ? (
               <img
-                src={menu.image}
+                src={menu.imageUrl}
                 alt={menu.name}
                 style={{
                   width: '100%',
@@ -481,32 +493,34 @@ function MenuRow({ menu, isLast, onEdit, onDelete }: { menu: ProductWithId; isLa
           </div>
           <div>
             <p style={{ fontSize: 13.5, fontWeight: 800, color: C.tx1, marginBottom: 2 }}>{menu.name}</p>
-            {menu.description && <p style={{ fontSize: 11.5, color: C.tx3, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{menu.description}</p>}
+            {(menu as any).description && <p style={{ fontSize: 11.5, color: C.tx3, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{(menu as any).description}</p>}
           </div>
         </div>
       </td>
       <td style={{ padding: '14px 18px', fontSize: 12.5, color: C.tx2 }}>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
           <span style={{ padding: '4px 10px', borderRadius: 8, background: C.bg, border: `1px solid ${C.border2}`, fontSize: 11.5, fontWeight: 700, color: C.tx2 }}>{menu.category}</span>
-          {menu.availableHot && <span title="Bisa Panas" style={{ padding: '4px 8px', borderRadius: 8, background: '#FFF1F2', color: '#E11D48', fontSize: 10.5, fontWeight: 800 }}>HOT</span>}
-          {menu.availableLarge && <span title="Large size available" style={{ padding: '4px 8px', borderRadius: 8, background: '#EFF6FF', color: '#2563EB', fontSize: 10.5, fontWeight: 800 }}>LARGE</span>}
+          {menu.isHotAvailable && <span title="Bisa Panas" style={{ padding: '4px 8px', borderRadius: 8, background: '#FFF1F2', color: '#E11D48', fontSize: 10.5, fontWeight: 800 }}>HOT</span>}
+          {menu.isLargeAvailable && <span title="Large size available" style={{ padding: '4px 8px', borderRadius: 8, background: '#EFF6FF', color: '#2563EB', fontSize: 10.5, fontWeight: 800 }}>LARGE</span>}
         </div>
       </td>
-      <td style={{ padding: '14px 18px', fontSize: 13.5, fontWeight: 800, color: C.tx1 }}>{formatRp(menu.mediumPrice)}</td>
+      <td style={{ padding: '14px 18px', fontSize: 13.5, fontWeight: 800, color: C.tx1 }}>{formatRp(menu.basePrice)}</td>
       <td style={{ padding: '14px 18px' }}><StatusPill active={menu.isAvailable !== false}/></td>
       <td style={{ padding: '14px 18px' }}>
-        <div style={{ display: 'flex', gap: 6 }}>
-          <button onClick={onEdit} onMouseOver={() => setBH(true)} onMouseOut={() => setBH(false)}
-            style={{ height: 32, padding: '0 12px', borderRadius: 7, fontFamily: font, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: `1.5px solid ${bh ? C.blue : C.border}`, background: bh ? C.blueL : C.white, color: bh ? C.blue : C.tx2, display: 'inline-flex', alignItems: 'center', gap: 5, transition: 'all .13s' }}>
-            <svg width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
-            Edit
-          </button>
-          <button onClick={onDelete} onMouseOver={() => setDH(true)} onMouseOut={() => setDH(false)}
-            style={{ height: 32, padding: '0 12px', borderRadius: 7, fontFamily: font, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: `1.5px solid ${dh ? C.red : C.border}`, background: dh ? C.redBg : C.white, color: dh ? C.red : C.tx2, display: 'inline-flex', alignItems: 'center', gap: 5, transition: 'all .13s' }}>
-            <svg width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M9 6V4h6v2"/></svg>
-            Delete
-          </button>
-        </div>
+        {canManage && (
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button onClick={onEdit} onMouseOver={() => setBH(true)} onMouseOut={() => setBH(false)}
+              style={{ height: 32, padding: '0 12px', borderRadius: 7, fontFamily: font, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: `1.5px solid ${bh ? C.blue : C.border}`, background: bh ? C.blueL : C.white, color: bh ? C.blue : C.tx2, display: 'inline-flex', alignItems: 'center', gap: 5, transition: 'all .13s' }}>
+              <svg width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+              Edit
+            </button>
+            <button onClick={onDelete} onMouseOver={() => setDH(true)} onMouseOut={() => setDH(false)}
+              style={{ height: 32, padding: '0 12px', borderRadius: 7, fontFamily: font, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: `1.5px solid ${dh ? C.red : C.border}`, background: dh ? C.redBg : C.white, color: dh ? C.red : C.tx2, display: 'inline-flex', alignItems: 'center', gap: 5, transition: 'all .13s' }}>
+              <svg width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M9 6V4h6v2"/></svg>
+              Delete
+            </button>
+          </div>
+        )}
       </td>
     </tr>
   );
@@ -523,13 +537,15 @@ export default function MenusClient({ initialMenus, showAddTrigger }: { initialM
   const [showAdd, setShowAdd] = useState(false);
   const [toast, setToast] = useState<{msg:string;type:'success'|'error'}|null>(null);
   const [searchFocus, setSearchFocus] = useState(false);
+  const { user } = useAuth();
+  const canManageMenus = user?.role !== "STAFF";
 
   const showToast = useCallback((msg: string, type: 'success'|'error' = 'success') => setToast({ msg, type }), []);
 
   useEffect(() => {
-    const q = query(collection(db, "products"), orderBy("name"));
+    const q = query(collection(db, "products").withConverter(productConverter), orderBy("name"));
     const unsub = onSnapshot(q,
-      snap => { setMenus(snap.docs.map(d => ({ id: d.id, ...d.data() } as ProductWithId))); setSyncStatus("live"); },
+      snap => { setMenus(snap.docs.map(d => d.data())); setSyncStatus("live"); },
       err => { console.error("[products onSnapshot]", err); setSyncStatus("error"); }
     );
     return () => unsub();
@@ -547,14 +563,16 @@ export default function MenusClient({ initialMenus, showAddTrigger }: { initialM
       <>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <LiveBadge status={syncStatus}/>
-          <button onClick={() => setShowAdd(true)} style={{ height: 42, padding: '0 20px', borderRadius: 10, border: 'none', background: C.tx1, color: '#fff', fontFamily: font, fontSize: 13.5, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8, transition: 'all .15s' }}
-            onMouseOver={e => { e.currentTarget.style.background = C.red; e.currentTarget.style.transform = 'translateY(-1px)'; }}
-            onMouseOut={e  => { e.currentTarget.style.background = C.tx1; e.currentTarget.style.transform = 'none'; }}>
-            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
-            Add Product
-          </button>
+          {canManageMenus && (
+            <button onClick={() => setShowAdd(true)} style={{ height: 42, padding: '0 20px', borderRadius: 10, border: 'none', background: C.tx1, color: '#fff', fontFamily: font, fontSize: 13.5, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8, transition: 'all .15s' }}
+              onMouseOver={e => { e.currentTarget.style.background = C.red; e.currentTarget.style.transform = 'translateY(-1px)'; }}
+              onMouseOut={e  => { e.currentTarget.style.background = C.tx1; e.currentTarget.style.transform = 'none'; }}>
+              <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+              Add Product
+            </button>
+          )}
         </div>
-        {showAdd && <MenuModal menu={null} onClose={() => setShowAdd(false)} onSaved={msg => { showToast(msg); setShowAdd(false); }}/>}
+        {canManageMenus && showAdd && <MenuModal menu={null} onClose={() => setShowAdd(false)} onSaved={msg => { showToast(msg); setShowAdd(false); }}/>} 
         {toast && <Toast msg={toast.msg} type={toast.type} onDone={() => setToast(null)}/>}
       </>
     );
@@ -598,15 +616,15 @@ export default function MenusClient({ initialMenus, showAddTrigger }: { initialM
             {filtered.length === 0 ? (
               <tr><td colSpan={5} style={{ padding: '40px', textAlign: 'center', color: C.tx3 }}>No products found.</td></tr>
             ) : filtered.map((m, i) => (
-              <MenuRow key={m.id} menu={m} isLast={i === filtered.length - 1} onEdit={() => setEditTarget(m)} onDelete={() => setDeleteTarget(m)} />
+              <MenuRow key={m.id} menu={m} isLast={i === filtered.length - 1} onEdit={() => setEditTarget(m)} onDelete={() => setDeleteTarget(m)} canManage={canManageMenus} />
             ))}
           </tbody>
         </table>
       </div>
 
-      {editTarget && <MenuModal menu={editTarget} onClose={() => setEditTarget(null)} onSaved={msg => { showToast(msg); setEditTarget(null); }}/>}
-      {showAdd && <MenuModal menu={null} onClose={() => setShowAdd(false)} onSaved={msg => { showToast(msg); setShowAdd(false); }}/>}
-      {deleteTarget && <DeleteModal menu={deleteTarget} onClose={() => setDeleteTarget(null)} onDeleted={msg => { showToast(msg); setDeleteTarget(null); }}/>}
+      {canManageMenus && editTarget && <MenuModal menu={editTarget} onClose={() => setEditTarget(null)} onSaved={msg => { showToast(msg); setEditTarget(null); }}/>} 
+      {canManageMenus && showAdd && <MenuModal menu={null} onClose={() => setShowAdd(false)} onSaved={msg => { showToast(msg); setShowAdd(false); }}/>} 
+      {canManageMenus && deleteTarget && <DeleteModal menu={deleteTarget} onClose={() => setDeleteTarget(null)} onDeleted={msg => { showToast(msg); setDeleteTarget(null); }}/>} 
       {toast && <Toast msg={toast.msg} type={toast.type} onDone={() => setToast(null)}/>}
     </>
   );

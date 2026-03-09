@@ -1,117 +1,129 @@
-// ─── accounts/{id} ──────────────────────────────────────────────────────────
-export type AccountStatus = "active" | "suspended" | "pending";
-export type AccountRole   = "master" | "admin" | "manager" | "viewer";
+import { 
+  Timestamp, 
+  GeoPoint, 
+  DocumentData, 
+  FirestoreDataConverter, 
+  QueryDocumentSnapshot, 
+  SnapshotOptions, 
+  PartialWithFieldValue 
+} from "firebase/firestore";
 
-export interface Account {
-  id?:         string;           // Firestore doc ID
-  name:        string;
-  email:       string;
-  phoneNumber: string;
-  role:        AccountRole;
-  status:      AccountStatus;
-  createdAt:   string;           // ISO timestamp
-  lastLogin:   string | null;
-  notes:       string;
+// ============================================================================
+// 1. ADMIN USERS (Akses Panel & Kasir)
+// ============================================================================
+export type AdminRole = "SUPER_ADMIN" | "STAFF" | "admin" | "master" | "manager";
+
+export interface AdminUser {
+  uid: string;
+  name: string;
+  email: string;
+  role: AdminRole;
+  assignedStoreId: string | null;
+  isActive: boolean;
 }
 
-// ─── stores/{storeId} ───────────────────────────────────────────────────────
-export interface Store {
-  id:             string;
-  name:           string;
-  address:        string;
-  latitude:       number;
-  longitude:      number;
-  openHours:      string;
-  isActive:       boolean;
-  statusOverride: "open" | "closed" | "almost_close";
-}
+export const adminUserConverter: FirestoreDataConverter<AdminUser> = {
+  toFirestore(admin: PartialWithFieldValue<AdminUser>): DocumentData {
+    return admin;
+  },
+  fromFirestore(snapshot: QueryDocumentSnapshot, options: SnapshotOptions): AdminUser {
+    const data = snapshot.data(options)!;
+    return {
+      uid: snapshot.id, // Ambil dari Doc ID
+      name: data.name,
+      email: data.email,
+      role: data.role as AdminRole,
+      assignedStoreId: data.assignedStoreId ?? null,
+      isActive: data.isActive,
+    };
+  }
+};
 
-// ─── stores/{storeId}/transactions/{YYYYMMDD-POSID} ─────────────────────────
-export interface Transaction {
-  transactionId:   string;
-  amount:          number;
-  potentialPoints: number;
-  memberId:        string;
-  memberName:      string;
-  staffId:         string;
-  storeLocation:   string;
-  status:          "pending" | "verified" | "rejected";
-  createdAt:       string;
-  verifiedAt:      string | null;
-}
+// ============================================================================
+// 2. USERS & NOTIFICATIONS (Ekosistem Customer)
+// ============================================================================
+export type UserTier = "BRONZE" | "SILVER" | "GOLD" | "Silver" | "Gold" | "Platinum";
 
-// ─── users/{UID} ────────────────────────────────────────────────────────────
-export interface XpHistoryEntry {
-  id:            string;
-  date:          string;
-  amount:        number;
-  type:          "earn" | "redeem";
-  status:        "pending" | "verified" | "rejected";
-  context:       string;
-  location:      string;
-  transactionId: string;
-}
+export type UserRole = "member" | "admin";
 
-export type VoucherType = "catalog" | "personal";
-export interface UserVoucher {
-  id:        string;
-  rewardId:  string;
-  title:     string;
-  code:      string;
-  isUsed:    boolean;
-  expiresAt: string;
-  type:      VoucherType;
-}
-
-export type UserRole = "master" | "trial" | "admin" | "member";
-export type UserTier = "Silver" | "Gold" | "Platinum";
-
-export interface User {
-  name:           string;
-  phoneNumber:    string;
-  email:          string;
-  photoURL:       string;
-  role:           UserRole;
-  tier:           UserTier;
-  currentPoints:  number;
-  lifetimePoints: number;
-  joinedDate:     string;
-  xpHistory:      XpHistoryEntry[];
-  vouchers:       UserVoucher[];
-}
-
-// ─── staff/{UID} ─────────────────────────────────────────────────────────────
 export type StaffRole = "cashier" | "store_manager" | "admin";
 
 export interface Staff {
-  name:            string;
-  email:           string;
-  role:            StaffRole;
-  isActive:        boolean;
-
-  // Lama (tetap ada untuk compat)
-  // Multi-store
+  uid: string;
+  name: string;
+  email?: string;
+  role: StaffRole;
   storeLocations?: string[];
   accessAllStores?: boolean;
+  isActive?: boolean;
 }
 
-// ─── rewards_catalog/{rewardId} ──────────────────────────────────────────────
-export type RewardCategory = "Drink" | "Topping" | "Discount";
-
-export interface Reward {
+export interface UserVoucher {
   id: string;
-  title:       string;
-  description: string;
-  pointsCost:  number;
-  imageURL:    string;
-  category:    RewardCategory;
-  isActive:    boolean;
-  type:        VoucherType; // "catalog" untuk voucher katalog, "personal" untuk voucher suntikan
+  code: string;
+  title: string;
+  expiry: Timestamp;
+  // legacy compatibility fields
+  rewardId?: string;
+  expiresAt?: string;
+  isUsed?: boolean;
+  type?: VoucherType;
 }
 
-export type RewardItem = Reward;
+export type VoucherType = "personal" | "catalog";
 
-// ─── notifications_log/{id} + users/{uid}/notifications/{id} ────────────────
+export interface User {
+  uid: string;
+  name: string;
+  phone?: string;
+  dob?: string; // YYYY-MM-DD
+  points?: number;
+  xp?: number;
+  tier: UserTier;
+  activeVouchers?: UserVoucher[];
+  fcmTokens?: string[];
+  // legacy compatibility fields used by older admin screens
+  email?: string;
+  phoneNumber?: string;
+  role?: UserRole | string;
+  currentPoints?: number;
+  lifetimePoints?: number;
+  joinedDate?: string;
+  vouchers?: UserVoucher[];
+  xpHistory?: any[];
+  photoURL?: string;
+}
+
+export const userConverter: FirestoreDataConverter<User> = {
+  toFirestore(user: PartialWithFieldValue<User>): DocumentData {
+    return user;
+  },
+  fromFirestore(snapshot: QueryDocumentSnapshot, options: SnapshotOptions): User {
+    const data = snapshot.data(options)!;
+    return {
+      uid: snapshot.id,
+      name: data.name,
+      phone: data.phone,
+      dob: data.dob,
+      points: data.points || 0,
+      xp: data.xp || 0,
+      tier: data.tier as UserTier,
+      activeVouchers: data.activeVouchers || [],
+      fcmTokens: data.fcmTokens || [],
+    };
+  }
+};
+
+// Sub-Collection Notifications
+export interface Notification {
+  id: string;
+  title: string;
+  body: string;
+  isRead: boolean;
+  createdAt: Timestamp;
+  expireAt: Timestamp;
+}
+
 export type NotificationType =
   | "voucher_injected"
   | "tx_verified"
@@ -119,46 +131,254 @@ export type NotificationType =
   | "broadcast"
   | "targeted";
 
-export type NotificationTargetType = "all" | "user";
-
-export interface AdminNotificationLog {
-  id?: string;
-  type: NotificationType;
-  title: string;
-  body: string;
-  targetType: NotificationTargetType;
-  targetUid?: string;
-  targetName?: string;
-  sentAt: string;          // ISO timestamp
-  sentBy: string;          // admin UID
-  recipientCount: number;
-}
-
 export interface UserNotification {
   id: string;
   type: NotificationType;
   title: string;
   body: string;
   isRead: boolean;
-  createdAt: string;       // ISO timestamp
+  createdAt: string;
   data?: Record<string, unknown>;
 }
 
-// ─── products/{productId} ───────────────────────────────────────────────────
-export type ProductCategory = 
-  "Signature" | "MilkTea" | "Coffee" | "Matcha" | "Mint" | "BrownSugar" | "CreativeMix" | "BrewedTea" | "Topping";
-
-export interface ProductItem {
-  id?: string;
-  name: string;
-  category: ProductCategory | string;
-  mediumPrice: number;
-  availableLarge: boolean;
-  availableHot: boolean;
-  description: string;
-  image: string;
-  rating: number;
-  isAvailable: boolean; // Tetap ada untuk fitur "Kosong/Tersedia" di Admin
-  createdAt?: string;
-  updatedAt?: string;
+export interface AdminNotificationLog {
+  type: NotificationType;
+  title: string;
+  body: string;
+  targetType: "all" | "user";
+  targetUid?: string;
+  targetName?: string;
+  sentAt: string;
+  sentBy: string;
+  recipientCount: number;
 }
+
+export const notificationConverter: FirestoreDataConverter<Notification> = {
+  toFirestore(notif: PartialWithFieldValue<Notification>): DocumentData {
+    return notif;
+  },
+  fromFirestore(snapshot: QueryDocumentSnapshot, options: SnapshotOptions): Notification {
+    const data = snapshot.data(options)!;
+    return {
+      id: snapshot.id,
+      title: data.title,
+      body: data.body,
+      isRead: data.isRead,
+      createdAt: data.createdAt,
+      expireAt: data.expireAt,
+    };
+  }
+};
+
+// ============================================================================
+// 3. MASTER DATA (Stores & Products)
+// ============================================================================
+export interface Store {
+  id: string;
+  name: string;
+  address: string;
+  location: GeoPoint;
+  operationalHours: { open: string; close: string };
+  isForceClosed: boolean;
+  isActive: boolean;
+}
+
+export const storeConverter: FirestoreDataConverter<Store> = {
+  toFirestore(store: PartialWithFieldValue<Store>): DocumentData {
+    return store;
+  },
+  fromFirestore(snapshot: QueryDocumentSnapshot, options: SnapshotOptions): Store {
+    const data = snapshot.data(options)!;
+    return {
+      id: snapshot.id,
+      name: data.name,
+      address: data.address,
+      location: data.location,
+      operationalHours: data.operationalHours,
+      isForceClosed: data.isForceClosed,
+      isActive: data.isActive,
+    };
+  }
+};
+
+export interface Product {
+  id: string;
+  name: string;
+  category: string;
+  basePrice: number;
+  imageUrl: string;
+  isLargeAvailable: boolean;
+  isHotAvailable: boolean;
+  isAvailable: boolean;
+}
+
+export const productConverter: FirestoreDataConverter<Product> = {
+  toFirestore(product: PartialWithFieldValue<Product>): DocumentData {
+    return product;
+  },
+  fromFirestore(snapshot: QueryDocumentSnapshot, options: SnapshotOptions): Product {
+    const data = snapshot.data(options)!;
+    return {
+      id: snapshot.id,
+      name: data.name,
+      category: data.category,
+      basePrice: data.basePrice,
+      imageUrl: data.imageUrl,
+      isLargeAvailable: data.isLargeAvailable,
+      isHotAvailable: data.isHotAvailable,
+      isAvailable: data.isAvailable,
+    };
+  }
+};
+
+// ============================================================================
+// 4. TRANSACTIONS
+// ============================================================================
+export type TransactionStatus = "PENDING" | "COMPLETED" | "CANCELLED" | "REFUNDED";
+
+export interface Transaction {
+  id: string;
+  receiptNumber: string;
+  storeId: string;
+  storeName: string;
+  userId: string | null;
+  totalAmount: number;
+  status: TransactionStatus;
+  createdAt: Timestamp;
+}
+
+export const transactionConverter: FirestoreDataConverter<Transaction> = {
+  toFirestore(trx: PartialWithFieldValue<Transaction>): DocumentData {
+    return trx;
+  },
+  fromFirestore(snapshot: QueryDocumentSnapshot, options: SnapshotOptions): Transaction {
+    const data = snapshot.data(options)!;
+    return {
+      id: snapshot.id,
+      receiptNumber: data.receiptNumber,
+      storeId: data.storeId,
+      storeName: data.storeName,
+      userId: data.userId || null,
+      totalAmount: data.totalAmount,
+      status: data.status as TransactionStatus,
+      createdAt: data.createdAt,
+    };
+  }
+};
+
+// ============================================================================
+// 5. DAILY STATS (The God Document)
+// ============================================================================
+export interface DailyStat {
+  id: string;
+  date: string;
+  type: "GLOBAL" | "STORE";
+  storeId: string;
+  totalRevenue: number;
+  totalTransactions: number;
+  updatedAt: Timestamp;
+}
+
+export const dailyStatConverter: FirestoreDataConverter<DailyStat> = {
+  toFirestore(stat: PartialWithFieldValue<DailyStat>): DocumentData {
+    return stat;
+  },
+  fromFirestore(snapshot: QueryDocumentSnapshot, options: SnapshotOptions): DailyStat {
+    const data = snapshot.data(options)!;
+    return {
+      id: snapshot.id,
+      date: data.date,
+      type: data.type as "GLOBAL" | "STORE",
+      storeId: data.storeId,
+      totalRevenue: data.totalRevenue || 0,
+      totalTransactions: data.totalTransactions || 0,
+      updatedAt: data.updatedAt,
+    };
+  }
+};
+
+// ============================================================================
+// 6. MARKETING (Rewards & Promos)
+// ============================================================================
+export interface Reward {
+  id: string;
+  title: string;
+  description: string;
+  pointsRequired: number;
+  imageUrl: string;
+  isActive: boolean;
+  // optional metadata used by the admin UI
+  category?: "Drink" | "Topping" | "Discount";
+  // backward-compatible aliases
+  pointsCost?: number;
+  imageURL?: string;
+}
+
+export const rewardConverter: FirestoreDataConverter<Reward> = {
+  toFirestore(reward: PartialWithFieldValue<Reward>): DocumentData {
+    return reward;
+  },
+  fromFirestore(snapshot: QueryDocumentSnapshot, options: SnapshotOptions): Reward {
+    const data = snapshot.data(options)!;
+    const pointsRequired = Number(
+      data.pointsRequired ?? data.pointsCost ?? 0
+    );
+    const imageUrl = String(data.imageUrl ?? data.imageURL ?? "");
+    return {
+      id: snapshot.id,
+      title: data.title,
+      description: data.description,
+      pointsRequired,
+      imageUrl,
+      isActive: data.isActive,
+      category: data.category,
+      pointsCost: pointsRequired,
+      imageURL: imageUrl,
+    };
+  }
+};
+
+export interface GlobalPromo {
+  id: string;
+  title: string;
+  description: string;
+  imageUrl: string;
+  isActive: boolean;
+}
+
+export const globalPromoConverter: FirestoreDataConverter<GlobalPromo> = {
+  toFirestore(promo: PartialWithFieldValue<GlobalPromo>): DocumentData {
+    return promo;
+  },
+  fromFirestore(snapshot: QueryDocumentSnapshot, options: SnapshotOptions): GlobalPromo {
+    const data = snapshot.data(options)!;
+    return {
+      id: snapshot.id,
+      title: data.title,
+      description: data.description,
+      imageUrl: data.imageUrl,
+      isActive: data.isActive,
+    };
+  }
+};
+
+// ============================================================================
+// 7. LEGACY ADMIN ACCOUNTS (compatibility layer)
+// ============================================================================
+export type AccountRole = "master" | "admin" | "manager" | "viewer";
+export type AccountStatus = "active" | "suspended" | "pending";
+
+export interface Account {
+  id: string;
+  name: string;
+  email: string;
+  phoneNumber?: string;
+  role: AccountRole;
+  status: AccountStatus;
+  notes?: string;
+  createdAt?: string;
+  lastLogin?: string;
+}
+
+// Legacy alias used by old menus page
+export type ProductItem = Product;

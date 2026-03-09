@@ -2,7 +2,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { adminDb, adminAuth } from "@/lib/firebaseAdmin";
 import MenusClient from "./MenusClient";
-import { ProductItem } from "@/types/firestore";
+import { Product } from "@/types/firestore";
 import UnauthorizedOverlay from "@/components/ui/UnauthorizedOverlay";
 
 export const dynamic = "force-dynamic";
@@ -20,13 +20,11 @@ export default async function MenusPage() {
     redirect("/login");
   }
 
-  const userDoc = await adminDb.collection("users").doc(uid).get();
-  const staffDoc = await adminDb.collection("staff").doc(uid).get();
-  const profile = userDoc.exists ? userDoc.data() : staffDoc.exists ? staffDoc.data() : null;
+  const profileSnap = await adminDb.collection("admin_users").doc(uid).get();
+  const profile = profileSnap.data();
   const role = profile?.role;
 
-  const allowedRoles = ["admin", "master", "manager"];
-  if (!allowedRoles.includes(role?.toLowerCase?.() || role)) {
+  if (profile?.isActive !== true || !["SUPER_ADMIN", "STAFF"].includes(role)) {
     return <UnauthorizedOverlay />;
   }
 
@@ -35,7 +33,7 @@ export default async function MenusPage() {
   const menus = snapshot.docs.map(doc => ({
     id: doc.id,
     ...doc.data(),
-  })) as (ProductItem & { id: string })[];
+  })) as (Product & { id: string })[];
 
   const availableCount = menus.filter(m => m.isAvailable !== false).length;
   const unavailableCount = menus.length - availableCount;

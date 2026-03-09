@@ -1,9 +1,10 @@
 "use client";
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
-import { User, Staff, UserTier, UserRole, StaffRole } from "@/types/firestore";
+import { User, UserTier, UserRole, userConverter, AdminUser, AdminRole, adminUserConverter } from "@/types/firestore";
 import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
 import { db } from "@/lib/firebaseClient";
+import { useAuth } from "@/context/AuthContext";
 import { 
   createAccountAction, 
   updateAccountAction, 
@@ -16,15 +17,11 @@ import InjectVoucherModalForMember from "./InjectVoucherModalForMember";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type UserWithUid  = User  & { uid: string };
-type StaffWithUid = Staff & {
-  uid: string;
-  storeLocations?: string[];
-  accessAllStores?: boolean;
-};
+type StaffWithUid = AdminUser & { uid: string };
 
 function normalizeStoreAccess(s: StaffWithUid): { storeLocations: string[]; accessAllStores: boolean } {
-  if (s.accessAllStores) return { storeLocations: [], accessAllStores: true };
-  return { storeLocations: s.storeLocations || [], accessAllStores: false };
+  if (s.role === "SUPER_ADMIN") return { storeLocations: [], accessAllStores: true };
+  return { storeLocations: s.assignedStoreId ? [s.assignedStoreId] : [], accessAllStores: false };
 }
 type TabType   = "member" | "staff";
 type ToastType = "success" | "error" | "info";
@@ -56,10 +53,12 @@ const TIER_CFG: Record<string, { bg: string; color: string; ring: string }> = {
   Silver:   { bg: "#F8FAFC", color: "#475569", ring: "#E2E8F0" },
 };
 
-const STAFF_CFG: Record<string, { bg: string; color: string; label: string; code: string }> = {
-  cashier:       { bg: C.blueL,   color: C.blueD,   label: "Kasir",   code: "POS" },
-  store_manager: { bg: C.greenBg, color: "#027A48",  label: "Manajer", code: "MGT" },
-  admin:         { bg: C.redBg,   color: C.red,      label: "Admin",   code: "ADM" },
+const STAFF_CFG: Record<AdminRole, { bg: string; color: string; label: string; code: string }> = {
+  SUPER_ADMIN: { bg: C.redBg, color: C.red, label: "Super Admin", code: "ROOT" },
+  STAFF:       { bg: C.blueL, color: C.blueD, label: "Staff", code: "STF" },
+  admin:       { bg: C.redBg, color: C.red, label: "Admin", code: "ADM" },
+  master:      { bg: C.redBg, color: C.red, label: "Master", code: "MST" },
+  manager:     { bg: C.greenBg, color: "#027A48", label: "Manager", code: "MGR" },
 };
 
 const TIER_OPTIONS = ["All", "Silver", "Gold", "Platinum"] as const;
@@ -559,19 +558,35 @@ function EditStaffModal({ staff, storeIds, onClose, onSaved, toast }: {
   toast: ReturnType<typeof useToast>["show"];
 }) {
   const normalized = normalizeStoreAccess(staff);
-  const [form, setForm] = useState({ name: staff.name ?? "", role: (staff.role as string) ?? "cashier", storeLocations: normalized.storeLocations, accessAllStores: normalized.accessAllStores, isActive: staff.isActive ?? true });
+  const [form, setForm] = useState({
+    name: staff.name ?? "",
+    role: (staff.role as AdminRole) ?? "STAFF",
+    assignedStoreId: normalized.storeLocations[0] ?? "",
+    accessAllStores: normalized.accessAllStores,
+    isActive: staff.isActive ?? true,
+  });
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState("");
-  const canSave = form.accessAllStores || form.storeLocations.length > 0;
+  const canSave = form.role === "SUPER_ADMIN" || !!form.assignedStoreId;
 
   async function save() {
     if (!form.name.trim()) { setError("Nama tidak boleh kosong."); return; }
     if (!canSave) { setError("Pilih minimal satu toko atau aktifkan akses semua toko."); return; }
     setLoading(true); setError("");
     try {
-      await updateAccountAction(staff.uid, form, "staff");
+      await updateAccountAction(staff.uid, {
+        name: form.name,
+        role: form.role,
+        assignedStoreId: form.role === "SUPER_ADMIN" ? null : form.assignedStoreId,
+        isActive: form.isActive,
+      }, "admin_users");
       toast(`${form.name} berhasil diperbarui.`, "success");
-      onSaved({ name: form.name, role: form.role as StaffRole, storeLocations: form.storeLocations, accessAllStores: form.accessAllStores, isActive: form.isActive });
+      onSaved({
+        name: form.name,
+        role: form.role,
+        assignedStoreId: form.role === "SUPER_ADMIN" ? null : form.assignedStoreId,
+        isActive: form.isActive,
+      });
       onClose();
     } catch (e: any) { setError(e.message ?? "Failed to save changes."); }
     finally { setLoading(false); }
@@ -586,16 +601,21 @@ function EditStaffModal({ staff, storeIds, onClose, onSaved, toast }: {
           <div><FL>Nama</FL><GcInput value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} /></div>
           <div>
             <FL>Role</FL>
-            <GcSelect value={form.role} onChange={e => setForm(p => ({ ...p, role: e.target.value }))}>
-              <option value="cashier">Kasir</option>
-              <option value="store_manager">Store Manager</option>
-              <option value="admin">Admin</option>
+            <GcSelect value={form.role} onChange={e => setForm(p => ({ ...p, role: e.target.value as AdminRole }))}>
+              <option value="STAFF">Staff</option>
+              <option value="SUPER_ADMIN">Super Admin</option>
             </GcSelect>
           </div>
         </div>
         <SL>Akses Outlet</SL>
         <div style={{ marginBottom: 22 }}>
-          <StoreAccessPicker storeIds={storeIds} selected={form.storeLocations} accessAll={form.accessAllStores} onChangeSelected={v => setForm(p => ({ ...p, storeLocations: v }))} onChangeAccessAll={v => { setForm(p => ({ ...p, accessAllStores: v })); if (v) setForm(p => ({ ...p, storeLocations: [] })); }} />
+          <StoreAccessPicker
+            storeIds={storeIds}
+            selected={form.assignedStoreId ? [form.assignedStoreId] : []}
+            accessAll={form.role === "SUPER_ADMIN"}
+            onChangeSelected={v => setForm(p => ({ ...p, assignedStoreId: v[0] ?? "" }))}
+            onChangeAccessAll={v => setForm(p => ({ ...p, role: v ? "SUPER_ADMIN" : "STAFF", assignedStoreId: v ? "" : p.assignedStoreId }))}
+          />
         </div>
         <SL>Status Akun</SL>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", borderRadius: 12, background: C.bg, border: `1.5px solid ${C.border}` }}>
@@ -673,14 +693,14 @@ function BatchEditModal({ type, count, storeIds, onClose, onSaved }: { type: Tab
 
 function CreateModal({ storeIds, onClose, toast }: { storeIds: string[]; onClose: () => void; toast: ReturnType<typeof useToast>["show"]; }) {
   const [type, setType] = useState<TabType>("member");
-  const [form, setForm] = useState({ name: "", email: "", phoneNumber: "", tier: "Silver", role: "member", staffRole: "cashier", password: "", confirm: "" });
-  const [storeLocations, setStoreLocations] = useState<string[]>(storeIds.slice(0, 1));
+  const [form, setForm] = useState({ name: "", email: "", phoneNumber: "", tier: "Silver", role: "member", staffRole: "STAFF", password: "", confirm: "" });
+  const [assignedStoreId, setAssignedStoreId] = useState<string>(storeIds[0] ?? "");
   const [accessAllStores, setAccessAllStores] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const set = <K extends keyof typeof form>(k: K, v: string) => setForm(p => ({ ...p, [k]: v }));
   const pwMismatch = form.confirm !== "" && form.password !== form.confirm;
-  const storeValid = type !== "staff" || accessAllStores || storeLocations.length > 0;
+  const storeValid = type !== "staff" || accessAllStores || !!assignedStoreId;
   async function create() {
     setError("");
     if (!form.name.trim()) { setError("Nama wajib diisi."); return; }
@@ -692,7 +712,14 @@ function CreateModal({ storeIds, onClose, toast }: { storeIds: string[]; onClose
     try {
       const payload = type === "member" 
         ? { name: form.name, email: form.email, phoneNumber: form.phoneNumber, tier: form.tier, role: form.role, password: form.password } 
-        : { name: form.name, email: form.email, role: form.staffRole, storeLocations, accessAllStores, password: form.password };
+        : {
+            name: form.name,
+            email: form.email,
+            role: (accessAllStores ? "SUPER_ADMIN" : form.staffRole) as AdminRole,
+            assignedStoreId: accessAllStores ? null : assignedStoreId,
+            isActive: true,
+            password: form.password,
+          };
       
       await createAccountAction(payload, type);
       toast(`Akun ${form.name} berhasil dibuat.`, "success"); onClose();
@@ -722,9 +749,9 @@ function CreateModal({ storeIds, onClose, toast }: { storeIds: string[]; onClose
           <div style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 22 }}>
             <div><FL>Nama *</FL><GcInput placeholder="Siti Rahayu" value={form.name} onChange={e => set("name", e.target.value)} /></div>
             <div><FL>Email *</FL><GcInput type="email" placeholder="siti@gongcha.id" value={form.email} onChange={e => set("email", e.target.value)} /></div>
-            <div><FL>Role</FL><GcSelect value={form.staffRole} onChange={e => set("staffRole", e.target.value)}><option value="cashier">Kasir</option><option value="store_manager">Store Manager</option><option value="admin">Admin</option></GcSelect></div>
+            <div><FL>Role</FL><GcSelect value={form.staffRole} onChange={e => set("staffRole", e.target.value)}><option value="STAFF">Staff</option><option value="SUPER_ADMIN">Super Admin</option></GcSelect></div>
           </div>
-          {storeIds.length > 0 && <><SL>Akses Outlet</SL><div style={{ marginBottom: 22 }}><StoreAccessPicker storeIds={storeIds} selected={storeLocations} accessAll={accessAllStores} onChangeSelected={setStoreLocations} onChangeAccessAll={v => { setAccessAllStores(v); if (v) setStoreLocations([]); }} /></div></>}</>
+          {storeIds.length > 0 && <><SL>Akses Outlet</SL><div style={{ marginBottom: 22 }}><StoreAccessPicker storeIds={storeIds} selected={assignedStoreId ? [assignedStoreId] : []} accessAll={accessAllStores || form.staffRole === "SUPER_ADMIN"} onChangeSelected={v => setAssignedStoreId(v[0] ?? "")} onChangeAccessAll={v => { setAccessAllStores(v); if (v) setAssignedStoreId(""); }} /></div></>}</>
         )}
         <SL>Password</SL>
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -778,9 +805,9 @@ function UserRow({ u, isLast, onDetail, onEdit, checked, onCheck }: { u: UserWit
   );
 }
 
-function StaffRow({ s, isLast, onEdit, checked, onCheck }: { s: StaffWithUid; isLast: boolean; onEdit: () => void; checked: boolean; onCheck: (checked: boolean) => void; }) {
+function StaffRow({ s, isLast, onEdit, checked, onCheck, canManageStaff }: { s: StaffWithUid; isLast: boolean; onEdit: () => void; checked: boolean; onCheck: (checked: boolean) => void; canManageStaff: boolean; }) {
   const [hovered, setHovered] = useState(false);
-  const r = STAFF_CFG[s.role] ?? STAFF_CFG.cashier;
+  const r = STAFF_CFG[s.role] ?? STAFF_CFG.STAFF;
   return (
     <tr onMouseOver={() => setHovered(true)} onMouseOut={() => setHovered(false)}
       style={{ borderBottom: isLast ? "none" : `1px solid ${C.border2}`, background: checked ? "#F5F7FF" : hovered ? "#F8F9FC" : C.white, transition: "background .1s" }}>
@@ -811,7 +838,7 @@ function StaffRow({ s, isLast, onEdit, checked, onCheck }: { s: StaffWithUid; is
         })()}
       </td>
       <td style={{ padding: "14px 20px", fontSize: 12.5, color: C.tx2, fontWeight: 500 }}>{s.isActive ? "Aktif" : "Nonaktif"}</td>
-      <td style={{ padding: "14px 20px" }}><ActionBtn onClick={onEdit} label="Edit" /></td>
+      <td style={{ padding: "14px 20px" }}>{canManageStaff ? <ActionBtn onClick={onEdit} label="Edit" /> : null}</td>
     </tr>
   );
 }
@@ -871,8 +898,12 @@ export default function MembersClient({ initialUsers, initialStaff, storeIds }: 
   initialStaff: StaffWithUid[];
   storeIds: string[];
 }) {
+  const { user: authUser } = useAuth();
+  const canManageStaff = authUser?.role === "SUPER_ADMIN";
+
   const [users,    setUsers]   = useState(initialUsers);
   const [staff,    setStaff]   = useState(initialStaff);
+  const [liveStoreIds, setLiveStoreIds] = useState<string[]>(storeIds);
   const [tab,      setTab]     = useState<TabType>("member");
   const [search,   setSearch]  = useState("");
   const [tierF,    setTierF]   = useState("All");
@@ -893,13 +924,32 @@ export default function MembersClient({ initialUsers, initialStaff, storeIds }: 
 
   // 1. Realtime Data Sync
   useEffect(() => {
-    const unsubUsers = onSnapshot(query(collection(db, "users"), orderBy("name")), (snap) => {
-      setUsers(snap.docs.map(d => ({ uid: d.id, ...d.data() })) as UserWithUid[]);
+    const unsubUsers = onSnapshot(query(collection(db, "users").withConverter(userConverter), orderBy("name")), (snap) => {
+      setUsers(
+        snap.docs.map((d) => {
+          const u = d.data();
+          return {
+            uid: d.id,
+            name: u.name,
+            email: "",
+            phoneNumber: u.phone ?? "",
+            role: "member",
+            tier: (u.tier?.charAt(0) + u.tier?.slice(1).toLowerCase()) as UserTier,
+            currentPoints: Number(u.points ?? 0),
+            lifetimePoints: Number(u.xp ?? 0),
+            vouchers: u.activeVouchers ?? [],
+            joinedDate: "",
+          } as UserWithUid;
+        })
+      );
     });
-    const unsubStaff = onSnapshot(query(collection(db, "staff"), orderBy("name")), (snap) => {
-      setStaff(snap.docs.map(d => ({ uid: d.id, ...d.data() })) as StaffWithUid[]);
+    const unsubStaff = onSnapshot(query(collection(db, "admin_users").withConverter(adminUserConverter), orderBy("name")), (snap) => {
+      setStaff(snap.docs.map(d => d.data() as StaffWithUid));
     });
-    return () => { unsubUsers(); unsubStaff(); };
+    const unsubStores = onSnapshot(query(collection(db, "stores"), orderBy("name")), (snap) => {
+      setLiveStoreIds(snap.docs.map((d) => d.id));
+    });
+    return () => { unsubUsers(); unsubStaff(); unsubStores(); };
   }, []);
 
   // 2. Computed Filters
@@ -942,8 +992,8 @@ export default function MembersClient({ initialUsers, initialStaff, storeIds }: 
       onConfirm: async () => {
         setBatchDeleting(true);
         try {
-          const col = tab === "member" ? "users" : "staff";
-          await Promise.all(ids.map(uid => deleteAccountAction(uid, col)));
+          const col = tab === "member" ? "users" : "admin_users";
+          await Promise.all(ids.map(uid => deleteAccountAction(uid, col as any)));
           toast(`${ids.length} akun berhasil dihapus.`, "success");
           tab === "member" ? setSelectedUsers(new Set()) : setSelectedStaff(new Set());
         } catch (e: any) {
@@ -956,8 +1006,8 @@ export default function MembersClient({ initialUsers, initialStaff, storeIds }: 
   async function handleBatchEditSave(payload: Record<string, any>) {
     const ids = Array.from(tab === "member" ? selectedUsers : selectedStaff);
     try {
-      const col = tab === "member" ? "users" : "staff";
-      await Promise.all(ids.map(uid => updateAccountAction(uid, payload, col)));
+      const col = tab === "member" ? "users" : "admin_users";
+      await Promise.all(ids.map(uid => updateAccountAction(uid, payload, col as any)));
       toast(`${ids.length} akun berhasil diperbarui.`, "success");
       setShowBatchEdit(false);
       tab === "member" ? setSelectedUsers(new Set()) : setSelectedStaff(new Set());
@@ -981,10 +1031,10 @@ export default function MembersClient({ initialUsers, initialStaff, storeIds }: 
             <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
             Refresh
           </GcBtn>
-          <GcBtn variant="blue" onClick={() => setShowCreate(true)}>
+          {canManageStaff && <GcBtn variant="blue" onClick={() => setShowCreate(true)}>
             <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
             Add Account
-          </GcBtn>
+          </GcBtn>}
         </div>
       </div>
 
@@ -1019,8 +1069,8 @@ export default function MembersClient({ initialUsers, initialStaff, storeIds }: 
           <div style={{ display: "flex", alignItems: "center", gap: 10, background: C.blueL, border: `1px solid rgba(67,97,238,.25)`, padding: "6px 12px 6px 16px", borderRadius: 10, animation: "gcFadeIn .2s ease" }}>
             <span style={{ fontSize: 13, fontWeight: 700, color: C.blue }}>{selectedCount} dipilih</span>
             <div style={{ width: 1, height: 16, background: "rgba(67,97,238,.2)" }} />
-            <GcBtn variant="ghost" onClick={() => setShowBatchEdit(true)} style={{ height: 32, background: C.white, borderColor: "rgba(67,97,238,.3)", color: C.blue }}>✏️ Bulk Edit</GcBtn>
-            <GcBtn variant="danger" onClick={handleBatchDelete} disabled={batchDeleting} style={{ height: 32, padding: "0 14px" }}>{batchDeleting ? "Menghapus…" : "🗑 Hapus"}</GcBtn>
+            {!(tab === "staff" && !canManageStaff) && <GcBtn variant="ghost" onClick={() => setShowBatchEdit(true)} style={{ height: 32, background: C.white, borderColor: "rgba(67,97,238,.3)", color: C.blue }}>✏️ Bulk Edit</GcBtn>}
+            {!(tab === "staff" && !canManageStaff) && <GcBtn variant="danger" onClick={handleBatchDelete} disabled={batchDeleting} style={{ height: 32, padding: "0 14px" }}>{batchDeleting ? "Menghapus…" : "🗑 Hapus"}</GcBtn>}
           </div>
         ) : (
           <div style={{ display: "flex", alignItems: "center", gap: 8, height: 40, padding: "0 13px", minWidth: 240, background: C.white, border: `1.5px solid ${sfFocus ? C.blue : C.border}`, borderRadius: 10, boxShadow: sfFocus ? "0 0 0 3px rgba(67,97,238,.1)" : "none", transition: "all .14s" }}>
@@ -1053,14 +1103,14 @@ export default function MembersClient({ initialUsers, initialStaff, storeIds }: 
             {tab === "member" ? (
               fUsers.length === 0 ? <EmptyState query={search} type="member" /> : fUsers.map((u, i) => <UserRow key={u.uid} u={u} isLast={i === fUsers.length - 1} checked={selectedUsers.has(u.uid)} onCheck={v => toggleUser(u.uid, v)} onDetail={() => setDetailUser(u)} onEdit={() => setEditUser(u)} />)
             ) : (
-              fStaff.length === 0 ? <EmptyState query={search} type="staff" /> : fStaff.map((s, i) => <StaffRow key={s.uid} s={s} isLast={i === fStaff.length - 1} checked={selectedStaff.has(s.uid)} onCheck={v => toggleStaff(s.uid, v)} onEdit={() => setEditStaff(s)} />)
+              fStaff.length === 0 ? <EmptyState query={search} type="staff" /> : fStaff.map((s, i) => <StaffRow key={s.uid} s={s} isLast={i === fStaff.length - 1} checked={selectedStaff.has(s.uid)} onCheck={v => toggleStaff(s.uid, v)} onEdit={() => canManageStaff && setEditStaff(s)} canManageStaff={canManageStaff} />)
             )}
           </tbody>
         </table>
       </div>
 
       {/* Modals Rendering */}
-      {showBatchEdit && <BatchEditModal type={tab} count={selectedCount} storeIds={storeIds} onClose={() => setShowBatchEdit(false)} onSaved={handleBatchEditSave} />}
+      {showBatchEdit && <BatchEditModal type={tab} count={selectedCount} storeIds={liveStoreIds} onClose={() => setShowBatchEdit(false)} onSaved={handleBatchEditSave} />}
       
       {detailUser && !editUser && (
         <MemberDetailModal
@@ -1082,17 +1132,17 @@ export default function MembersClient({ initialUsers, initialStaff, storeIds }: 
         />
       )}
 
-      {editStaff && (
+      {canManageStaff && editStaff && (
         <EditStaffModal 
           staff={editStaff} 
-          storeIds={storeIds} 
+          storeIds={liveStoreIds} 
           onClose={() => setEditStaff(null)} 
           onSaved={() => setEditStaff(null)} 
           toast={toast} 
         />
       )}
 
-      {showCreate && <CreateModal storeIds={storeIds} onClose={() => setShowCreate(false)} toast={toast} />}
+      {canManageStaff && showCreate && <CreateModal storeIds={liveStoreIds} onClose={() => setShowCreate(false)} toast={toast} />}
 
       {confirmDialog}
       <ToastContainer toasts={toasts} dismiss={dismiss} />

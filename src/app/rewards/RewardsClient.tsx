@@ -5,7 +5,8 @@ import { useState, useMemo, useEffect, useCallback } from "react";
 import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { db, storage } from "@/lib/firebaseClient";
-import { Reward } from "@/types/firestore";
+import { Reward, rewardConverter } from "@/types/firestore";
+import { useAuth } from "@/context/AuthContext";
 
 type RewardWithId = Reward & { id: string };
 type SyncStatus   = "connecting" | "live" | "error";
@@ -345,6 +346,14 @@ function DeleteModal({ reward, onClose, onDeleted }:
 // 🔥 FIXED: Field changed to `imageURL` according to Reward interface
 type RewardForm = { rewardId:string; title:string; description:string; pointsCost:string; category:Category; isActive:boolean; imageURL:string; };
 
+function getPointsCost(reward: RewardWithId): number {
+  return Number(reward.pointsRequired ?? reward.pointsCost ?? 0);
+}
+
+function getImageUrl(reward: RewardWithId): string {
+  return String(reward.imageUrl ?? reward.imageURL ?? "");
+}
+
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
     <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:14, marginTop:4 }}>
@@ -361,10 +370,10 @@ function RewardModal({ reward, onClose, onSaved }:
     rewardId:    reward?.id ?? '',
     title:       reward?.title ?? '',
     description: reward?.description ?? '',
-    pointsCost:  reward?.pointsCost != null ? String(reward.pointsCost) : '',
+    pointsCost:  reward ? String(getPointsCost(reward)) : '',
     category:    (reward?.category as Category) ?? 'Drink',
     isActive:    reward?.isActive ?? true,
-    imageURL:    reward?.imageURL ?? '', // 🔥 Using imageURL
+    imageURL:    reward ? getImageUrl(reward) : '',
   });
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState('');
@@ -447,10 +456,10 @@ function RewardModal({ reward, onClose, onSaved }:
         ...(isNew?{rewardId:form.rewardId.trim()}:{}), 
         title:form.title.trim(), 
         description:form.description.trim(), 
-        pointsCost:form.pointsCost!==''?Number(form.pointsCost):0, 
+        pointsRequired:form.pointsCost!==''?Number(form.pointsCost):0,
         category:form.category, 
         isActive:form.isActive, 
-        imageURL:form.imageURL.trim() 
+        imageUrl:form.imageURL.trim() 
       };
       
       const r = await fetch(url, { method, headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) });
@@ -650,16 +659,16 @@ function RewardCard({ reward, onEdit, onDelete, onToggleActive }:
           {cat.label}
         </span>
         <div style={{ textAlign: 'center' }}>
-          {reward.pointsCost === 0 ? (
+          {getPointsCost(reward) === 0 ? (
             <p style={{ fontSize: 16, fontWeight: 800, color: C.green, letterSpacing: '-.02em', lineHeight: 1, fontFamily: font, margin: 0 }}>FREE</p>
           ) : (
             <>
               <p style={{
-                fontSize: reward.pointsCost >= 10000 ? 14 : reward.pointsCost >= 1000 ? 17 : 20,
+                fontSize: getPointsCost(reward) >= 10000 ? 14 : getPointsCost(reward) >= 1000 ? 17 : 20,
                 fontWeight: 800, color: cat.color, letterSpacing: '-.03em', lineHeight: 1,
                 fontFamily: font, margin: 0,
               }}>
-                {reward.pointsCost.toLocaleString('id')}
+                {getPointsCost(reward).toLocaleString('id')}
               </p>
               <p style={{ fontSize: 9, fontWeight: 700, color: cat.color, opacity:.6, letterSpacing:'.07em', textTransform:'uppercase', fontFamily:font, margin: '3px 0 0' }}>pts</p>
             </>
@@ -703,9 +712,9 @@ function RewardCard({ reward, onEdit, onDelete, onToggleActive }:
 
         {/* 🔥 IMAGE DISPLAY USES imageURL */}
         <div style={{ display:'flex', alignItems:'center', gap:7, flexWrap:'wrap' }}>
-          {reward.imageURL && (
+          {getImageUrl(reward) && (
             <div style={{ width:22, height:22, borderRadius:4, overflow:'hidden', border:`1px solid ${C.border2}`, flexShrink:0 }}>
-              <img src={reward.imageURL} alt={reward.title} style={{ width:'100%', height:'100%', objectFit:'contain' }}/>
+              <img src={getImageUrl(reward)} alt={reward.title} style={{ width:'100%', height:'100%', objectFit:'contain' }}/>
             </div>
           )}
           <code style={{ fontSize:9.5, color:C.tx4, background:C.bg, padding:'2px 7px', borderRadius:5, fontFamily:fontMono, border:`1px solid ${C.border2}`, flexShrink:0 }}>
@@ -761,6 +770,8 @@ function AddTicket({ onClick }: { onClick: () => void }) {
 // ── Main ───────────────────────────────────────────────────────────────────────
 export default function RewardsClient({ initialRewards = [], showAddTrigger }:
   { initialRewards?:RewardWithId[]; showAddTrigger?:boolean }) {
+  const { user } = useAuth();
+  const canMutate = user?.role === "SUPER_ADMIN";
   const [rewards,      setRewards]      = useState<RewardWithId[]>(initialRewards);
   const [syncStatus,   setSyncStatus]   = useState<SyncStatus>('connecting');
   const [search,       setSearch]       = useState('');
@@ -775,8 +786,8 @@ export default function RewardsClient({ initialRewards = [], showAddTrigger }:
   const showToast = useCallback((msg:string, type:'success'|'error'='success') => setToast({msg,type}), []);
 
   useEffect(() => {
-    const q = query(collection(db,'rewards_catalog'), orderBy('title'));
-    const unsub = onSnapshot(q, snap => { setRewards(snap.docs.map(d=>({id:d.id,...d.data()} as RewardWithId))); setSyncStatus('live'); }, err => { console.error(err); setSyncStatus('error'); });
+    const q = query(collection(db,'rewards').withConverter(rewardConverter), orderBy('title'));
+    const unsub = onSnapshot(q, snap => { setRewards(snap.docs.map(d => d.data() as RewardWithId)); setSyncStatus('live'); }, err => { console.error(err); setSyncStatus('error'); });
     return () => unsub();
   }, []);
 
@@ -807,7 +818,7 @@ export default function RewardsClient({ initialRewards = [], showAddTrigger }:
         <style>{globalStyles}</style>
         <div style={{ display:'flex', alignItems:'center', gap:12 }}>
           <LiveBadge status={syncStatus}/>
-          <button onClick={() => setShowAdd(true)} className="gc-btn-primary" style={{ height:40, padding:'0 18px', borderRadius:10, border:'none', background:C.blue, color:'#fff', fontFamily:font, fontSize:13.5, fontWeight:600, cursor:'pointer', display:'inline-flex', alignItems:'center', gap:7, boxShadow:'0 2px 12px rgba(58,86,232,.30)' }}>
+          <button disabled={!canMutate} onClick={() => canMutate && setShowAdd(true)} className="gc-btn-primary" style={{ height:40, padding:'0 18px', borderRadius:10, border:'none', background:canMutate ? C.blue : C.tx4, color:'#fff', fontFamily:font, fontSize:13.5, fontWeight:600, cursor:canMutate ? 'pointer' : 'not-allowed', display:'inline-flex', alignItems:'center', gap:7, boxShadow:'0 2px 12px rgba(58,86,232,.30)' }}>
             <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round"><path d="M12 4.5v15m7.5-7.5h-15"/></svg>
             Add Voucher
           </button>
@@ -875,11 +886,12 @@ export default function RewardsClient({ initialRewards = [], showAddTrigger }:
             <LiveBadge status={syncStatus}/>
           </div>
           <button 
-            onClick={() => setShowAdd(true)} 
+            disabled={!canMutate}
+            onClick={() => canMutate && setShowAdd(true)} 
             className="gc-btn-primary" 
             style={{ 
               height:36, padding:'0 16px', borderRadius:10, border:'none', 
-              background:C.blue, color:'#fff', fontFamily:font, fontSize:13, 
+              background:canMutate ? C.blue : C.tx4, color:'#fff', fontFamily:font, fontSize:13, 
               fontWeight:600, cursor:'pointer', display:'inline-flex', 
               alignItems:'center', gap:6, boxShadow:'0 2px 10px rgba(58,86,232,.25)' 
             }}
@@ -897,7 +909,7 @@ export default function RewardsClient({ initialRewards = [], showAddTrigger }:
         <div style={{ background:C.white, borderRadius:18, border:`1px solid ${C.border}`, boxShadow:C.shadow, padding:'70px 24px', textAlign:'center' }}>
           <p style={{ fontSize:15, fontWeight:700, color:C.tx1, marginBottom:6, fontFamily:font }}>No rewards yet</p>
           <p style={{ fontSize:13, color:C.tx3, marginBottom:22, fontFamily:font }}>Start adding your first voucher.</p>
-          <button onClick={()=>setShowAdd(true)} className="gc-btn-primary" style={{ height:40, padding:'0 22px', borderRadius:10, border:'none', background:C.blue, color:'#fff', fontFamily:font, fontSize:13.5, fontWeight:600, cursor:'pointer', boxShadow:'0 4px 16px rgba(58,86,232,.30)' }}>
+          <button disabled={!canMutate} onClick={()=>canMutate && setShowAdd(true)} className="gc-btn-primary" style={{ height:40, padding:'0 22px', borderRadius:10, border:'none', background:canMutate ? C.blue : C.tx4, color:'#fff', fontFamily:font, fontSize:13.5, fontWeight:600, cursor:canMutate ? 'pointer' : 'not-allowed', boxShadow:'0 4px 16px rgba(58,86,232,.30)' }}>
             + Add First Voucher
           </button>
         </div>
@@ -912,22 +924,22 @@ export default function RewardsClient({ initialRewards = [], showAddTrigger }:
             <div key={reward.id} style={{ animation:`gcSlideUp .24s ease both`, animationDelay:`${i*30}ms` }}>
               <RewardCard
                 reward={{ ...reward, isActive: togglingId===reward.id ? !reward.isActive : reward.isActive }}
-                onEdit={()=>setEditTarget(reward)}
-                onDelete={()=>setDeleteTarget(reward)}
-                onToggleActive={()=>handleToggleActive(reward)}
+                onEdit={()=>canMutate && setEditTarget(reward)}
+                onDelete={()=>canMutate && setDeleteTarget(reward)}
+                onToggleActive={()=>canMutate && handleToggleActive(reward)}
               />
             </div>
           ))}
           <div style={{ animation:`gcSlideUp .24s ease both`, animationDelay:`${filtered.length*30}ms` }}>
-            <AddTicket onClick={()=>setShowAdd(true)}/>
+            {canMutate && <AddTicket onClick={()=>setShowAdd(true)}/>} 
           </div>
         </div>
       )}
 
       {/* Modals */}
-      {editTarget   && <RewardModal reward={editTarget} onClose={()=>setEditTarget(null)} onSaved={msg=>{showToast(msg);setEditTarget(null);}}/>}
-      {showAdd      && <RewardModal reward={null} onClose={()=>setShowAdd(false)} onSaved={msg=>{showToast(msg);setShowAdd(false);}}/>}
-      {deleteTarget && <DeleteModal reward={deleteTarget} onClose={()=>setDeleteTarget(null)} onDeleted={msg=>{showToast(msg);setDeleteTarget(null);}}/>}
+      {canMutate && editTarget   && <RewardModal reward={editTarget} onClose={()=>setEditTarget(null)} onSaved={msg=>{showToast(msg);setEditTarget(null);}}/>}
+      {canMutate && showAdd      && <RewardModal reward={null} onClose={()=>setShowAdd(false)} onSaved={msg=>{showToast(msg);setShowAdd(false);}}/>}
+      {canMutate && deleteTarget && <DeleteModal reward={deleteTarget} onClose={()=>setDeleteTarget(null)} onDeleted={msg=>{showToast(msg);setDeleteTarget(null);}}/>}
       {toast        && <Toast msg={toast.msg} type={toast.type} onDone={()=>setToast(null)}/>}
     </>
   );

@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import RewardsClient from "./RewardsClient";
 import UnauthorizedOverlay from "@/components/ui/UnauthorizedOverlay";
+import { Reward, rewardConverter } from "@/types/firestore";
 
 export const dynamic = "force-dynamic";
 
@@ -23,33 +24,18 @@ export default async function RewardsPage() {
 
   if (!uid) redirect("/login");
 
-  // Cek Role
-  const userDoc = await adminDb.collection("users").doc(uid).get();
-  const staffDoc = await adminDb.collection("staff").doc(uid).get();
-  const profile = userDoc.exists ? userDoc.data() : staffDoc.exists ? staffDoc.data() : null;
+  const adminSnap = await adminDb.collection("admin_users").doc(uid).get();
+  const profile = adminSnap.data();
   const role = profile?.role;
-
-  const allowedRoles = ["admin", "master", "manager", "store_manager"];
-  if (!allowedRoles.includes(role)) {
+  if (profile?.isActive !== true || !["SUPER_ADMIN", "STAFF"].includes(role)) {
     return <UnauthorizedOverlay />;
   }
 
   // Fetch initial data
-  const rewardsSnap = await adminDb.collection("rewards_catalog").orderBy("title").get();
+  const rewardsSnap = await adminDb.collection("rewards").withConverter(rewardConverter as any).orderBy("title").get();
   const initialRewards = rewardsSnap.docs.map(doc => {
-    const data = doc.data();
-    return {
-      id: doc.id,
-      title: data.title || "Untitled Reward",
-      pointsCost: data.pointsCost || 0,
-      imageURL: data.imageURL || "",
-      category: data.category || "General",
-      type: data.type || "discount",
-      description: data.description || "",
-      isActive: data.isActive !== undefined ? data.isActive : true,
-      createdAt: data.createdAt?.toDate ? data.createdAt.toDate().toISOString() : new Date().toISOString(),
-      updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate().toISOString() : new Date().toISOString(),
-    };
+    const data = doc.data() as Reward;
+    return { ...data, id: doc.id };
   });
 
   return (

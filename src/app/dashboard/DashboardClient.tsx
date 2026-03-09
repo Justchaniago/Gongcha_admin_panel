@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
-import { useAdminAuth } from "@/components/AuthProvider";
+import { useAuth } from "@/context/AuthContext";
 import {
+  doc,
   collection, onSnapshot, query, orderBy, limit,
-  where, Timestamp,
+  where,
 } from "firebase/firestore";
 import { db } from "../../lib/firebaseClient";
+import { DailyStat, dailyStatConverter } from "@/types/firestore";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface Transaction {
@@ -25,6 +27,14 @@ interface Transaction {
 
 interface Member { uid: string; tier: string; currentPoints: number; lifetimePoints: number; }
 interface Store  { uid: string; name: string; isActive: boolean; }
+
+function getTodayString(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
 const C = {
@@ -174,24 +184,40 @@ export default function DashboardClient({ initialRole, initialTransactions, init
   const [allTimeRejectedCount, setAllTimeRejectedCount] = useState(0);
   const [txStatus,     setTxStatus]     = useState<"connecting"|"live"|"error">("connecting");
   const [memberStatus, setMemberStatus] = useState<"connecting"|"live"|"error">("connecting");
+  const [dailyStatStatus, setDailyStatStatus] = useState<"connecting"|"live"|"error">("connecting");
+  const [dailyStatsDocs, setDailyStatsDocs] = useState<DailyStat[]>([]);
   const [selectedTxDocPaths, setSelectedTxDocPaths] = useState<string[]>([]);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteMessage, setDeleteMessage] = useState<string | null>(null);
 
   // Greeting
-  const { user } = useAdminAuth();
+  const { user } = useAuth();
   const now      = new Date();
   const hr       = now.getHours();
   const greeting = hr < 12 ? "Good morning" : hr < 17 ? "Good afternoon" : "Good evening";
   const dateStr  = now.toLocaleDateString("en-US", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
   const userName = user?.name || user?.email?.split("@")[0] || "Admin";
+  const role = user?.role ?? (initialRole === "admin" ? "SUPER_ADMIN" : "STAFF");
 
   // Check if user has limited access (cashier or store_manager)
-  const isLimitedAccess = initialRole === "cashier" || initialRole === "store_manager";
-  const canDeleteTransactions = initialRole === "admin";
+  const isLimitedAccess = role === "STAFF";
+  const canDeleteTransactions = role === "SUPER_ADMIN";
 
   // Get assigned store ID for cashier/store manager
-  const userAssignedStoreId = (user as any)?.storeId || (user as any)?.assignedStoreId || null;
+  const userAssignedStoreId = user?.assignedStoreId ?? null;
+
+  useEffect(() => {
+    if (role === "STAFF") {
+      if (userAssignedStoreId && selectedStoreId !== userAssignedStoreId) {
+        setSelectedStoreId(userAssignedStoreId);
+      }
+      return;
+    }
+
+    if (!selectedStoreId) {
+      setSelectedStoreId("all");
+    }
+  }, [role, userAssignedStoreId, selectedStoreId]);
   
   // Determine effective store filter
   const effectiveStoreFilter = isLimitedAccess && userAssignedStoreId ? userAssignedStoreId : selectedStoreId;
@@ -205,96 +231,114 @@ export default function DashboardClient({ initialRole, initialTransactions, init
 
   const getTxDocPath = (tx: any) => tx?.docPath ?? (tx?.docId ? `transactions/${tx.docId}` : "");
 
+  // ── Daily Stat (The God Document) ─────────────────────────────────────────
+  useEffect(() => {
+    setDailyStatStatus("connecting");
+
+    if (mode === "range") {
+      if (!dateFrom || !dateTo || dateFrom > dateTo) {
+        setDailyStatsDocs([]);
+        setDailyStatStatus("live");
+        return;
+      }
+
+      const baseRef = collection(db, "daily_stats").withConverter(dailyStatConverter);
+      const constraints: Parameters<typeof query>[1][] = [
+        where("date", ">=", dateFrom),
+        where("date", "<=", dateTo),
+      ];
+
+      if (role === "SUPER_ADMIN") {
+        if (selectedStoreId === "all") {
+          constraints.push(where("type", "==", "GLOBAL"));
+        } else {
+          constraints.push(where("storeId", "==", selectedStoreId));
+        }
+      } else {
+        if (!userAssignedStoreId) {
+          setDailyStatsDocs([]);
+          setDailyStatStatus("error");
+          return;
+        }
+        constraints.push(where("storeId", "==", userAssignedStoreId));
+      }
+
+      const rangeQ = query(baseRef, ...constraints, orderBy("date", "asc"));
+      const unsub = onSnapshot(
+        rangeQ,
+        (snap) => {
+          setDailyStatsDocs(snap.docs.map((d) => d.data()));
+          setDailyStatStatus("live");
+        },
+        () => {
+          setDailyStatsDocs([]);
+          setDailyStatStatus("error");
+        }
+      );
+      return () => unsub();
+    }
+
+    const today = getTodayString();
+    const targetId = role === "SUPER_ADMIN"
+      ? (selectedStoreId === "all" ? `${today}_GLOBAL` : `${today}_${selectedStoreId}`)
+      : (userAssignedStoreId ? `${today}_${userAssignedStoreId}` : null);
+
+    if (!targetId) {
+      setDailyStatsDocs([]);
+      setDailyStatStatus("error");
+      return;
+    }
+
+    const dailyRef = doc(db, "daily_stats", targetId).withConverter(dailyStatConverter);
+    const unsub = onSnapshot(
+      dailyRef,
+      (snap) => {
+        setDailyStatsDocs(snap.exists() ? [snap.data()] : []);
+        setDailyStatStatus("live");
+      },
+      () => {
+        setDailyStatsDocs([]);
+        setDailyStatStatus("error");
+      }
+    );
+
+    return () => unsub();
+  }, [mode, dateFrom, dateTo, role, userAssignedStoreId, selectedStoreId]);
+
   // ── Firestore listeners ──────────────────────────────────────────────────
   useEffect(() => {
-    let unsubTx: (() => void) | null = null;
-    let ignore = false;
-
-    async function fetchRange() {
-      setTxStatus("connecting");
-      try {
-        const { getDocs, collection, query, orderBy, where, Timestamp, limit } = await import("firebase/firestore");
-        let q = query(collection(db, "transactions"), orderBy("createdAt", "desc"));
-        if (dateFrom && dateTo) {
-          const from = Timestamp.fromDate(new Date(dateFrom + "T00:00:00"));
-          const to = Timestamp.fromDate(new Date(dateTo + "T23:59:59"));
-          q = query(collection(db, "transactions"),
-            orderBy("createdAt", "desc"),
-            where("createdAt", ">=", from),
-            where("createdAt", "<=", to),
-            limit(100)
-          );
+    const txQ = query(collection(db, "transactions"), orderBy("createdAt", "desc"), limit(50));
+    const unsubTx = onSnapshot(txQ,
+      (snap) => {
+        let txList = snap.docs.map(d => {
+          const data = d.data();
+          const storeId = data.storeId ?? data.storeLocation ?? "";
+          const type = data.type ?? "earn"; // Default to earn (purchase) if not specified
+          return {
+            docId:         d.id,
+            docPath:       d.ref.path,
+            transactionId: data.posTransactionId ?? data.transactionId ?? "",
+            memberName:    data.memberName    ?? data.userName ?? "—",
+            amount:        data.amount        ?? data.totalAmount ?? 0,
+            potentialPoints: data.potentialPoints ?? 0,
+            type:          type,
+            status:        data.status        ?? "pending",
+            createdAt:     data.createdAt?.toDate?.()?.toISOString?.() ?? data.createdAt ?? null,
+            storeId:       storeId,
+            storeName:     getStoreName(storeId),
+          } as Transaction;
+        });
+        
+        // Filter by store if needed (client-side)
+        if (effectiveStoreFilter && effectiveStoreFilter !== "all") {
+          txList = txList.filter(t => t.storeId === effectiveStoreFilter);
         }
-        const snap = await getDocs(q);
-        if (!ignore) {
-          let txList = snap.docs.map(d => {
-            const data = d.data();
-            const storeId = data.storeId ?? data.storeLocation ?? "";
-            const type = data.type ?? "earn"; // Default to earn (purchase) if not specified
-            return {
-              docId:         d.id,
-              docPath:       d.ref.path,
-              transactionId: data.posTransactionId ?? data.transactionId ?? "",
-              memberName:    data.memberName    ?? data.userName ?? "—",
-              amount:        data.amount        ?? data.totalAmount ?? 0,
-              potentialPoints: data.potentialPoints ?? 0,
-              type:          type,
-              status:        data.status        ?? "pending",
-              createdAt:     data.createdAt?.toDate?.()?.toISOString?.() ?? data.createdAt ?? null,
-              storeId:       storeId,
-              storeName:     getStoreName(storeId),
-            } as Transaction;
-          });
-          
-          // Filter by store if needed (client-side)
-          if (effectiveStoreFilter && effectiveStoreFilter !== "all") {
-            txList = txList.filter(t => t.storeId === effectiveStoreFilter);
-          }
-          
-          setTransactions(txList);
-          setTxStatus("live");
-        }
-      } catch {
-        if (!ignore) setTxStatus("error");
-      }
-    }
-
-    if (mode === "realtime") {
-      const txQ = query(collection(db, "transactions"), orderBy("createdAt", "desc"), limit(50));
-      unsubTx = onSnapshot(txQ,
-        (snap) => {
-          let txList = snap.docs.map(d => {
-            const data = d.data();
-            const storeId = data.storeId ?? data.storeLocation ?? "";
-            const type = data.type ?? "earn"; // Default to earn (purchase) if not specified
-            return {
-              docId:         d.id,
-              docPath:       d.ref.path,
-              transactionId: data.posTransactionId ?? data.transactionId ?? "",
-              memberName:    data.memberName    ?? data.userName ?? "—",
-              amount:        data.amount        ?? data.totalAmount ?? 0,
-              potentialPoints: data.potentialPoints ?? 0,
-              type:          type,
-              status:        data.status        ?? "pending",
-              createdAt:     data.createdAt?.toDate?.()?.toISOString?.() ?? data.createdAt ?? null,
-              storeId:       storeId,
-              storeName:     getStoreName(storeId),
-            } as Transaction;
-          });
-          
-          // Filter by store if needed (client-side)
-          if (effectiveStoreFilter && effectiveStoreFilter !== "all") {
-            txList = txList.filter(t => t.storeId === effectiveStoreFilter);
-          }
-          
-          setTransactions(txList);
-          setTxStatus("live");
-        },
-        () => setTxStatus("error"),
-      );
-    } else {
-      fetchRange();
-    }
+        
+        setTransactions(txList);
+        setTxStatus("live");
+      },
+      () => setTxStatus("error"),
+    );
 
     // Members
     const memQ = query(collection(db, "users"));
@@ -339,8 +383,8 @@ export default function DashboardClient({ initialRole, initialTransactions, init
       }
     );
 
-    return () => { if (unsubTx) unsubTx(); ignore = true; unsubMem(); unsubStore(); unsubPending(); unsubRejected(); };
-  }, [mode, dateFrom, dateTo, effectiveStoreFilter, stores.length]); // Re-run when store filter or stores change
+    return () => { unsubTx(); unsubMem(); unsubStore(); unsubPending(); unsubRejected(); };
+  }, [effectiveStoreFilter, stores.length]); // Re-run when store filter or stores change
 
   // ── Derived stats ────────────────────────────────────────────────────────
   // ALL TIME (tidak terpengaruh date picker):
@@ -350,9 +394,12 @@ export default function DashboardClient({ initialRole, initialTransactions, init
   const rejectedCount = allTimeRejectedCount; // ALL TIME rejected claims
   const claimsNeedingReview = pendingCount + rejectedCount; // Pending + Rejected
   
-  // FILTERED BY DATE (affected by date picker):
-  const verifiedCount = transactions.filter(t => t.status === "verified").length;
-  const totalRevenue  = transactions.filter(t => t.status === "verified").reduce((a, t) => a + t.amount, 0);
+  // DAILY STATS (The God Document):
+  const totalRevenue = dailyStatsDocs.reduce((sum, d) => sum + (d.totalRevenue ?? 0), 0);
+  const totalTransactions = dailyStatsDocs.reduce((sum, d) => sum + (d.totalTransactions ?? 0), 0);
+  const verifiedCount = totalTransactions;
+
+  // Additional visuals still rely on transaction stream:
   const avgTrx        = transactions.length > 0 ? Math.round(transactions.reduce((a, t) => a + t.amount, 0) / transactions.length) : 0;
   const totalXP       = transactions.filter(t => t.status === "verified").reduce((a, t) => a + (t.potentialPoints ?? 0), 0); // XP issued in date range
   const recentTrx     = transactions.slice(0, 10);
@@ -416,19 +463,22 @@ export default function DashboardClient({ initialRole, initialTransactions, init
     Silver:   members.filter(m => m.tier === "Silver").length,
   }), [members]);
 
-  const overallStatus = txStatus === "live" && memberStatus === "live" ? "live"
-    : txStatus === "error" || memberStatus === "error" ? "error" : "connecting";
+  const overallStatus = txStatus === "live" && memberStatus === "live" && dailyStatStatus === "live" ? "live"
+    : txStatus === "error" || memberStatus === "error" || dailyStatStatus === "error" ? "error" : "connecting";
 
   // Store transaction breakdown
   const storeStats = useMemo(() => {
-    const map: Record<string, number> = {};
-    transactions.forEach(t => { if (t.storeId) map[t.storeId] = (map[t.storeId] ?? 0) + 1; });
-    const total = transactions.length || 1;
-    return Object.entries(map)
-      .map(([id, count]) => ({ name: id, pct: Math.round(count / total * 100) }))
-      .sort((a, b) => b.pct - a.pct)
-      .slice(0, 4);
-  }, [transactions]);
+    if (dailyStatsDocs.length === 0) return [];
+
+    const maxRevenue = Math.max(...dailyStatsDocs.map((d) => d.totalRevenue || 0), 1);
+    return [...dailyStatsDocs]
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .slice(-4)
+      .map((d) => ({
+        name: d.date,
+        pct: Math.max(0, Math.round(((d.totalRevenue || 0) / maxRevenue) * 100)),
+      }));
+  }, [dailyStatsDocs]);
 
   const barColors = [C.blue, "#7C3AED", C.green, C.amber];
 
@@ -490,7 +540,7 @@ export default function DashboardClient({ initialRole, initialTransactions, init
                 onChange={e => setSelectedStoreId(e.target.value)}
                 style={{ padding: "7px 14px", borderRadius: 8, border: "1.5px solid " + C.border, background: C.white, fontWeight: 600, color: C.tx1, fontSize: 13, minWidth: 150 }}
               >
-                <option value="all">🏪 All Stores</option>
+                <option value="all">🏪 Semua Toko (Global)</option>
                 {stores.map(store => (
                   <option key={store.uid || store.id} value={store.uid || store.id}>
                     {store.name}
@@ -539,7 +589,7 @@ export default function DashboardClient({ initialRole, initialTransactions, init
                 ↑ Verified only
               </span>
               <span style={{ fontSize: 12, color: "rgba(255,255,255,.55)" }}>
-                {verifiedCount} transactions {mode === "range" && dateFrom && dateTo ? "(filtered)" : ""}
+                {totalTransactions} transactions {mode === "range" && dateFrom && dateTo ? "(filtered)" : ""}
               </span>
             </div>
           </div>
@@ -579,7 +629,7 @@ export default function DashboardClient({ initialRole, initialTransactions, init
                 ↑ Verified only
               </span>
               <span style={{ fontSize: 12, color: "rgba(255,255,255,.55)" }}>
-                {verifiedCount} transactions {mode === "range" && dateFrom && dateTo ? "(filtered)" : ""}
+                {totalTransactions} transactions {mode === "range" && dateFrom && dateTo ? "(filtered)" : ""}
               </span>
             </div>
           </div>
@@ -616,9 +666,9 @@ export default function DashboardClient({ initialRole, initialTransactions, init
             icon: <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>,
           },
           {
-            label: mode === "range" && dateFrom && dateTo ? "Verified Transactions (filtered)" : "Verified Transactions", 
+            label: mode === "range" && dateFrom && dateTo ? "Total Transactions (filtered)" : "Total Transactions", 
             iconBg: C.greenBg, iconColor: C.green,
-            value: `${verifiedCount} / ${transactions.length}`,
+            value: `${totalTransactions}`,
             icon: <path d="M20 6L9 17l-5-5"/>,
           },
           {

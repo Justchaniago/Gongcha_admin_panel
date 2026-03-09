@@ -4,6 +4,7 @@ import { adminAuth } from "@/lib/firebaseAdmin";
 import { cookies } from "next/headers";
 import { v4 as uuidv4 } from "uuid";
 import type { AdminNotificationLog, NotificationType } from "@/types/firestore";
+import { FieldValue, Timestamp } from "firebase-admin/firestore";
 
 // Map admin-side NotificationType to the type values the customer app expects
 function toCustomerType(t: NotificationType): 'gift' | 'points' | 'promo' | 'order' | 'system' {
@@ -22,22 +23,34 @@ async function validateSession() {
   try {
     const decoded = await adminAuth.verifySessionCookie(sessionCookie, true);
     const uid = decoded.uid as string;
-
-    // Role is stored in Firestore, not JWT claims — always do Firestore lookup
-    let role = (decoded.role as string) ?? "";
-    if (!role) {
-      const userDoc  = await adminDb.collection("users").doc(uid).get();
-      const staffDoc = await adminDb.collection("staff").doc(uid).get();
-      const profile  = userDoc.exists ? userDoc.data() : staffDoc.exists ? staffDoc.data() : null;
-      role = profile?.role ?? "";
-    }
-
-    if (!["admin", "master"].includes(role))
+    const adminProfileSnap = await adminDb.collection("admin_users").doc(uid).get();
+    const adminProfile = adminProfileSnap.data();
+    const role = adminProfile?.role ?? (decoded.role as string) ?? "";
+    if (adminProfile?.isActive !== true || !["SUPER_ADMIN", "STAFF"].includes(role)) {
       return { error: "Access denied.", status: 403, token: null };
+    }
     return { error: null, status: 200, token: { ...decoded, uid } };
   } catch {
     return { error: "Invalid session.", status: 401, token: null };
   }
+}
+
+async function writeNotificationToUser(
+  uid: string,
+  payload: { title: string; body: string; customerType: ReturnType<typeof toCustomerType> }
+) {
+  const now = Timestamp.now();
+  const expireAt = Timestamp.fromMillis(now.toMillis() + 7 * 24 * 60 * 60 * 1000);
+  const ref = adminDb.collection("users").doc(uid).collection("notifications").doc();
+
+  await ref.set({
+    title: payload.title,
+    body: payload.body,
+    isRead: false,
+    createdAt: now,
+    expireAt,
+    type: payload.customerType,
+  });
 }
 
 // ── GET — fetch notification log (most recent 100) ─────────────────────────
@@ -91,37 +104,31 @@ export async function POST(req: NextRequest) {
       const usersSnap = await adminDb.collection("users").get();
       recipientCount = usersSnap.size;
 
-      // Batch write to flat 'notifications' collection (max 400/batch)
-      const chunks: FirebaseFirestore.QueryDocumentSnapshot[][] = [];
-      for (let i = 0; i < usersSnap.docs.length; i += 400) {
-        chunks.push(usersSnap.docs.slice(i, i + 400));
-      }
-      for (const chunk of chunks) {
-        const batch = adminDb.batch();
-        for (const userDoc of chunk) {
-          // Use composite key so each user gets their own document
-          const ref = adminDb.collection("notifications").doc(`${notifId}_${userDoc.id}`);
-          batch.set(ref, {
-            userId:    userDoc.id,
-            type:      customerType,
+      await Promise.all(
+        usersSnap.docs.map((userDoc) =>
+          writeNotificationToUser(userDoc.id, {
             title,
-            body:      bodyText,
-            isRead:    false,
-            createdAt: now,
-          });
-        }
-        await batch.commit();
-      }
-    } else {
-      // Targeted: single user — write to flat 'notifications' with userId field
-      recipientCount = 1;
-      await adminDb.collection("notifications").doc(notifId).set({
-        userId:    targetUid,
-        type:      customerType,
+            body: bodyText,
+            customerType,
+          })
+        )
+      );
+
+      await adminDb.collection("global_promos").doc(notifId).set({
         title,
-        body:      bodyText,
-        isRead:    false,
-        createdAt: now,
+        description: bodyText,
+        imageUrl: "",
+        isActive: true,
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    } else {
+      // Targeted: write to user sub-collection
+      recipientCount = 1;
+      await writeNotificationToUser(targetUid, {
+        title,
+        body: bodyText,
+        customerType,
       });
     }
 

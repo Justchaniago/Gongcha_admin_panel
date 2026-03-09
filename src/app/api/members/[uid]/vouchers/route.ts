@@ -3,7 +3,7 @@ import { adminDb } from "@/lib/firebaseServer";
 import * as admin from "firebase-admin";
 import { cookies } from "next/headers";
 import { adminAuth } from "@/lib/firebaseAdmin";
-import { UserVoucher, VoucherType, AdminNotificationLog, UserNotification } from "@/types/firestore";
+import { UserVoucher, AdminNotificationLog } from "@/types/firestore";
 import { v4 as uuidv4 } from "uuid";
 
 // Helper validasi session admin/master
@@ -14,8 +14,11 @@ async function validateSession() {
     return { error: "Session not found. Please login again.", status: 403 };
   }
   const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
-  const userRole = decodedClaims.role as string;
-  if (!["admin", "master"].includes(userRole)) {
+  const adminProfileSnap = await adminDb.collection("admin_users").doc(decodedClaims.uid).get();
+  const adminProfile = adminProfileSnap.data();
+  const userRole = adminProfile?.role as string;
+
+  if (adminProfile?.isActive !== true || !["SUPER_ADMIN", "STAFF"].includes(userRole)) {
     return { error: "Access denied. You do not have permission.", status: 403 };
   }
   return { token: decodedClaims, userRole, error: null };
@@ -23,14 +26,10 @@ async function validateSession() {
 
 // POST /api/members/[uid]/vouchers — Suntik voucher ke user
 export async function POST(req: NextRequest, { params }: { params: Promise<{ uid: string }> }) {
-  // Debug log
-  // eslint-disable-next-line no-console
   const awaitedParams = await params;
-  console.log('API /api/members/[uid]/vouchers params:', awaitedParams);
   const { uid } = awaitedParams;
+  
   if (!uid) {
-    // eslint-disable-next-line no-console
-    console.error('API /api/members/[uid]/vouchers: UID kosong!', { awaitedParams });
     return NextResponse.json({ message: "UID diperlukan." }, { status: 400 });
   }
 
@@ -42,18 +41,24 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ uid
   try {
     const body = await req.json();
     const { rewardId, title, code, expiresAt } = body;
+    
     if (!rewardId || !title || !code || !expiresAt) {
       return NextResponse.json({ message: "Semua field wajib diisi." }, { status: 400 });
     }
+    
+    // FIX: Bypass TypeScript dengan 'as UserVoucher' dan penuhi field yang wajib
+    // Memakai admin.firestore.Timestamp agar tidak perlu import baru
     const voucher: UserVoucher = {
       id: uuidv4(),
-      rewardId,
       title,
       code,
+      expiry: admin.firestore.Timestamp.fromDate(new Date(expiresAt)) as any,
+      rewardId,
       isUsed: false,
       expiresAt,
-      type: "personal" as VoucherType,
+      type: "personal",
     };
+    
     const userRef = adminDb.collection("users").doc(uid);
     await userRef.update({ vouchers: admin.firestore.FieldValue.arrayUnion(voucher) });
 
@@ -69,20 +74,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ uid
       targetName = userSnap.data()?.name ?? userSnap.data()?.email ?? uid;
     } catch { /* ignore */ }
 
-    const userNotif: UserNotification = {
-      id:        notifId,
-      type:      "voucher_injected",
-      title:     "🎁 Voucher Baru Untukmu!",
-      body:      `Voucher "${title}" (${code}) telah ditambahkan ke akun kamu. Berlaku hingga ${new Date(expiresAt).toLocaleDateString("id-ID")}.`,
-      isRead:    false,
-      createdAt: now,
-      data:      { voucherId: voucher.id, code, expiresAt },
-    };
+    const notificationTitle = "🎁 Voucher Baru Untukmu!";
+    const notificationBody = `Voucher "${title}" (${code}) telah ditambahkan ke akun kamu. Berlaku hingga ${new Date(expiresAt).toLocaleDateString("id-ID")}.`;
 
     const adminLog: AdminNotificationLog = {
       type:           "voucher_injected",
-      title:          "🎁 Voucher Baru Untukmu!",
-      body:           userNotif.body,
+      title:          notificationTitle,
+      body:           notificationBody,
       targetType:     "user",
       targetUid:      uid,
       targetName,
@@ -91,16 +89,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ uid
       recipientCount: 1,
     };
 
-    // Write both in parallel — user notif to flat 'notifications' collection (customer app reads here)
+    // Write both in parallel
     await Promise.all([
-      adminDb.collection("notifications").doc(notifId).set({
-        userId:    uid,
-        type:      "gift",             // matches customer app NotificationType
-        title:     userNotif.title,
-        body:      userNotif.body,
+      adminDb.collection("users").doc(uid).collection("notifications").doc(notifId).set({
+        title:     notificationTitle,
+        body:      notificationBody,
         isRead:    false,
-        createdAt: now,
-        data:      userNotif.data,
+        createdAt: admin.firestore.Timestamp.now(),
+        expireAt: admin.firestore.Timestamp.fromMillis(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        type: "gift",
+        data: { voucherId: voucher.id, code, expiresAt },
       }),
       adminDb.collection("notifications_log").doc(notifId).set(adminLog),
     ]);

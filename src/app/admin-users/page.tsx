@@ -21,21 +21,19 @@ export default async function UsersStaffPage() {
     redirect("/login");
   }
 
-  // Tarik profil user untuk otorisasi dasar (hanya admin/master/manager yang boleh masuk)
-  const userDoc = await adminDb.collection("users").doc(uid).get();
-  const staffDoc = await adminDb.collection("staff").doc(uid).get();
-  const profile = userDoc.exists ? userDoc.data() : staffDoc.exists ? staffDoc.data() : null;
+  // Otorisasi via admin_users schema baru
+  const adminSnap = await adminDb.collection("admin_users").doc(uid).get();
+  const profile = adminSnap.data();
   const role = profile?.role;
 
-  const allowedRoles = ["admin", "master", "manager", "store_manager"];
-  if (!allowedRoles.includes(role)) {
+  if (profile?.isActive !== true || !["SUPER_ADMIN", "STAFF"].includes(role)) {
     return <UnauthorizedOverlay />;
   }
 
-  // Tarik data Users, Staff, dan Stores secara paralel
+  // Tarik data Users, Admin Users, dan Stores secara paralel
   const [usersSnap, staffSnap, storesSnap] = await Promise.all([
     adminDb.collection("users").orderBy("name").get(),
-    adminDb.collection("staff").orderBy("name").get(),
+    adminDb.collection("admin_users").orderBy("name").get(),
     adminDb.collection("stores").get()
   ]);
 
@@ -62,10 +60,9 @@ export default async function UsersStaffPage() {
       uid: d.id,
       name: data.name ?? "",
       email: data.email ?? "",
-      role: data.role ?? "cashier",
+      role: data.role ?? "STAFF",
+      assignedStoreId: data.assignedStoreId ?? null,
       isActive: data.isActive ?? true,
-      storeLocations: data.storeLocations ?? [],
-      accessAllStores: data.accessAllStores ?? false,
     };
   });
   const storeIds = storesSnap.docs.map(d => d.id);

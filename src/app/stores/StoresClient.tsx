@@ -4,12 +4,41 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
 import { db } from "@/lib/firebaseClient";
-import { Store } from "@/types/firestore";
+import { Store, storeConverter } from "@/types/firestore";
 import { createStore, updateStore, deleteStore } from "@/actions/storeActions";
+import { useAuth } from "@/context/AuthContext";
 
 type StoreWithId = Store & { id: string };
 type SyncStatus  = "connecting" | "live" | "error";
-type StatusOverride = "open" | "closed" | "almost_close";
+type StatusOverride = "open" | "closed";
+
+function parseTimeToMinutes(value?: string): number | null {
+  if (!value) return null;
+  const [h, m] = value.split(":").map(Number);
+  if (!Number.isInteger(h) || !Number.isInteger(m)) return null;
+  if (h < 0 || h > 23 || m < 0 || m > 59) return null;
+  return h * 60 + m;
+}
+
+function getStoreOpenStatus(store: StoreWithId): "BUKA" | "TUTUP" {
+  if (store.isForceClosed) return "TUTUP";
+
+  const openMinutes = parseTimeToMinutes(store.operationalHours?.open);
+  const closeMinutes = parseTimeToMinutes(store.operationalHours?.close);
+
+  if (openMinutes === null || closeMinutes === null) return "TUTUP";
+
+  const now = new Date();
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+
+  if (openMinutes === closeMinutes) return "BUKA";
+
+  if (openMinutes < closeMinutes) {
+    return nowMinutes >= openMinutes && nowMinutes < closeMinutes ? "BUKA" : "TUTUP";
+  }
+
+  return nowMinutes >= openMinutes || nowMinutes < closeMinutes ? "BUKA" : "TUTUP";
+}
 
 const C = {
   bg: '#F4F6FB', white: '#FFFFFF', border: '#EAECF2', border2: '#F0F2F7',
@@ -46,9 +75,8 @@ function StatusPill({ active }: { active: boolean }) {
 
 function StatusOverridePill({ status }: { status: StatusOverride }) {
   const cfg = {
-    open:         { label: 'Open',        color: '#027A48', bg: C.greenBg  },
-    almost_close: { label: 'Almost Closed',   color: '#92400E', bg: C.orangeBg },
-    closed:       { label: 'Closed',       color: '#B42318', bg: C.redBg    },
+    open:         { label: 'BUKA',  color: '#027A48', bg: C.greenBg  },
+    closed:       { label: 'TUTUP', color: '#B42318', bg: C.redBg    },
   }[status] ?? { label: status, color: C.tx3, bg: C.border2 };
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', padding: '3px 9px', borderRadius: 99, background: cfg.bg, color: cfg.color, fontSize: 11, fontWeight: 700, letterSpacing: '.04em' }}>
@@ -159,10 +187,10 @@ function StoreModal({ store, onClose, onSaved }: {
     storeId:        store?.id              ?? '',
     name:           store?.name            ?? '',
     address:        store?.address         ?? '',
-    latitude:       store?.latitude  != null ? String(store.latitude)  : '',
-    longitude:      store?.longitude != null ? String(store.longitude) : '',
-    openHours:      store?.openHours       ?? '',
-    statusOverride: (store?.statusOverride as StatusOverride) ?? 'open',
+    latitude:       store?.location?.latitude  != null ? String(store.location.latitude)  : '',
+    longitude:      store?.location?.longitude != null ? String(store.location.longitude) : '',
+    openHours:      store?.operationalHours ? `${store.operationalHours.open} - ${store.operationalHours.close}` : '',
+    statusOverride: store?.isForceClosed ? 'closed' : 'open',
     isActive:       store?.isActive        ?? true,
   });
 
@@ -351,11 +379,12 @@ function StoreModal({ store, onClose, onSaved }: {
 }
 
 // ── Table Row ──────────────────────────────────────────────────────────────────
-function StoreRow({ store, isLast, onEdit, onDelete }: { store: StoreWithId; isLast: boolean; onEdit: () => void; onDelete: () => void }) {
+function StoreRow({ store, isLast, onEdit, onDelete, canManage }: { store: StoreWithId; isLast: boolean; onEdit: () => void; onDelete: () => void; canManage: boolean }) {
   const [h, setH]   = useState(false);
   const [bh, setBH] = useState(false);
   const [dh, setDH] = useState(false);
-  const hasGPS = !!(store.latitude && store.longitude);
+  const hasGPS = !!(store.location?.latitude && store.location?.longitude);
+  const dynamicStatus = getStoreOpenStatus(store);
 
   return (
     <tr onMouseOver={() => setH(true)} onMouseOut={() => setH(false)}
@@ -372,31 +401,33 @@ function StoreRow({ store, isLast, onEdit, onDelete }: { store: StoreWithId; isL
         </div>
       </td>
       <td style={{ padding: '14px 18px', fontSize: 12.5, color: C.tx2 }}>{store.address ? <span style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>{store.address}</span> : <span style={{ color: C.tx4 }}>—</span>}</td>
-      <td style={{ padding: '14px 18px', fontSize: 12.5, color: C.tx2 }}>{store.openHours || <span style={{ color: C.tx4 }}>—</span>}</td>
+      <td style={{ padding: '14px 18px', fontSize: 12.5, color: C.tx2 }}>{store.operationalHours ? `${store.operationalHours.open} - ${store.operationalHours.close}` : <span style={{ color: C.tx4 }}>—</span>}</td>
       <td style={{ padding: '14px 18px' }}>
         {hasGPS ? (
-          <a href={`https://maps.google.com/?q=${store.latitude},${store.longitude}`} target="_blank" rel="noopener noreferrer"
+          <a href={`https://maps.google.com/?q=${store.location.latitude},${store.location.longitude}`} target="_blank" rel="noopener noreferrer"
             style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 600, color: C.blue, textDecoration: 'none', padding: '3px 9px', borderRadius: 6, background: C.blueL, border: `1px solid rgba(67,97,238,.15)` }}>
             <svg width="10" height="10" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
-            {Number(store.latitude).toFixed(3)}, {Number(store.longitude).toFixed(3)}
+            {Number(store.location.latitude).toFixed(3)}, {Number(store.location.longitude).toFixed(3)}
           </a>
         ) : <span style={{ fontSize: 11.5, color: C.tx4, padding: '3px 9px', borderRadius: 6, background: C.bg, border: `1px solid ${C.border2}` }}>Not set</span>}
       </td>
-      <td style={{ padding: '14px 18px' }}><StatusOverridePill status={(store.statusOverride as StatusOverride) ?? 'open'}/></td>
+      <td style={{ padding: '14px 18px' }}><StatusOverridePill status={dynamicStatus === 'BUKA' ? 'open' : 'closed'}/></td>
       <td style={{ padding: '14px 18px' }}><StatusPill active={store.isActive !== false}/></td>
       <td style={{ padding: '14px 18px' }}>
-        <div style={{ display: 'flex', gap: 6 }}>
-          <button onClick={onEdit} onMouseOver={() => setBH(true)} onMouseOut={() => setBH(false)}
-            style={{ height: 32, padding: '0 12px', borderRadius: 7, fontFamily: font, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: `1.5px solid ${bh ? C.blue : C.border}`, background: bh ? C.blueL : C.white, color: bh ? C.blue : C.tx2, display: 'inline-flex', alignItems: 'center', gap: 5, transition: 'all .13s' }}>
-            <svg width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
-            Edit
-          </button>
-          <button onClick={onDelete} onMouseOver={() => setDH(true)} onMouseOut={() => setDH(false)}
-            style={{ height: 32, padding: '0 12px', borderRadius: 7, fontFamily: font, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: `1.5px solid ${dh ? C.red : C.border}`, background: dh ? C.redBg : C.white, color: dh ? C.red : C.tx2, display: 'inline-flex', alignItems: 'center', gap: 5, transition: 'all .13s' }}>
-            <svg width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M9 6V4h6v2"/></svg>
-            Delete
-          </button>
-        </div>
+        {canManage && (
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button onClick={onEdit} onMouseOver={() => setBH(true)} onMouseOut={() => setBH(false)}
+              style={{ height: 32, padding: '0 12px', borderRadius: 7, fontFamily: font, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: `1.5px solid ${bh ? C.blue : C.border}`, background: bh ? C.blueL : C.white, color: bh ? C.blue : C.tx2, display: 'inline-flex', alignItems: 'center', gap: 5, transition: 'all .13s' }}>
+              <svg width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+              Edit
+            </button>
+            <button onClick={onDelete} onMouseOver={() => setDH(true)} onMouseOut={() => setDH(false)}
+              style={{ height: 32, padding: '0 12px', borderRadius: 7, fontFamily: font, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: `1.5px solid ${dh ? C.red : C.border}`, background: dh ? C.redBg : C.white, color: dh ? C.red : C.tx2, display: 'inline-flex', alignItems: 'center', gap: 5, transition: 'all .13s' }}>
+              <svg width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M9 6V4h6v2"/></svg>
+              Delete
+            </button>
+          </div>
+        )}
       </td>
     </tr>
   );
@@ -413,14 +444,17 @@ export default function StoresClient({ initialStores, showAddTrigger }: { initia
   const [showAdd,      setShowAdd]      = useState(false);
   const [toast,        setToast]        = useState<{msg:string;type:'success'|'error'}|null>(null);
   const [searchFocus,  setSearchFocus]  = useState(false);
+  const { user } = useAuth();
+  const canManageStores = user?.role !== "STAFF";
 
   const showToast = useCallback((msg: string, type: 'success'|'error' = 'success') => setToast({ msg, type }), []);
 
   // ── Realtime onSnapshot ─────────────────────────────────────────────────────
   useEffect(() => {
-    const q = query(collection(db, "stores"), orderBy("name"));
+    const storesRef = collection(db, "stores").withConverter(storeConverter);
+    const q = query(storesRef, orderBy("name"));
     const unsub = onSnapshot(q,
-      snap => { setStores(snap.docs.map(d => ({ id: d.id, ...d.data() } as StoreWithId))); setSyncStatus("live"); },
+      snap => { setStores(snap.docs.map(d => d.data())); setSyncStatus("live"); },
       err  => { console.error("[stores onSnapshot]", err); setSyncStatus("error"); }
     );
     return () => unsub();
@@ -439,14 +473,16 @@ export default function StoresClient({ initialStores, showAddTrigger }: { initia
       <>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <LiveBadge status={syncStatus}/>
-          <button onClick={() => setShowAdd(true)} style={{ height: 42, padding: '0 20px', borderRadius: 10, border: 'none', background: C.tx1, color: '#fff', fontFamily: font, fontSize: 13.5, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8, transition: 'all .15s' }}
-            onMouseOver={e => { e.currentTarget.style.background = C.red; e.currentTarget.style.transform = 'translateY(-1px)'; }}
-            onMouseOut={e  => { e.currentTarget.style.background = C.tx1; e.currentTarget.style.transform = 'none'; }}>
-            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
-            Add Store
-          </button>
+          {canManageStores && (
+            <button onClick={() => setShowAdd(true)} style={{ height: 42, padding: '0 20px', borderRadius: 10, border: 'none', background: C.tx1, color: '#fff', fontFamily: font, fontSize: 13.5, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8, transition: 'all .15s' }}
+              onMouseOver={e => { e.currentTarget.style.background = C.red; e.currentTarget.style.transform = 'translateY(-1px)'; }}
+              onMouseOut={e  => { e.currentTarget.style.background = C.tx1; e.currentTarget.style.transform = 'none'; }}>
+              <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+              Add Store
+            </button>
+          )}
         </div>
-        {showAdd && <StoreModal store={null} onClose={() => setShowAdd(false)} onSaved={msg => { showToast(msg); setShowAdd(false); }}/>}
+        {canManageStores && showAdd && <StoreModal store={null} onClose={() => setShowAdd(false)} onSaved={msg => { showToast(msg); setShowAdd(false); }}/>} 
         {toast && <Toast msg={toast.msg} type={toast.type} onDone={() => setToast(null)}/>}
       </>
     );
@@ -497,6 +533,7 @@ export default function StoresClient({ initialStores, showAddTrigger }: { initia
                 <StoreRow key={s.id} store={s} isLast={i === filtered.length - 1}
                   onEdit={() => setEditTarget(s)}
                   onDelete={() => setDeleteTarget(s)}
+                  canManage={canManageStores}
                 />
               ))}
             </tbody>
@@ -507,24 +544,26 @@ export default function StoresClient({ initialStores, showAddTrigger }: { initia
           <p style={{ fontSize: 12, color: C.tx3 }}>
             <strong style={{ color: C.tx2 }}>{stores.filter(s => s.isActive !== false).length}</strong> active ·{' '}
             <strong style={{ color: C.tx2 }}>{stores.filter(s => s.isActive === false).length}</strong> inactive ·{' '}
-            <strong style={{ color: C.tx2 }}>{stores.filter(s => s.latitude && s.longitude).length}</strong> with GPS
+            <strong style={{ color: C.tx2 }}>{stores.filter(s => s.location?.latitude && s.location?.longitude).length}</strong> with GPS
           </p>
           <button onClick={() => { /* refresh */ }} style={{ height: 34, padding: '0 16px', borderRadius: 8, background: C.bg, color: C.tx2, border: `1px solid ${C.border}`, fontFamily: font, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, marginRight: 10 }} >
             <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
             Refresh
           </button>
-          <button onClick={() => setShowAdd(true)} style={{ height: 34, padding: '0 16px', borderRadius: 8, background: C.tx1, color: '#fff', border: 'none', fontFamily: font, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}
-            onMouseOver={e => (e.currentTarget.style.background = C.red)}
-            onMouseOut={e  => (e.currentTarget.style.background = C.tx1)}>
-            <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
-            Add Store
-          </button>
+          {canManageStores && (
+            <button onClick={() => setShowAdd(true)} style={{ height: 34, padding: '0 16px', borderRadius: 8, background: C.tx1, color: '#fff', border: 'none', fontFamily: font, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+              onMouseOver={e => (e.currentTarget.style.background = C.red)}
+              onMouseOut={e  => (e.currentTarget.style.background = C.tx1)}>
+              <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+              Add Store
+            </button>
+          )}
         </div>
       </div>
 
-      {editTarget   && <StoreModal store={editTarget}   onClose={() => setEditTarget(null)}    onSaved={msg => { showToast(msg); setEditTarget(null); }}/>}
-      {showAdd      && <StoreModal store={null}          onClose={() => setShowAdd(false)}       onSaved={msg => { showToast(msg); setShowAdd(false); }}/>}
-      {deleteTarget && <DeleteModal store={deleteTarget} onClose={() => setDeleteTarget(null)}   onDeleted={msg => { showToast(msg); setDeleteTarget(null); }}/>}
+      {canManageStores && editTarget   && <StoreModal store={editTarget}   onClose={() => setEditTarget(null)}    onSaved={msg => { showToast(msg); setEditTarget(null); }}/>} 
+      {canManageStores && showAdd      && <StoreModal store={null}          onClose={() => setShowAdd(false)}       onSaved={msg => { showToast(msg); setShowAdd(false); }}/>} 
+      {canManageStores && deleteTarget && <DeleteModal store={deleteTarget} onClose={() => setDeleteTarget(null)}   onDeleted={msg => { showToast(msg); setDeleteTarget(null); }}/>} 
 
       {toast && <Toast msg={toast.msg} type={toast.type} onDone={() => setToast(null)}/>}
     </>
