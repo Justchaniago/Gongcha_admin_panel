@@ -1,6 +1,6 @@
 // src/app/api/setup-user/route.ts
-// GET: Check if user exists in staff/users collection
-// POST: Register authenticated user to staff collection
+// GET: Check if user exists in admin_users/users collections
+// POST: Register authenticated user to admin_users collection
 
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
@@ -20,17 +20,17 @@ export async function GET(request: Request) {
     const userId = decodedClaims.uid;
     const email = decodedClaims.email || "";
 
-    // Check if user exists in staff collection
-    const staffDoc = await adminDb.collection("staff").doc(userId).get();
+    // Check if user exists in admin_users collection
+    const adminUserDoc = await adminDb.collection("admin_users").doc(userId).get();
     const userDoc = await adminDb.collection("users").doc(userId).get();
 
-    const exists = staffDoc.exists || userDoc.exists;
+    const exists = adminUserDoc.exists || userDoc.exists;
 
     return NextResponse.json({
       exists,
       userId,
       email,
-      inStaff: staffDoc.exists,
+      inAdminUsers: adminUserDoc.exists,
       inUsers: userDoc.exists,
       message: exists ? "User is registered" : "User is not registered"
     });
@@ -59,29 +59,30 @@ export async function POST(request: Request) {
     const name = decodedClaims.name || email.split("@")[0];
 
     // Check if user already exists
-    const staffDoc = await adminDb.collection("staff").doc(userId).get();
-    if (staffDoc.exists) {
+    const adminUserDoc = await adminDb.collection("admin_users").doc(userId).get();
+    if (adminUserDoc.exists) {
       return NextResponse.json({
         success: true,
-        message: "User already exists in staff collection",
+        message: "User already exists in admin_users collection",
         userId,
         email
       });
     }
 
-    // Add user to staff collection
-    await adminDb.collection("staff").doc(userId).set({
+    // Add user to admin_users collection
+    await adminDb.collection("admin_users").doc(userId).set({
       uid: userId,
       email,
       name,
-      role: "admin",
+      role: "STAFF",
+      isActive: true,
       createdAt: new Date(),
       updatedAt: new Date()
     });
 
     return NextResponse.json({
       success: true,
-      message: "User successfully registered to staff collection",
+      message: "User successfully registered to admin_users collection",
       userId,
       email
     });

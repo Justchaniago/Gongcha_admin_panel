@@ -38,8 +38,8 @@ async function validateAdmin() {
 
   // Fresh Role Fetching
   const userDoc = await adminDb.collection("users").doc(uid).get();
-  const staffDoc = await adminDb.collection("staff").doc(uid).get();
-  const profile = userDoc.exists ? userDoc.data() : staffDoc.exists ? staffDoc.data() : null;
+  const adminUserDoc = await adminDb.collection("admin_users").doc(uid).get();
+  const profile = userDoc.exists ? userDoc.data() : adminUserDoc.exists ? adminUserDoc.data() : null;
   const role = profile?.role?.toLowerCase(); 
 
   const allowedRoles = ["admin", "master"];
