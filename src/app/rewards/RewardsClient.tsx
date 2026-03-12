@@ -409,27 +409,20 @@ export default function RewardsClient({ initialRewards = [], showAddTrigger }: {
   }, []);
 
   useEffect(() => {
-    // 🔥 MENGGUNAKAN rewards_catalog
-    const q = query(collection(db,'rewards_catalog').withConverter(rewardConverter), orderBy('title'));
+    const q = query(collection(db, "rewards_catalog").withConverter(rewardConverter), orderBy("title"));
     const unsub = onSnapshot(
       q,
-      snap => {
-        setRewards(snap.docs.map(d => d.data() as Reward));
-        setSyncStatus('live');
+      (snap) => {
+        setRewards(snap.docs.map((d) => d.data() as RewardWithId));
+        setSyncStatus("live");
       },
-      async (err: any) => {
-        if (err?.code === 'permission-denied') {
-          console.warn('[RewardsClient] Firestore permission denied, falling back to /api/rewards');
-          await fetchRewardsFromApi();
-          return;
-        }
+      (err) => {
         console.error(err);
-        setSyncStatus('error');
+        setSyncStatus("error");
       }
     );
     return () => unsub();
-  }, [fetchRewardsFromApi]);
-
+  }, []);
 
   const filtered = useMemo(() => rewards.filter(r => {
     const q = search.toLowerCase();
