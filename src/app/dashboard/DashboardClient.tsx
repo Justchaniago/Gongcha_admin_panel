@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
+import { GcButton, GcEmptyState, GcInput, GcModalShell, GcPage, GcPageHeader, GcPanel, GcSelect } from "@/components/ui/gc";
 import {
   doc,
   collection, onSnapshot, query, orderBy, limit,
@@ -11,22 +13,68 @@ import { db } from "../../lib/firebaseClient";
 import { DailyStat, dailyStatConverter } from "@/types/firestore";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
+type TransactionStatus = "PENDING" | "COMPLETED" | "CANCELLED" | "REFUNDED";
+
 interface Transaction {
   docId?: string;
   docPath?: string;
-  transactionId: string;
+  receiptNumber: string;
+  transactionId?: string;
   memberName: string;
   amount: number;
   potentialPoints?: number;
   type?: "earn" | "redeem"; // earn = purchase, redeem = voucher redemption
-  status: "verified" | "pending" | "rejected";
+  status: TransactionStatus;
   createdAt: string | null;
   storeId?: string;
   storeName?: string; // store name to display
 }
 
 interface Member { uid: string; tier: string; currentPoints: number; lifetimePoints: number; }
-interface Store  { uid: string; name: string; isActive: boolean; }
+interface Store  { uid?: string; id?: string; name: string; isActive: boolean; }
+
+function normalizeTransactionStatus(status: unknown): TransactionStatus {
+  switch (String(status ?? "").toUpperCase()) {
+    case "COMPLETED":
+    case "VERIFIED":
+      return "COMPLETED";
+    case "CANCELLED":
+    case "REJECTED":
+      return "CANCELLED";
+    case "REFUNDED":
+      return "REFUNDED";
+    case "PENDING":
+    default:
+      return "PENDING";
+  }
+}
+
+function resolveStoreName(stores: Store[], storeId?: string, fallbackName?: string | null): string {
+  if (fallbackName) return fallbackName;
+  if (!storeId) return "—";
+  const store = stores.find((item) => item.uid === storeId || item.id === storeId);
+  return store?.name || storeId;
+}
+
+function normalizeTransaction(raw: any, stores: Store[]): Transaction {
+  const receiptNumber = String(raw.receiptNumber ?? raw.posTransactionId ?? raw.transactionId ?? "");
+  const storeId = String(raw.storeId ?? "");
+  const storeName = resolveStoreName(stores, storeId, raw.storeName ?? raw.storeLocation ?? null);
+  return {
+    docId: raw.docId ?? raw.id,
+    docPath: raw.docPath ?? (raw.docId ? `transactions/${raw.docId}` : undefined),
+    receiptNumber,
+    transactionId: receiptNumber,
+    memberName: raw.memberName ?? raw.userName ?? "—",
+    amount: Number(raw.totalAmount ?? raw.amount ?? 0),
+    potentialPoints: Number(raw.potentialPoints ?? 0),
+    type: raw.type ?? "earn",
+    status: normalizeTransactionStatus(raw.status),
+    createdAt: raw.createdAt?.toDate?.()?.toISOString?.() ?? raw.createdAt ?? null,
+    storeId,
+    storeName,
+  };
+}
 
 function getTodayString(): string {
   const now = new Date();
@@ -98,12 +146,20 @@ function TrendBadge({ value }: { value: number }) {
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { bg: string; color: string; dot: string }> = {
-    verified: { bg: "#ECFDF3", color: "#027A48", dot: "#12B76A" },
-    pending:  { bg: "#FFFAEB", color: "#B54708", dot: "#F79009" },
-    rejected: { bg: "#FEF3F2", color: "#B42318", dot: "#F04438" },
+    COMPLETED: { bg: "#ECFDF3", color: "#027A48", dot: "#12B76A" },
+    PENDING:   { bg: "#FFFAEB", color: "#B54708", dot: "#F79009" },
+    CANCELLED: { bg: "#FEF3F2", color: "#F04438", dot: "#F04438" },
+    REFUNDED:  { bg: "#F2F4F7", color: "#667085", dot: "#667085" },
+    verified:  { bg: "#ECFDF3", color: "#027A48", dot: "#12B76A" },
+    pending:   { bg: "#FFFAEB", color: "#B54708", dot: "#F79009" },
+    rejected:  { bg: "#FEF3F2", color: "#F04438", dot: "#F04438" },
   };
-  const s = map[status] ?? map.pending;
+  const s = map[status] ?? map.PENDING;
   const labelMap: Record<string, string> = {
+    COMPLETED: "Completed",
+    PENDING: "Pending",
+    CANCELLED: "Cancelled",
+    REFUNDED: "Refunded",
     verified: "Verified",
     pending: "Pending",
     rejected: "Rejected",
@@ -131,7 +187,7 @@ function TransactionTypeBadge({ type }: { type?: string }) {
       display: "inline-flex", alignItems: "center", gap: 4,
       padding: "2px 8px", borderRadius: 6,
       background: isRedeem ? "#F3F0FF" : "#EEF2FF",
-      color: isRedeem ? "#5B21B6" : "#4361EE",
+      color: isRedeem ? "#5B21B6" : "#3B82F6",
       fontSize: 10, fontWeight: 700, letterSpacing: ".06em",
       textTransform: "uppercase",
     }}>
@@ -140,12 +196,28 @@ function TransactionTypeBadge({ type }: { type?: string }) {
   );
 }
 
-function StatCard({ label, value, trend, trendLabel, iconBg, iconColor, icon, borderOverride }: {
+function StatCard({ label, value, trend, trendLabel, iconBg, iconColor, icon, borderOverride, onClick }: {
   label: string; value: string; trend: number; trendLabel: string;
   iconBg: string; iconColor: string; icon: React.ReactNode; borderOverride?: string;
+  onClick?: () => void;
 }) {
+  const clickable = typeof onClick === "function";
   return (
-    <div style={{ ...card, border: borderOverride ?? card.border, padding: "22px 24px" }}>
+    <div
+      role={clickable ? "button" : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onClick={onClick}
+      onKeyDown={(e) => {
+        if (!clickable) return;
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClick?.();
+        }
+      }}
+      className={clickable ? "gc-bento-clickable" : undefined}
+      style={{ ...card, border: borderOverride ?? card.border, padding: "22px 24px", cursor: clickable ? "pointer" : "default" }}
+      aria-label={clickable ? `${label} details` : undefined}
+    >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
         <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: C.tx3 }}>{label}</span>
         <div style={{ width: 32, height: 32, borderRadius: 9, background: iconBg, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -153,9 +225,12 @@ function StatCard({ label, value, trend, trendLabel, iconBg, iconColor, icon, bo
         </div>
       </div>
       <p style={{ fontSize: 30, fontWeight: 800, letterSpacing: "-.025em", color: C.tx1, lineHeight: 1, marginBottom: 10 }}>{value}</p>
-      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "space-between" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
         <TrendBadge value={trend}/>
         <span style={{ fontSize: 11.5, color: C.tx3 }}>{trendLabel}</span>
+        </div>
+        {clickable && <span style={{ fontSize: 11, color: C.blue, fontWeight: 700 }}>Open →</span>}
       </div>
     </div>
   );
@@ -171,18 +246,17 @@ interface DashboardProps {
 }
 
 export default function DashboardClient({ initialRole, initialTransactions, initialUsers, initialStores }: DashboardProps) {
+  const router = useRouter();
   const [mode, setMode] = useState<"realtime" | "range">("realtime");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [selectedStoreId, setSelectedStoreId] = useState<string>("all"); // Store filter for admin
+  const [stores, setStores] = useState<Store[]>(initialStores);
+  const storesRef = useRef<Store[]>(initialStores);
   // Use initial data from server as default state
-  const [transactions, setTransactions] = useState<any[]>(initialTransactions);
-  // Keep using state members and stores for legacy logic to continue working
-  const [members, setMembers] = useState<any[]>(initialUsers);
-  const [stores, setStores] = useState<any[]>(initialStores);
-  // All-time pending & rejected counts (not affected by date picker)
-  const [allTimePendingCount, setAllTimePendingCount] = useState(0);
-  const [allTimeRejectedCount, setAllTimeRejectedCount] = useState(0);
+  const [allTransactions, setAllTransactions] = useState<Transaction[]>(() => initialTransactions.map((tx) => normalizeTransaction(tx, initialStores)));
+  // Keep using state members for legacy logic to continue working
+  const [members, setMembers] = useState<Member[]>(initialUsers);
   const [txStatus,     setTxStatus]     = useState<"connecting"|"live"|"error">("connecting");
   const [memberStatus, setMemberStatus] = useState<"connecting"|"live"|"error">("connecting");
   const [dailyStatStatus, setDailyStatStatus] = useState<"connecting"|"live"|"error">("connecting");
@@ -190,6 +264,7 @@ export default function DashboardClient({ initialRole, initialTransactions, init
   const [selectedTxDocPaths, setSelectedTxDocPaths] = useState<string[]>([]);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteMessage, setDeleteMessage] = useState<string | null>(null);
+  const [deleteConfirmPaths, setDeleteConfirmPaths] = useState<string[] | null>(null);
 
   // Greeting
   const { user } = useAuth();
@@ -199,6 +274,7 @@ export default function DashboardClient({ initialRole, initialTransactions, init
   const dateStr  = now.toLocaleDateString("en-US", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
   const userName = user?.name || user?.email?.split("@")[0] || "Admin";
   const role = user?.role ?? (initialRole === "admin" ? "SUPER_ADMIN" : "STAFF");
+  const goTo = useCallback((path: string) => router.push(path), [router]);
 
   // Check if user has limited access (cashier or store_manager)
   const isLimitedAccess = role === "STAFF";
@@ -223,12 +299,17 @@ export default function DashboardClient({ initialRole, initialTransactions, init
   // Determine effective store filter
   const effectiveStoreFilter = isLimitedAccess && userAssignedStoreId ? userAssignedStoreId : selectedStoreId;
 
+  const transactions = useMemo(() => {
+    if (!effectiveStoreFilter || effectiveStoreFilter === "all") return allTransactions;
+    return allTransactions.filter((t) => t.storeId === effectiveStoreFilter);
+  }, [allTransactions, effectiveStoreFilter]);
+
+  useEffect(() => {
+    storesRef.current = stores;
+  }, [stores]);
+
   // Helper: resolve store name from storeId
-  const getStoreName = (storeId?: string) => {
-    if (!storeId) return "—";
-    const store = stores.find(s => s.uid === storeId || s.id === storeId);
-    return store?.name || storeId;
-  };
+  const getStoreName = (storeId?: string, fallbackName?: string | null) => resolveStoreName(stores, storeId, fallbackName);
 
   const getTxDocPath = (tx: any) => tx?.docPath ?? (tx?.docId ? `transactions/${tx.docId}` : "");
 
@@ -271,9 +352,10 @@ export default function DashboardClient({ initialRole, initialTransactions, init
           setDailyStatsDocs(snap.docs.map((d) => d.data()));
           setDailyStatStatus("live");
         },
-        () => {
+        (err: any) => {
           setDailyStatsDocs([]);
-          setDailyStatStatus("error");
+          // If staff cannot read daily_stats directly, avoid red status and continue with tx-based widgets.
+          setDailyStatStatus(err?.code === "permission-denied" ? "live" : "error");
         }
       );
       return () => unsub();
@@ -297,9 +379,9 @@ export default function DashboardClient({ initialRole, initialTransactions, init
         setDailyStatsDocs(snap.exists() ? [snap.data()] : []);
         setDailyStatStatus("live");
       },
-      () => {
+      (err: any) => {
         setDailyStatsDocs([]);
-        setDailyStatStatus("error");
+        setDailyStatStatus(err?.code === "permission-denied" ? "live" : "error");
       }
     );
 
@@ -308,48 +390,53 @@ export default function DashboardClient({ initialRole, initialTransactions, init
 
   // ── Firestore listeners ──────────────────────────────────────────────────
   useEffect(() => {
+    const loadTransactionsFallback = async () => {
+      try {
+        const res = await fetch("/api/transactions", { cache: "no-store" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = (await res.json()) as any[];
+        const txList = data.map((d) => normalizeTransaction(d, storesRef.current));
+        setAllTransactions(txList);
+        setTxStatus("live");
+      } catch {
+        setTxStatus("error");
+      }
+    };
+
     const txQ = query(collection(db, "transactions"), orderBy("createdAt", "desc"), limit(50));
     const unsubTx = onSnapshot(txQ,
       (snap) => {
-        let txList = snap.docs.map(d => {
-          const data = d.data();
-          const storeId = data.storeId ?? data.storeLocation ?? "";
-          const type = data.type ?? "earn"; // Default to earn (purchase) if not specified
-          return {
-            docId:         d.id,
-            docPath:       d.ref.path,
-            transactionId: data.posTransactionId ?? data.transactionId ?? "",
-            memberName:    data.memberName    ?? data.userName ?? "—",
-            amount:        data.amount        ?? data.totalAmount ?? 0,
-            potentialPoints: data.potentialPoints ?? 0,
-            type:          type,
-            status:        data.status        ?? "pending",
-            createdAt:     data.createdAt?.toDate?.()?.toISOString?.() ?? data.createdAt ?? null,
-            storeId:       storeId,
-            storeName:     getStoreName(storeId),
-          } as Transaction;
-        });
-        
-        // Filter by store if needed (client-side)
-        if (effectiveStoreFilter && effectiveStoreFilter !== "all") {
-          txList = txList.filter(t => t.storeId === effectiveStoreFilter);
-        }
-        
-        setTransactions(txList);
+        const txList = snap.docs.map((d) =>
+          normalizeTransaction({ docId: d.id, docPath: d.ref.path, ...d.data() }, storesRef.current)
+        );
+
+        setAllTransactions(txList);
         setTxStatus("live");
       },
-      () => setTxStatus("error"),
+      (err: any) => {
+        if (err?.code === "permission-denied") {
+          void loadTransactionsFallback();
+          return;
+        }
+        setTxStatus("error");
+      },
     );
 
-    // Members
-    const memQ = query(collection(db, "users"));
-    const unsubMem = onSnapshot(memQ,
-      (snap) => {
-        setMembers(snap.docs.map(d => ({ uid: d.id, ...d.data() } as Member)));
-        setMemberStatus("live");
-      },
-      () => setMemberStatus("error"),
-    );
+    let unsubMem: (() => void) | null = null;
+    if (!isLimitedAccess) {
+      const memQ = query(collection(db, "users"));
+      unsubMem = onSnapshot(memQ,
+        (snap) => {
+          setMembers(snap.docs.map(d => ({ uid: d.id, ...d.data() } as Member)));
+          setMemberStatus("live");
+        },
+        () => setMemberStatus("error"),
+      );
+    } else {
+      // Staff dashboard does not need full members stream.
+      setMemberStatus("live");
+      setMembers([]);
+    }
 
     // Stores
     const storeQ = query(collection(db, "stores"));
@@ -362,38 +449,20 @@ export default function DashboardClient({ initialRole, initialTransactions, init
       }
     );
 
-    // All-time pending count (not affected by date picker)
-    const pendingQ = query(collection(db, "transactions"), where("status", "==", "pending"));
-    const unsubPending = onSnapshot(pendingQ,
-      (snap) => {
-        setAllTimePendingCount(snap.size);
-      },
-      (err) => {
-        console.error("[pending] error:", err);
-      }
-    );
-
-    // All-time rejected count (not affected by date picker)
-    const rejectedQ = query(collection(db, "transactions"), where("status", "==", "rejected"));
-    const unsubRejected = onSnapshot(rejectedQ,
-      (snap) => {
-        setAllTimeRejectedCount(snap.size);
-      },
-      (err) => {
-        console.error("[rejected] error:", err);
-      }
-    );
-
-    return () => { unsubTx(); unsubMem(); unsubStore(); unsubPending(); unsubRejected(); };
-  }, [effectiveStoreFilter, stores.length]); // Re-run when store filter or stores change
+    return () => {
+      unsubTx();
+      if (unsubMem) unsubMem();
+      unsubStore();
+    };
+  }, [isLimitedAccess]); // Keep listeners stable to avoid watch-stream churn
 
   // ── Derived stats ────────────────────────────────────────────────────────
   // ALL TIME (tidak terpengaruh date picker):
   const totalMembers  = members.length;
   const totalStores   = stores.length;
-  const pendingCount  = allTimePendingCount; // ALL TIME pending claims
-  const rejectedCount = allTimeRejectedCount; // ALL TIME rejected claims
-  const claimsNeedingReview = pendingCount + rejectedCount; // Pending + Rejected
+  const pendingCount  = allTransactions.filter((t) => t.status === "PENDING").length;
+  const cancelledCount = allTransactions.filter((t) => t.status === "CANCELLED").length;
+  const claimsNeedingReview = pendingCount + cancelledCount; // Pending + Cancelled
   
   // DAILY STATS (The God Document):
   const totalRevenue = dailyStatsDocs.reduce((sum, d) => sum + (d.totalRevenue ?? 0), 0);
@@ -402,7 +471,7 @@ export default function DashboardClient({ initialRole, initialTransactions, init
 
   // Additional visuals still rely on transaction stream:
   const avgTrx        = transactions.length > 0 ? Math.round(transactions.reduce((a, t) => a + t.amount, 0) / transactions.length) : 0;
-  const totalXP       = transactions.filter(t => t.status === "verified").reduce((a, t) => a + (t.potentialPoints ?? 0), 0); // XP issued in date range
+  const totalXP       = transactions.filter((t) => t.status === "COMPLETED").reduce((a, t) => a + (t.potentialPoints ?? 0), 0); // XP issued in date range
   const recentTrx     = transactions.slice(0, 10);
 
   useEffect(() => {
@@ -438,23 +507,19 @@ export default function DashboardClient({ initialRole, initialTransactions, init
 
   async function handleDeleteDashboard(docPaths: string[]) {
     if (!canDeleteTransactions || docPaths.length === 0) return;
-    const confirmed = window.confirm(
-      `Delete ${docPaths.length} transaction(s)? This action cannot be undone.`
-    );
-    if (!confirmed) return;
-
     setDeleteBusy(true);
     setDeleteMessage(null);
     try {
       const data = await deleteTransactions(docPaths);
       const deletedSet = new Set(docPaths);
-      setTransactions((prev) => prev.filter((tx) => !deletedSet.has(getTxDocPath(tx))));
+      setAllTransactions((prev) => prev.filter((tx) => !deletedSet.has(getTxDocPath(tx))));
       setSelectedTxDocPaths((prev) => prev.filter((p) => !deletedSet.has(p)));
       setDeleteMessage(`Deleted ${data.successCount ?? 0} transaction(s).`);
     } catch (e: any) {
       setDeleteMessage(e.message ?? "Failed to delete transactions.");
     } finally {
       setDeleteBusy(false);
+      setDeleteConfirmPaths(null);
     }
   }
 
@@ -484,93 +549,105 @@ export default function DashboardClient({ initialRole, initialTransactions, init
   const barColors = [C.blue, "#7C3AED", C.green, C.amber];
 
   return (
-    <div style={{ padding: "28px 32px", maxWidth: 1400, fontFamily: font, WebkitFontSmoothing: "antialiased", background: C.bg, minHeight: "100vh" }}>
+    <GcPage style={{ background: C.bg }}>
+      <style>{`
+        .gc-bento-clickable {
+          transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease;
+          will-change: transform;
+        }
+        .gc-bento-clickable:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 10px 26px rgba(17,24,39,.10), 0 2px 6px rgba(17,24,39,.06);
+          border-color: #BFDBFE !important;
+        }
+        .gc-bento-clickable:active {
+          transform: translateY(0) scale(.995);
+        }
+        .gc-bento-clickable:focus-visible {
+          outline: 0;
+          box-shadow: 0 0 0 3px rgba(59,130,246,.22), 0 6px 20px rgba(17,24,39,.08);
+          border-color: #93C5FD !important;
+        }
+      `}</style>
 
       {/* ── TOP BAR ── */}
-      <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", marginBottom: 28 }}>
-        <div>
-          <p style={{ fontSize: 13, color: C.tx3, marginBottom: 4 }}>{dateStr}</p>
-          <h1 style={{ fontSize: 26, fontWeight: 800, letterSpacing: "-.025em", color: C.tx1, lineHeight: 1.1, margin: 0 }}>
-            {greeting}, {userName}! 👋
-          </h1>
-          <p style={{ fontSize: 14, color: C.tx2, marginTop: 5, display: "flex", alignItems: "center", gap: 10 }}>
-            {isLimitedAccess ? (
-              <>
-                Your {initialRole === "cashier" ? "Cashier" : "Store Manager"} dashboard.
-                <LiveBadge status={overallStatus}/>
-              </>
-            ) : (
-              <>
-                Here's what's happening at Gong Cha today.
-                <LiveBadge status={overallStatus}/>
-              </>
-            )}
-          </p>
-        </div>
-        <div style={{ display: "flex", flex: 1, justifyContent: "flex-end", gap: 10, alignItems: "center" }}>
-          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            <select
-              value={mode}
-              onChange={e => setMode(e.target.value as "realtime" | "range")}
-              style={{ padding: "7px 14px", borderRadius: 9, border: "1.5px solid " + C.border, background: C.white, fontWeight: 600, color: C.tx1, fontSize: 13 }}
-            >
-              <option value="realtime">Real-time</option>
-              <option value="range">Date Range</option>
-            </select>
+      <GcPageHeader
+        title={`${greeting}, ${userName}`}
+        description={isLimitedAccess
+          ? `Operations dashboard for ${initialRole === "cashier" ? "cashier" : "store manager"} focused on transactions and claims that need review.`
+          : "Daily operations overview across stores, transactions, members, and claims that require action."}
+        meta={
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", fontSize: 12.5, color: C.tx2 }}>
+            <span>{dateStr}</span>
+          </div>
+        }
+        actions={
+          <>
+            <div style={{ minWidth: 96, display: "inline-flex", justifyContent: "center" }}>
+              <LiveBadge status={overallStatus} />
+            </div>
+            <div style={{ minWidth: 140 }}>
+              <GcSelect value={mode} onChange={e => setMode(e.target.value as "realtime" | "range")}>
+                <option value="realtime">Real-time</option>
+                <option value="range">Date Range</option>
+              </GcSelect>
+            </div>
             {mode === "range" && (
               <>
-                <input
-                  type="date"
-                  value={dateFrom}
-                  onChange={e => setDateFrom(e.target.value)}
-                  style={{ padding: "7px 10px", borderRadius: 9, border: "1.5px solid " + C.border, background: C.white, fontSize: 13, color: C.tx1 }}
-                />
-                <span style={{ color: C.tx3, fontWeight: 600 }}>to</span>
-                <input
-                  type="date"
-                  value={dateTo}
-                  onChange={e => setDateTo(e.target.value)}
-                  style={{ padding: "7px 10px", borderRadius: 9, border: "1.5px solid " + C.border, background: C.white, fontSize: 13, color: C.tx1 }}
-                />
+                <div style={{ width: 154 }}>
+                  <GcInput type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} />
+                </div>
+                <div style={{ width: 154 }}>
+                  <GcInput type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} />
+                </div>
               </>
             )}
-            {/* Store Filter (Admin only) */}
             {!isLimitedAccess && stores.length > 0 && (
-              <select
-                value={selectedStoreId}
-                onChange={e => setSelectedStoreId(e.target.value)}
-                style={{ padding: "7px 14px", borderRadius: 9, border: "1.5px solid " + C.border, background: C.white, fontWeight: 600, color: C.tx1, fontSize: 13, minWidth: 150 }}
-              >
-                <option value="all">🏪 Semua Toko (Global)</option>
-                {stores.map(store => (
-                  <option key={store.uid || store.id} value={store.uid || store.id}>
-                    {store.name}
-                  </option>
-                ))}
-              </select>
+              <div style={{ minWidth: 200 }}>
+                <GcSelect value={selectedStoreId} onChange={e => setSelectedStoreId(e.target.value)}>
+                  <option value="all">Semua Toko</option>
+                  {stores.map(store => (
+                    <option key={store.uid || store.id} value={store.uid || store.id}>
+                      {store.name}
+                    </option>
+                  ))}
+                </GcSelect>
+              </div>
             )}
             {mode === "realtime" && (
-              <div style={{ display: "flex", alignItems: "center", gap: 8, background: C.white, border: "1.5px solid " + C.border, borderRadius: 10, padding: "8px 16px", boxShadow: C.shadow }}>
+              <div style={{ display: "inline-flex", alignItems: "center", gap: 8, background: C.white, border: "1px solid " + C.border, borderRadius: 10, padding: "8px 14px", boxShadow: C.shadow }}>
                 <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke={C.tx3} strokeWidth={2}>
                   <rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>
                 </svg>
                 <span style={{ fontSize: 13, fontWeight: 600, color: C.tx1 }}>Real-time</span>
               </div>
             )}
-          </div>
-        </div>
-        
-      </div>
+          </>
+        }
+      />
 
       {/* ── BENTO ROW 1: Conditional based on role ── */}
       {isLimitedAccess ? (
         // LIMITED ACCESS: Only Revenue + Pending Claims (2 columns)
-        <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: 14, marginBottom: 14 }}>
+        <div className="gc-grid-dashboard-limited" style={{ marginBottom: 14 }}>
           {/* Hero — Revenue */}
-          <div style={{
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => goTo("/transactions")}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                goTo("/transactions");
+              }
+            }}
+            className="gc-bento-clickable"
+            aria-label="Open transactions overview"
+            style={{
             background: `linear-gradient(135deg, ${C.blue} 0%, ${C.blueD} 100%)`,
             border: "none", padding: "24px 26px", borderRadius: 18,
             boxShadow: "0 8px 32px rgba(67,97,238,.28)",
+            cursor: "pointer",
           }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
               <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "rgba(255,255,255,.65)" }}>
@@ -597,20 +674,34 @@ export default function DashboardClient({ initialRole, initialTransactions, init
 
           <StatCard
             label="Claims Needing Review" value={String(claimsNeedingReview)}
-            trend={claimsNeedingReview > 0 ? -claimsNeedingReview : 0} trendLabel={`${pendingCount} pending • ${rejectedCount} rejected`}
+            trend={claimsNeedingReview > 0 ? -claimsNeedingReview : 0} trendLabel={`${pendingCount} pending • ${cancelledCount} cancelled`}
             iconBg="#FEF3F2" iconColor="#F04438"
             borderOverride={claimsNeedingReview > 0 ? "1.5px solid #FEE2E2" : undefined}
+            onClick={() => goTo("/transactions")}
             icon={<><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></>}
           />
         </div>
       ) : (
         // FULL ACCESS (ADMIN): All 4 stat cards
-        <div style={{ display: "grid", gridTemplateColumns: "1.35fr 1fr 1fr 1fr", gap: 14, marginBottom: 14 }}>
+        <div className="gc-grid-dashboard-full" style={{ marginBottom: 14 }}>
           {/* Hero — Revenue */}
-          <div style={{
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => goTo("/transactions")}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                goTo("/transactions");
+              }
+            }}
+            className="gc-bento-clickable"
+            aria-label="Open transactions overview"
+            style={{
             background: `linear-gradient(135deg, ${C.blue} 0%, ${C.blueD} 100%)`,
             border: "none", padding: "24px 26px", borderRadius: 18,
             boxShadow: "0 8px 32px rgba(67,97,238,.28)",
+            cursor: "pointer",
           }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
               <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "rgba(255,255,255,.65)" }}>
@@ -639,63 +730,83 @@ export default function DashboardClient({ initialRole, initialTransactions, init
             label="Active Members" value={totalMembers.toLocaleString()}
             trend={5.1} trendLabel="All time"
             iconBg={C.blueL} iconColor={C.blue}
+            onClick={() => goTo("/admin-users")}
             icon={<><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/></>}
           />
           <StatCard
             label="Total Stores" value={String(totalStores)}
             trend={0} trendLabel="All time"
             iconBg="#F3F0FF" iconColor="#7C3AED"
+            onClick={() => goTo("/stores")}
             icon={<path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>}
           />
           <StatCard
             label="Claims Needing Review" value={String(claimsNeedingReview)}
-            trend={claimsNeedingReview > 0 ? -claimsNeedingReview : 0} trendLabel={`${pendingCount} pending • ${rejectedCount} rejected`}
+            trend={claimsNeedingReview > 0 ? -claimsNeedingReview : 0} trendLabel={`${pendingCount} pending • ${cancelledCount} cancelled`}
             iconBg="#FEF3F2" iconColor="#F04438"
             borderOverride={claimsNeedingReview > 0 ? "1.5px solid #FEE2E2" : undefined}
+            onClick={() => goTo("/transactions")}
             icon={<><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></>}
           />
         </div>
       )}
 
       {/* ── BENTO ROW 2: 3 mini cards (Same for all roles) ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 20 }}>
+      <div className="gc-grid-3" style={{ marginBottom: 20 }}>
         {[
           {
             label: mode === "range" && dateFrom && dateTo ? `Total XP (${dateFrom} - ${dateTo})` : "Total XP Issued", 
             iconBg: C.blueL, iconColor: C.blue,
             value: `${totalXP.toLocaleString("id-ID")} pts`,
+            href: "/transactions",
             icon: <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>,
           },
           {
             label: mode === "range" && dateFrom && dateTo ? "Total Transactions (filtered)" : "Total Transactions", 
             iconBg: C.greenBg, iconColor: C.green,
             value: `${totalTransactions}`,
+            href: "/transactions",
             icon: <path d="M20 6L9 17l-5-5"/>,
           },
           {
             label: mode === "range" && dateFrom && dateTo ? "Avg. Transaction (filtered)" : "Avg. Transaction", 
             iconBg: C.amberBg, iconColor: C.amber,
             value: `Rp ${avgTrx.toLocaleString("id-ID")}`,
+            href: "/transactions",
             icon: <><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></>,
           },
         ].map((s, i) => (
-          <div key={i} style={{ ...card, padding: "18px 22px", display: "flex", alignItems: "center", gap: 16 }}>
+          <div
+            key={i}
+            role="button"
+            tabIndex={0}
+            onClick={() => goTo(s.href)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                goTo(s.href);
+              }
+            }}
+            className="gc-bento-clickable"
+            style={{ ...card, padding: "18px 22px", display: "flex", alignItems: "center", gap: 16, cursor: "pointer" }}
+          >
             <div style={{ width: 46, height: 46, borderRadius: 13, background: s.iconBg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
               <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke={s.iconColor} strokeWidth={2}>{s.icon}</svg>
             </div>
             <div>
               <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: C.tx3, marginBottom: 5 }}>{s.label}</p>
               <p style={{ fontSize: 20, fontWeight: 800, letterSpacing: "-.02em", color: C.tx1, lineHeight: 1 }}>{s.value}</p>
+              <p style={{ fontSize: 11, color: C.blue, marginTop: 6, fontWeight: 700 }}>Open details →</p>
             </div>
           </div>
         ))}
       </div>
 
       {/* ── BOTTOM: Table + Sidebar ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 310px", gap: 14 }}>
+      <div className="gc-grid-sidebar">
 
         {/* Transactions table */}
-        <div style={{ ...card, borderRadius: 18, overflow: "hidden" }}>
+        <GcPanel style={{ borderRadius: 18, overflow: "hidden" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "20px 24px 16px", borderBottom: `1px solid ${C.border2}` }}>
             <div>
               <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: C.tx3, marginBottom: 3 }}>Activity</p>
@@ -706,23 +817,14 @@ export default function DashboardClient({ initialRole, initialTransactions, init
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               {canDeleteTransactions && selectedTxDocPaths.length > 0 && (
-                <button
-                  onClick={() => handleDeleteDashboard(selectedTxDocPaths)}
+                <GcButton
+                  variant="danger"
+                  size="sm"
+                  onClick={() => setDeleteConfirmPaths(selectedTxDocPaths)}
                   disabled={deleteBusy}
-                  style={{
-                    fontSize: 12,
-                    fontWeight: 700,
-                    color: C.red,
-                    background: "#FFF5F5",
-                    border: "1px solid #FCA5A5",
-                    borderRadius: 7,
-                    padding: "5px 12px",
-                    height: 32,
-                    cursor: deleteBusy ? "not-allowed" : "pointer",
-                  }}
                 >
                   {deleteBusy ? "Deleting…" : `🗑 Delete Selected (${selectedTxDocPaths.length})`}
-                </button>
+                </GcButton>
               )}
               <a href="/transactions" style={{ fontSize: 12, fontWeight: 700, color: C.blue, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 5, padding: "5px 12px", height: 32, borderRadius: 7, border: `1px solid ${C.blueL}`, background: C.blueL }}>
               View all
@@ -740,11 +842,14 @@ export default function DashboardClient({ initialRole, initialTransactions, init
           )}
 
           {recentTrx.length === 0 ? (
-            <div style={{ padding: "52px 24px", textAlign: "center", color: C.tx3, fontSize: 13.5 }}>
-              {txStatus === "connecting" ? "Loading transactions…" : "No transactions yet."}
-            </div>
+            <GcEmptyState
+              title={txStatus === "connecting" ? "Loading transactions" : "No transactions yet"}
+              description={txStatus === "connecting" ? "Realtime stream sedang menghubungkan data transaksi." : "Belum ada transaksi yang bisa ditampilkan di dashboard."}
+              icon={txStatus === "connecting" ? "⏳" : "📭"}
+            />
           ) : (
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <div className="gc-table-wrap">
+            <table style={{ width: "100%", minWidth: 860, borderCollapse: "collapse" }}>
               <thead>
                 <tr style={{ background: C.bg }}>
                   {[canDeleteTransactions && "Select", "Transaction ID", "Type", "Member", "Amount", !isLimitedAccess && "Store", "Status", "Date", canDeleteTransactions && "Action"]
@@ -756,7 +861,7 @@ export default function DashboardClient({ initialRole, initialTransactions, init
               </thead>
               <tbody>
                 {recentTrx.map((trx, i) => (
-                  <tr key={trx.docId ?? trx.transactionId ?? String(i)} style={{ borderBottom: i < recentTrx.length - 1 ? `1px solid ${C.border2}` : "none" }}>
+                  <tr key={trx.docId ?? trx.receiptNumber ?? String(i)} style={{ borderBottom: i < recentTrx.length - 1 ? `1px solid ${C.border2}` : "none" }}>
                     {canDeleteTransactions && (
                       <td style={{ padding: "14px 20px" }}>
                         <input
@@ -764,13 +869,13 @@ export default function DashboardClient({ initialRole, initialTransactions, init
                           checked={selectedTxDocPaths.includes(getTxDocPath(trx))}
                           onChange={(e) => toggleSelectTx(getTxDocPath(trx), e.target.checked)}
                           disabled={!getTxDocPath(trx) || deleteBusy}
-                          aria-label={`Select ${trx.transactionId || trx.docId || "transaction"}`}
+                          aria-label={`Select ${trx.receiptNumber || trx.docId || "transaction"}`}
                         />
                       </td>
                     )}
                     <td style={{ padding: "14px 20px" }}>
                       <code style={{ fontSize: 12, fontFamily: monoFont, background: C.blueL, padding: "3px 9px", borderRadius: 6, color: C.blue, border: `1px solid rgba(67,97,238,.15)` }}>
-                        {trx.transactionId || "—"}
+                        {trx.receiptNumber || "—"}
                       </code>
                     </td>
                     <td style={{ padding: "14px 20px" }}>
@@ -795,28 +900,21 @@ export default function DashboardClient({ initialRole, initialTransactions, init
                     </td>
                     {canDeleteTransactions && (
                       <td style={{ padding: "14px 20px" }}>
-                        <button
-                          onClick={() => handleDeleteDashboard([getTxDocPath(trx)].filter(Boolean))}
+                        <GcButton
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setDeleteConfirmPaths([getTxDocPath(trx)].filter(Boolean))}
                           disabled={!getTxDocPath(trx) || deleteBusy}
-                          style={{
-                            fontSize: 11,
-                            fontWeight: 700,
-                            color: C.red,
-                            background: "#FFF5F5",
-                            border: "1px solid #FCA5A5",
-                            borderRadius: 7,
-                            padding: "5px 10px",
-                            cursor: (!getTxDocPath(trx) || deleteBusy) ? "not-allowed" : "pointer",
-                          }}
                         >
                           🗑 Delete
-                        </button>
+                        </GcButton>
                       </td>
                     )}
                   </tr>
                 ))}
               </tbody>
             </table>
+            </div>
           )}
           <div style={{ padding: "12px 24px", borderTop: `1px solid ${C.border2}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <span style={{ fontSize: 12, color: C.tx3 }}>
@@ -828,14 +926,14 @@ export default function DashboardClient({ initialRole, initialTransactions, init
               </span>
             )}
           </div>
-        </div>
+        </GcPanel>
 
         {/* Right sidebar */}
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
 
           {/* Top Stores — Only for Admin */}
           {!isLimitedAccess && (
-            <div style={{ ...card, padding: "20px 22px" }}>
+            <GcPanel style={{ padding: "20px 22px" }}>
               <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: C.tx3, marginBottom: 3 }}>Performance</p>
               <h2 style={{ fontSize: 16, fontWeight: 700, color: C.tx1, marginBottom: 18, letterSpacing: "-.01em" }}>Top Stores</h2>
               {storeStats.length === 0 ? (
@@ -851,11 +949,11 @@ export default function DashboardClient({ initialRole, initialTransactions, init
                   </div>
                 </div>
               ))}
-            </div>
+            </GcPanel>
           )}
 
           {/* Tier Breakdown — Visible for all roles */}
-          <div style={{ ...card, padding: "20px 22px" }}>
+          <GcPanel style={{ padding: "20px 22px" }}>
             <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: C.tx3, marginBottom: 3 }}>Members</p>
             <h2 style={{ fontSize: 16, fontWeight: 700, color: C.tx1, marginBottom: 16, letterSpacing: "-.01em" }}>Tier Breakdown</h2>
             {[
@@ -877,10 +975,33 @@ export default function DashboardClient({ initialRole, initialTransactions, init
                 </div>
               );
             })}
-          </div>
+          </GcPanel>
 
         </div>
       </div>
-    </div>
+      {deleteConfirmPaths && (
+        <GcModalShell
+          onClose={() => !deleteBusy && setDeleteConfirmPaths(null)}
+          title={`Delete ${deleteConfirmPaths.length} transaction${deleteConfirmPaths.length > 1 ? "s" : ""}?`}
+          eyebrow="Danger Zone"
+          description="Transaksi yang dihapus dari dashboard akan hilang permanen dari koleksi transaksi. Aksi ini tidak bisa dibatalkan."
+          maxWidth={460}
+          footer={
+            <>
+              <GcButton variant="ghost" size="lg" onClick={() => setDeleteConfirmPaths(null)} disabled={deleteBusy}>
+                Batal
+              </GcButton>
+              <GcButton variant="danger" size="lg" onClick={() => handleDeleteDashboard(deleteConfirmPaths)} loading={deleteBusy}>
+                Hapus Transaksi
+              </GcButton>
+            </>
+          }
+        >
+          <div style={{ paddingTop: 2, color: C.tx2, fontSize: 13, lineHeight: 1.6 }}>
+            Dokumen terpilih: <strong>{deleteConfirmPaths.length}</strong>
+          </div>
+        </GcModalShell>
+      )}
+    </GcPage>
   );
 }

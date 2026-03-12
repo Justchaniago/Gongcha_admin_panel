@@ -13,8 +13,16 @@ const firebaseConfig = {
   measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
 };
 
+const rawFirestoreDatabaseId = process.env.NEXT_PUBLIC_FIRESTORE_DATABASE_ID?.trim();
+const firestoreDatabaseId =
+  rawFirestoreDatabaseId &&
+  rawFirestoreDatabaseId !== "default" &&
+  rawFirestoreDatabaseId !== "(default)"
+    ? rawFirestoreDatabaseId
+    : undefined;
+
 const app = initializeApp(firebaseConfig);
 
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+export const db = firestoreDatabaseId ? getFirestore(app, firestoreDatabaseId) : getFirestore(app);
 export const analytics = getAnalytics(app);

@@ -3,16 +3,36 @@
 // Sub-components for TransactionsClient
 
 import { useState, useEffect, useRef } from "react";
+import { GcButton, GcModalShell } from "@/components/ui/gc";
+
+export type TxStatus = "PENDING" | "COMPLETED" | "CANCELLED" | "REFUNDED";
 
 export interface Tx {
-  docId: string; docPath: string; transactionId: string; memberName: string;
-  memberId: string; staffId: string; storeLocation: string; amount: number;
-  potentialPoints: number; type?: "earn"|"redeem"; status: "pending"|"verified"|"rejected";
+  docId: string; docPath: string;
+  // Primary field per schema
+  receiptNumber: string;
+  // Legacy alias for backward compatibility
+  transactionId?: string;
+  memberName: string;
+  userId?: string | null;
+  memberId?: string;
+  staffId: string;
+  // Primary fields per schema
+  storeId?: string;
+  storeName?: string;
+  // Legacy alias for backward compatibility
+  storeLocation?: string;
+  totalAmount: number;
+  // Legacy alias for backward compatibility
+  amount?: number;
+  potentialPoints?: number;
+  type?: "earn" | "redeem";
+  status: TxStatus;
   createdAt: string|null; verifiedAt: string|null; verifiedBy: string|null;
 }
 
 export interface CsvRow {
-  transactionId: string;
+  receiptNumber: string;
   amount: number;
   date: string;
   [key: string]: any;
@@ -48,11 +68,35 @@ export function parseCSV(text: string): Record<string,string>[] {
   });
 }
 
-// Extract transactionId, amount, date from CSV row with flexible column name matching
-export function extractPosData(row: Record<string,string>): { transactionId: string; amount: number; date: string } | null {
-  // Find transaction ID column
+export function normalizeTxStatus(status: string | null | undefined): TxStatus {
+  switch ((status ?? "").toUpperCase()) {
+    case "COMPLETED":
+    case "VERIFIED":
+      return "COMPLETED";
+    case "CANCELLED":
+    case "REJECTED":
+      return "CANCELLED";
+    case "REFUNDED":
+      return "REFUNDED";
+    case "PENDING":
+    default:
+      return "PENDING";
+  }
+}
+
+// Helper to get receipt number (supports both legacy and new schema)
+export const getReceiptNumber = (tx: Tx) => tx.receiptNumber || tx.transactionId || "";
+// Helper to get store label (supports both legacy and new schema)
+export const getStoreLabel = (tx: Tx) => tx.storeName || tx.storeLocation || tx.storeId || "-";
+// Helper to get amount (supports both legacy and new schema)
+export const getAmount = (tx: Tx) => tx.amount ?? tx.totalAmount ?? 0;
+// Helper to get user reference (supports both legacy and new schema)
+export const getUserRef = (tx: Tx) => tx.userId || tx.memberId || "";
+
+export function extractPosData(row: Record<string,string>): { receiptNumber: string; amount: number; date: string } | null {
+  // Find receipt / transaction ID column
   const txIdKey = Object.keys(row).find(k => 
-    ["transactionid", "transaction_id", "id", "txid", "no_transaksi", "nomor_transaksi"].includes(k.toLowerCase())
+    ["receiptnumber", "receipt_number", "transactionid", "transaction_id", "id", "txid", "no_transaksi", "nomor_transaksi"].includes(k.toLowerCase())
   );
   const txId = txIdKey ? row[txIdKey]?.trim() : "";
   if (!txId) return null;
@@ -85,7 +129,7 @@ export function extractPosData(row: Record<string,string>): { transactionId: str
   }
   if (!date) return null;
 
-  return { transactionId: txId, amount, date };
+  return { receiptNumber: txId, amount, date };
 }
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
@@ -108,12 +152,17 @@ export function Toast({ msg, type, onDone }: { msg: string; type: "success"|"err
 
 // ── Status Badge ──────────────────────────────────────────────────────────────
 const STATUS_CFG = {
-  pending:  { label:"Pending",  bg:"#FEF3C7", color:"#D97706" },
-  verified: { label:"Verified", bg:"#D1FAE5", color:"#059669" },
-  rejected: { label:"Rejected", bg:"#FEE2E2", color:"#DC2626" },
+  PENDING:    { label:"Pending",    bg:"#FEF3C7", color:"#D97706" },
+  COMPLETED:  { label:"Completed",  bg:"#D1FAE5", color:"#059669" },
+  CANCELLED:  { label:"Cancelled",  bg:"#FEE2E2", color:"#DC2626" },
+  REFUNDED:   { label:"Refunded",   bg:"#FEF3C7", color:"#D97706" },
+  // Legacy lowercase support
+  pending:    { label:"Pending",    bg:"#FEF3C7", color:"#D97706" },
+  verified:   { label:"Verified",   bg:"#D1FAE5", color:"#059669" },
+  rejected:   { label:"Rejected",   bg:"#FEE2E2", color:"#DC2626" },
 };
 export function StatusBadge({ status }: { status: string }) {
-  const cfg = STATUS_CFG[status as keyof typeof STATUS_CFG] ?? STATUS_CFG.pending;
+  const cfg = STATUS_CFG[status as keyof typeof STATUS_CFG] ?? STATUS_CFG.PENDING;
   return (
     <span style={{ display:"inline-block", padding:"3px 10px", borderRadius:99, background:cfg.bg, color:cfg.color, fontSize:11, fontWeight:700 }}>
       {cfg.label}
@@ -126,24 +175,29 @@ export function ConfirmModal({ title, message, confirmLabel, confirmColor, onCon
   title: string; message: string; confirmLabel: string; confirmColor: string;
   onConfirm: () => void; onClose: () => void; loading: boolean;
 }) {
+  const variant = confirmColor === C.red ? "danger" : confirmColor === C.green ? "primary" : "blue";
   return (
-    <div
-      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
-      style={{ position:"fixed", inset:0, zIndex:50, display:"flex", alignItems:"center", justifyContent:"center", padding:24, background:"rgba(10,12,20,.52)", backdropFilter:"blur(8px)", fontFamily:font }}
-    >
-      <div style={{ background:C.white, borderRadius:18, width:"100%", maxWidth:440, boxShadow:C.shadowLg, padding:"28px 24px", animation:"gcRise .22s ease" }}>
-        <h2 style={{ fontSize:20, fontWeight:800, color:C.tx1, marginBottom:10 }}>{title}</h2>
-        <p style={{ fontSize:13.5, color:C.tx2, lineHeight:1.6, marginBottom:24 }}>{message}</p>
-        <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
-          <button onClick={onClose} style={{ height:40, padding:"0 20px", borderRadius:9, border:`1.5px solid ${C.border}`, background:C.white, color:C.tx2, fontFamily:font, fontSize:13.5, fontWeight:600, cursor:"pointer" }}>
+    <GcModalShell
+      onClose={onClose}
+      title={title}
+      eyebrow="Confirmation"
+      description={message}
+      maxWidth={460}
+      footer={
+        <>
+          <GcButton variant="ghost" size="lg" onClick={onClose} disabled={loading}>
             Cancel
-          </button>
-          <button onClick={onConfirm} disabled={loading} style={{ height:40, padding:"0 22px", borderRadius:9, border:"none", background:loading?"#9ca3af":confirmColor, color:"#fff", fontFamily:font, fontSize:13.5, fontWeight:600, cursor:loading?"not-allowed":"pointer" }}>
-            {loading ? "Processing…" : confirmLabel}
-          </button>
-        </div>
+          </GcButton>
+          <GcButton variant={variant as "danger" | "primary" | "blue"} size="lg" onClick={onConfirm} loading={loading}>
+            {confirmLabel}
+          </GcButton>
+        </>
+      }
+    >
+      <div style={{ paddingTop: 2, color: C.tx3, fontSize: 12.5 }}>
+        Review this action carefully before continuing.
       </div>
-    </div>
+    </GcModalShell>
   );
 }
 
@@ -151,13 +205,13 @@ export function ConfirmModal({ title, message, confirmLabel, confirmColor, onCon
 export function CsvPanel({ pendingTxs, stores, onMatchVerify, onToast }: {
   pendingTxs: Tx[];
   stores: string[];
-  onMatchVerify: (rows: Array<{ tx: Tx; posData: { transactionId: string; amount: number; date: string } }>) => Promise<void>;
+  onMatchVerify: (rows: Array<{ tx: Tx; posData: { receiptNumber: string; amount: number; date: string } }>) => Promise<void>;
   onToast: (msg: string, type: "success"|"error") => void;
 }) {
   const [dragging,  setDragging]  = useState(false);
   const [csvRows,   setCsvRows]   = useState<Record<string,string>[]>([]);
   const [fileName,  setFileName]  = useState("");
-  const [matched,   setMatched]   = useState<Array<{ tx: Tx; posData: { transactionId: string; amount: number; date: string } }>>([]);
+  const [matched,   setMatched]   = useState<Array<{ tx: Tx; posData: { receiptNumber: string; amount: number; date: string } }>>([]);
   const [unmatched, setUnmatched] = useState<Record<string,string>[]>([]);
   const [loading,   setLoading]   = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -169,7 +223,7 @@ export function CsvPanel({ pendingTxs, stores, onMatchVerify, onToast }: {
     reader.onload = (e) => {
       const rows = parseCSV(e.target?.result as string);
       setCsvRows(rows);
-      const matchedRows: Array<{ tx: Tx; posData: { transactionId: string; amount: number; date: string } }> = [];
+      const matchedRows: Array<{ tx: Tx; posData: { receiptNumber: string; amount: number; date: string } }> = [];
       const unmatchedRows: Record<string,string>[] = [];
       
       rows.forEach(row => {
@@ -177,7 +231,7 @@ export function CsvPanel({ pendingTxs, stores, onMatchVerify, onToast }: {
         if (!posData) { unmatchedRows.push(row); return; }
         
         const found = pendingTxs.find(tx => 
-          tx.transactionId.toLowerCase() === posData.transactionId.toLowerCase()
+          getReceiptNumber(tx).toLowerCase() === posData.receiptNumber.toLowerCase()
         );
         
         if (found) {
@@ -283,7 +337,7 @@ export function CsvPanel({ pendingTxs, stores, onMatchVerify, onToast }: {
       <div style={{ padding:"10px 14px", borderRadius:10, background:C.bg, border:`1px solid ${C.border2}` }}>
         <p style={{ fontSize:11, fontWeight:700, color:C.tx2, marginBottom:4 }}>Supported CSV format:</p>
         <code style={{ fontSize:10, color:C.tx3, lineHeight:1.8, display:"block" }}>
-          transactionId,amount,date<br/>
+          receiptNumber,amount,date<br/>
           101384,61000,2026-03-01<br/>
           or<br/>
           no_transaksi,total,tanggal<br/>
@@ -316,10 +370,10 @@ export function RejectedPanel({ rejected, onApprove, onReject, loadingId }: {
         ) : rejected.map(tx => (
           <div key={tx.docId} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px", borderRadius:12, border:`1px solid ${loadingId===tx.docId?C.red:"#FCA5A5"}`, background:loadingId===tx.docId?"#FFF5F5":C.white, transition:"all .15s" }}>
             <div style={{ flex:1, minWidth:0 }}>
-              <code style={{ fontSize:10, color:C.red, fontFamily:"monospace" }}>{tx.transactionId || "—"}</code>
-              <p style={{ fontSize:11.5, color:C.tx2, marginTop:2, marginBottom:0 }}>{tx.memberName} · {tx.storeLocation}</p>
+              <code style={{ fontSize:10, color:C.red, fontFamily:"monospace" }}>{getReceiptNumber(tx) || "—"}</code>
+              <p style={{ fontSize:11.5, color:C.tx2, marginTop:2, marginBottom:0 }}>{tx.memberName} · {getStoreLabel(tx)}</p>
               <p style={{ fontSize:12, fontWeight:700, color:C.tx1, marginTop:2, marginBottom:0 }}>
-                {fmtRp(tx.amount)} · <span style={{ color:C.blue }}>{tx.potentialPoints} pts</span>
+                {fmtRp(getAmount(tx))} · <span style={{ color:C.blue }}>{tx.potentialPoints ?? 0} pts</span>
               </p>
             </div>
             <div style={{ display:"flex", gap:6, flexShrink:0 }}>
@@ -374,10 +428,10 @@ export function PendingPanel({ pending, onVerify, onReject, onVerifyAll, loading
         ) : pending.map(tx => (
           <div key={tx.docId} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px", borderRadius:12, border:`1px solid ${loadingId===tx.docId?C.blue:C.border}`, background:loadingId===tx.docId?C.blueL:C.white, transition:"all .15s" }}>
             <div style={{ flex:1, minWidth:0 }}>
-              <code style={{ fontSize:10, color:C.blue, fontFamily:"monospace" }}>{tx.transactionId || "—"}</code>
-              <p style={{ fontSize:11.5, color:C.tx2, marginTop:2, marginBottom:0 }}>{tx.memberName} · {tx.storeLocation}</p>
+              <code style={{ fontSize:10, color:C.blue, fontFamily:"monospace" }}>{getReceiptNumber(tx) || "—"}</code>
+              <p style={{ fontSize:11.5, color:C.tx2, marginTop:2, marginBottom:0 }}>{tx.memberName} · {getStoreLabel(tx)}</p>
               <p style={{ fontSize:12, fontWeight:700, color:C.tx1, marginTop:2, marginBottom:0 }}>
-                {fmtRp(tx.amount)} · <span style={{ color:C.blue }}>{tx.potentialPoints} pts</span>
+                {fmtRp(getAmount(tx))} · <span style={{ color:C.blue }}>{tx.potentialPoints ?? 0} pts</span>
               </p>
             </div>
             <div style={{ display:"flex", gap:6, flexShrink:0 }}>

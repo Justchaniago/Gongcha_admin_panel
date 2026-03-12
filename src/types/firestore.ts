@@ -9,7 +9,7 @@ import {
 } from "firebase/firestore";
 
 // ============================================================================
-// 1. ADMIN USERS (Akses Panel & Kasir)
+// 1. ADMIN USERS (Akses Panel & Kasir) - Collection: 'admin_users'
 // ============================================================================
 export type AdminRole = "SUPER_ADMIN" | "STAFF" | "admin" | "master" | "manager";
 
@@ -40,12 +40,10 @@ export const adminUserConverter: FirestoreDataConverter<AdminUser> = {
 };
 
 // ============================================================================
-// 2. USERS & NOTIFICATIONS (Ekosistem Customer)
+// 2. USERS & NOTIFICATIONS (Ekosistem Customer) - Collection: 'users'
 // ============================================================================
 export type UserTier = "BRONZE" | "SILVER" | "GOLD" | "Silver" | "Gold" | "Platinum";
-
 export type UserRole = "member" | "admin";
-
 export type StaffRole = "cashier" | "store_manager" | "admin";
 
 export interface Staff {
@@ -63,7 +61,6 @@ export interface UserVoucher {
   code: string;
   title: string;
   expiry: Timestamp;
-  // legacy compatibility fields
   rewardId?: string;
   expiresAt?: string;
   isUsed?: boolean;
@@ -82,7 +79,6 @@ export interface User {
   tier: UserTier;
   activeVouchers?: UserVoucher[];
   fcmTokens?: string[];
-  // legacy compatibility fields used by older admin screens
   email?: string;
   phoneNumber?: string;
   role?: UserRole | string;
@@ -114,7 +110,7 @@ export const userConverter: FirestoreDataConverter<User> = {
   }
 };
 
-// Sub-Collection Notifications
+// Sub-Collection Notifications: 'users/{uid}/notifications'
 export interface Notification {
   id: string;
   title: string;
@@ -124,12 +120,7 @@ export interface Notification {
   expireAt: Timestamp;
 }
 
-export type NotificationType =
-  | "voucher_injected"
-  | "tx_verified"
-  | "tx_rejected"
-  | "broadcast"
-  | "targeted";
+export type NotificationType = "voucher_injected" | "tx_verified" | "tx_rejected" | "broadcast" | "targeted";
 
 export interface UserNotification {
   id: string;
@@ -171,7 +162,7 @@ export const notificationConverter: FirestoreDataConverter<Notification> = {
 };
 
 // ============================================================================
-// 3. MASTER DATA (Stores & Products)
+// 3. MASTER DATA (Stores & Products) - Collection: 'stores', 'products'
 // ============================================================================
 export interface Store {
   id: string;
@@ -232,7 +223,7 @@ export const productConverter: FirestoreDataConverter<Product> = {
 };
 
 // ============================================================================
-// 4. TRANSACTIONS
+// 4. TRANSACTIONS - Collection: 'transactions'
 // ============================================================================
 export type TransactionStatus = "PENDING" | "COMPLETED" | "CANCELLED" | "REFUNDED";
 
@@ -245,6 +236,14 @@ export interface Transaction {
   totalAmount: number;
   status: TransactionStatus;
   createdAt: Timestamp;
+  // Additional fields for loyalty program
+  memberId?: string;
+  memberName?: string;
+  staffId?: string;
+  potentialPoints?: number;
+  type?: "earn" | "redeem";
+  verifiedAt?: Timestamp;
+  verifiedBy?: string;
 }
 
 export const transactionConverter: FirestoreDataConverter<Transaction> = {
@@ -262,12 +261,20 @@ export const transactionConverter: FirestoreDataConverter<Transaction> = {
       totalAmount: data.totalAmount,
       status: data.status as TransactionStatus,
       createdAt: data.createdAt,
+      // Additional loyalty fields
+      memberId: data.memberId,
+      memberName: data.memberName,
+      staffId: data.staffId,
+      potentialPoints: data.potentialPoints,
+      type: data.type,
+      verifiedAt: data.verifiedAt,
+      verifiedBy: data.verifiedBy,
     };
   }
 };
 
 // ============================================================================
-// 5. DAILY STATS (The God Document)
+// 5. DAILY STATS (The God Document) - Collection: 'daily_stats'
 // ============================================================================
 export interface DailyStat {
   id: string;
@@ -298,7 +305,7 @@ export const dailyStatConverter: FirestoreDataConverter<DailyStat> = {
 };
 
 // ============================================================================
-// 6. MARKETING (Rewards & Promos)
+// 6. MARKETING (Rewards & Promos) - Collection: 'rewards', 'global_promos'
 // ============================================================================
 export interface Reward {
   id: string;
@@ -307,9 +314,7 @@ export interface Reward {
   pointsRequired: number;
   imageUrl: string;
   isActive: boolean;
-  // optional metadata used by the admin UI
   category?: "Drink" | "Topping" | "Discount";
-  // backward-compatible aliases
   pointsCost?: number;
   imageURL?: string;
 }
@@ -320,9 +325,7 @@ export const rewardConverter: FirestoreDataConverter<Reward> = {
   },
   fromFirestore(snapshot: QueryDocumentSnapshot, options: SnapshotOptions): Reward {
     const data = snapshot.data(options)!;
-    const pointsRequired = Number(
-      data.pointsRequired ?? data.pointsCost ?? 0
-    );
+    const pointsRequired = Number(data.pointsRequired ?? data.pointsCost ?? 0);
     const imageUrl = String(data.imageUrl ?? data.imageURL ?? "");
     return {
       id: snapshot.id,

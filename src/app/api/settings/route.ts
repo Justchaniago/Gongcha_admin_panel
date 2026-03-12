@@ -36,13 +36,20 @@ async function validateAdmin() {
   const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
   const uid = decodedClaims.uid;
 
-  // Fresh Role Fetching
+  // Fresh Role Fetching (prioritize admin_users for admin panel role source)
   const userDoc = await adminDb.collection("users").doc(uid).get();
   const adminUserDoc = await adminDb.collection("admin_users").doc(uid).get();
-  const profile = userDoc.exists ? userDoc.data() : adminUserDoc.exists ? adminUserDoc.data() : null;
-  const role = profile?.role?.toLowerCase(); 
+  const profile = adminUserDoc.exists ? adminUserDoc.data() : userDoc.exists ? userDoc.data() : null;
+  const role = String(profile?.role ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
 
-  const allowedRoles = ["admin", "master"];
+  if (profile?.isActive === false) {
+    return { error: "Access denied. Account is inactive.", status: 403, token: null };
+  }
+
+  const allowedRoles = ["super_admin", "admin", "master"];
   if (!role || !allowedRoles.includes(role)) {
     return { error: "Access denied. Your role is not permitted to modify settings.", status: 403, token: null };
   }

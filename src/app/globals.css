@@ -1,33 +1,38 @@
-
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+@import 'leaflet/dist/leaflet.css';
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  --blue-1:       #4361EE;
-  --blue-2:       #3A0CA3;
-  --blue-light:   #EEF2FF;
-  --blue-mid:     #C7D2FE;
-  --text-primary: #0F172A;
-  --text-secondary:#64748B;
-  --text-muted:   #94A3B8;
-  --border:       #E2E8F0;
-  --surface:      #FFFFFF;
-  --bg:           #F4F6FB;
+  --blue-1:        #3B82F6;
+  --blue-2:        #2563EB;
+  --blue-light:    #EFF6FF;
+  --blue-mid:      #BFDBFE;
+  --text-primary:  #111827;
+  --text-secondary:#6B7280;
+  --text-muted:    #9CA3AF;
+  --border:        #E5E7EB;
+  --surface:       #FFFFFF;
+  --bg:            #F9FAFB;
+
+  /* ── Sidebar dimensions ── */
+  --gc-sidebar-collapsed: 64px;
+  --gc-sidebar-expanded:  220px;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
-  font-family: var(--font-jakarta), system-ui, sans-serif;
-  background: var(--bg, #F4F6FB);
+  font-family: 'Inter', system-ui, sans-serif;
+  background: var(--bg, #F9FAFB);
   color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
 .font-display {
-  font-family: var(--font-jakarta), system-ui, sans-serif;
+  font-family: 'Inter', system-ui, sans-serif;
 }
 
 /* Scrollbar */
@@ -38,4 +43,7 @@ body {
 
 /* Card shadow utilities */
 .card-shadow    { box-shadow: 0 1px 3px rgba(0,0,0,.05), 0 1px 2px rgba(0,0,0,.04); }
-.card-shadow-md { box-shadow: 0 4px 16px rgba(67,97,238,.08), 0 1px 4px rgba(0,0,0,.04); }
+.card-shadow-md { box-shadow: 0 4px 16px rgba(59,130,246,.08), 0 1px 4px rgba(0,0,0,.04); }
+
+
+/* Sidebar interaction styles are centralized in styles/design-system.css */

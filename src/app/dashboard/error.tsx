@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { GcButton, GcPanel } from "@/components/ui/gc";
 
 export default function DashboardError({
   error,
@@ -15,7 +16,7 @@ export default function DashboardError({
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#F4F6FB", padding: "20px" }}>
-      <div style={{ background: "white", borderRadius: "16px", padding: "32px", maxWidth: "500px", boxShadow: "0 4px 16px rgba(0,0,0,0.08)" }}>
+      <GcPanel style={{ borderRadius: "16px", padding: "32px", maxWidth: "500px" }}>
         <h2 style={{ fontSize: "20px", fontWeight: "700", color: "#C8102E", marginBottom: "12px" }}>
           ❌ Dashboard Error
         </h2>
@@ -27,25 +28,10 @@ export default function DashboardError({
             Error ID: {error.digest}
           </p>
         )}
-        <button
-          onClick={reset}
-          style={{
-            padding: "10px 20px",
-            borderRadius: "8px",
-            border: "none",
-            background: "#4361EE",
-            color: "white",
-            fontSize: "14px",
-            fontWeight: "600",
-            cursor: "pointer",
-            transition: "background 0.2s"
-          }}
-          onMouseOver={(e) => (e.currentTarget.style.background = "#3A0CA3")}
-          onMouseOut={(e) => (e.currentTarget.style.background = "#4361EE")}
-        >
+        <GcButton variant="blue" size="lg" onClick={reset}>
           Try Again
-        </button>
-      </div>
+        </GcButton>
+      </GcPanel>
     </div>
   );
 }

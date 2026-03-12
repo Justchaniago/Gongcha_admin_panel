@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
-import { GcInput, FL } from "./MembersClient";
+import { GcButton, GcFieldLabel, GcInput, GcModalShell, GcSelect } from "@/components/ui/gc";
 const C = {
   white:    '#FFFFFF',
   border:   '#EAECF2',
@@ -10,7 +10,7 @@ const C = {
   purple:   '#7C3AED',
   shadowLg: '0 20px 60px rgba(16,24,40,.18), 0 4px 12px rgba(16,24,40,.08)',
 };
-const font = "'Plus Jakarta Sans', system-ui, sans-serif";
+const font = "Inter, system-ui, sans-serif";
 
 export default function InjectVoucherModalForMember({ uid, onClose, onSuccess }: {
   uid?: string;
@@ -85,21 +85,40 @@ export default function InjectVoucherModalForMember({ uid, onClose, onSuccess }:
   }
 
   return (
-    <div onClick={e => { if (e.target === e.currentTarget) onClose(); }}
-      style={{ position: 'fixed', inset: 0, zIndex: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(10,12,20,.52)', backdropFilter: 'blur(8px)' }}>
-      <div style={{ background: C.white, borderRadius: 22, width: '100%', maxWidth: 420, boxShadow: C.shadowLg, padding: '32px 28px', fontFamily: font }}>
-        <h2 style={{ fontSize: 20, fontWeight: 800, color: C.tx1, marginBottom: 18 }}>Suntik Voucher ke User</h2>
+    <GcModalShell
+      onClose={onClose}
+      title="Inject Voucher to User"
+      eyebrow="Member Reward"
+      description="Select an active/inactive voucher, set a code, then inject it directly to this member."
+      maxWidth={460}
+      footer={
+        <>
+          <GcButton variant="ghost" size="lg" onClick={onClose}>
+            Batal
+          </GcButton>
+          <GcButton
+            variant="blue"
+            size="lg"
+            onClick={handleInject}
+            loading={loading}
+            disabled={!uid || typeof uid !== 'string' || uid.trim() === ''}
+            title={!uid ? 'UID user tidak ditemukan. Tidak bisa suntik voucher.' : undefined}
+          >
+            Suntik Voucher
+          </GcButton>
+        </>
+      }
+    >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>
-            <FL>Pilih Voucher</FL>
-            <select
+            <GcFieldLabel>Pilih Voucher</GcFieldLabel>
+            <GcSelect
               value={rewardId}
               onChange={e => {
                 setRewardId(e.target.value);
                 const selected = rewards.find(r => r.id === e.target.value);
                 if (selected) setTitle(selected.title);
               }}
-              style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: `1.5px solid ${C.border}`, fontFamily: font, fontSize: 15 }}
             >
               <option value="">-- Pilih voucher --</option>
               {rewards.map(r => (
@@ -107,28 +126,23 @@ export default function InjectVoucherModalForMember({ uid, onClose, onSuccess }:
                   {r.title} ({r.id}){!r.isActive ? ' [Nonaktif]' : ''}
                 </option>
               ))}
-            </select>
+            </GcSelect>
           </div>
           <div>
-            <FL>Judul Voucher</FL>
+            <GcFieldLabel>Judul Voucher</GcFieldLabel>
             <GcInput placeholder="Judul voucher" value={title} onChange={e => setTitle(e.target.value)} />
           </div>
           <div>
-            <FL>Kode Voucher</FL>
+            <GcFieldLabel>Kode Voucher</GcFieldLabel>
             <GcInput placeholder="Kode unik voucher" value={code} onChange={e => setCode(e.target.value)} />
             <div style={{ fontSize: 11, color: C.tx2, marginTop: 2 }}>Otomatis terisi, bisa diganti manual jika perlu.</div>
           </div>
           <div>
-            <FL>Tanggal Kadaluarsa</FL>
+            <GcFieldLabel>Tanggal Kadaluarsa</GcFieldLabel>
             <GcInput type="date" value={expiresAt} onChange={e => setExpiresAt(e.target.value)} />
           </div>
           {error && <div style={{ color: C.red, fontSize: 13, marginTop: 6 }}>{error}</div>}
         </div>
-        <div style={{ display: 'flex', gap: 10, marginTop: 24, justifyContent: 'flex-end' }}>
-          <button onClick={onClose} style={{ height: 40, padding: '0 20px', borderRadius: 9, border: `1.5px solid ${C.border}`, background: C.white, color: C.tx2, fontFamily: font, fontSize: 13.5, fontWeight: 600, cursor: 'pointer' }}>Batal</button>
-          <button onClick={handleInject} disabled={loading || !uid || typeof uid !== 'string' || uid.trim() === ''} style={{ height: 40, padding: '0 22px', borderRadius: 9, border: 'none', background: loading || !uid || typeof uid !== 'string' || uid.trim() === '' ? '#9ca3af' : C.purple, color: '#fff', fontFamily: font, fontSize: 13.5, fontWeight: 600, cursor: loading || !uid || typeof uid !== 'string' || uid.trim() === '' ? 'not-allowed' : 'pointer', transition: 'all .15s' }} title={!uid ? 'UID user tidak ditemukan. Tidak bisa suntik voucher.' : undefined}>{loading ? 'Menyuntik…' : 'Suntik Voucher'}</button>
-        </div>
-      </div>
-    </div>
+    </GcModalShell>
   );
 }

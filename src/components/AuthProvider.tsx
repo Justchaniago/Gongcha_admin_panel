@@ -14,7 +14,7 @@ interface AuthCtx {
 const Ctx = createContext<AuthCtx>({ user: null, loading: true, logout: async () => {} });
 export function useAdminAuth() { return useContext(Ctx); }
 
-const font = "'Plus Jakarta Sans', system-ui, sans-serif";
+const font = "Inter, system-ui, sans-serif";
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthCtx['user']>(null);
@@ -75,7 +75,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return (
       <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#F4F6FB", fontFamily: font }}>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
-          <div style={{ width: 48, height: 48, borderRadius: 14, background: "linear-gradient(135deg,#4361EE,#3A0CA3)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 8px 24px rgba(67,97,238,.3)" }}>
+          <div style={{ width: 48, height: 48, borderRadius: 14, background: "linear-gradient(135deg,#059669,#047857)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 8px 24px rgba(5,150,105,.3)" }}>
             <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="white" strokeWidth={2} style={{ animation: "spin 1s linear infinite" }}>
               <path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" strokeOpacity=".25"/>
               <path d="M21 12a9 9 0 00-9-9"/>

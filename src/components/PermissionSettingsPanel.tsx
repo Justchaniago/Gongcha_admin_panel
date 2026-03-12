@@ -5,11 +5,11 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
 
-const font = "'Plus Jakarta Sans',system-ui,sans-serif";
+const font = "Inter, system-ui, sans-serif";
 const C = {
   bg:"#F4F6FB", white:"#FFFFFF", border:"#EAECF2", border2:"#F0F2F7",
   tx1:"#0F1117", tx2:"#4A5065", tx3:"#9299B0",
-  blue:"#4361EE", blueL:"#EEF2FF", blueD:"#3A0CA3",
+  blue:"#3B82F6", blueL:"#EFF6FF", blueD:"#2563EB",
   green:"#059669", red:"#DC2626", amber:"#F59E0B",
   greenBg:"#D1FAE5",
   shadow:"0 1px 3px rgba(16,24,40,.06)",

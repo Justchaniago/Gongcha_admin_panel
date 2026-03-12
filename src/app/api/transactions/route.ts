@@ -7,9 +7,47 @@ import * as admin from "firebase-admin";
 import { v4 as uuidv4 } from "uuid";
 import type { AdminNotificationLog, UserNotification } from "@/types/firestore";
 
+type TransactionStatus = "PENDING" | "COMPLETED" | "CANCELLED" | "REFUNDED";
+
 function isFirestoreNotFoundError(err: any): boolean {
   const msg = String(err?.message ?? "");
   return err?.code === 5 || msg.includes("5 NOT_FOUND") || msg.includes("NOT_FOUND");
+}
+
+function normalizeStatus(status: unknown): TransactionStatus {
+  switch (String(status ?? "").toUpperCase()) {
+    case "COMPLETED":
+    case "VERIFIED":
+      return "COMPLETED";
+    case "CANCELLED":
+    case "REJECTED":
+      return "CANCELLED";
+    case "REFUNDED":
+      return "REFUNDED";
+    case "PENDING":
+    default:
+      return "PENDING";
+  }
+}
+
+function getReceiptNumber(txData: FirebaseFirestore.DocumentData, fallback = ""): string {
+  return String(txData.receiptNumber ?? txData.posTransactionId ?? txData.transactionId ?? fallback);
+}
+
+function getTotalAmount(txData: FirebaseFirestore.DocumentData): number {
+  return Number(txData.totalAmount ?? txData.amount ?? 0);
+}
+
+function getUserId(txData: FirebaseFirestore.DocumentData): string {
+  return String(txData.userId ?? txData.memberId ?? "");
+}
+
+function getStoreName(txData: FirebaseFirestore.DocumentData): string {
+  return String(txData.storeName ?? txData.storeLocation ?? txData.storeId ?? "-");
+}
+
+function toIsoString(value: any): string | null {
+  return value?.toDate?.()?.toISOString?.() ?? value ?? null;
 }
 
 // ── Notification helper ───────────────────────────────────────────────────────
@@ -23,8 +61,8 @@ async function createTxNotification(
   try {
     const notifId = uuidv4();
     const now     = new Date().toISOString();
-    const txId    = txData.posTransactionId ?? txData.transactionId ?? "";
-    const amount  = `Rp ${(txData.amount ?? 0).toLocaleString("id-ID")}`;
+    const txId    = getReceiptNumber(txData);
+    const amount  = `Rp ${getTotalAmount(txData).toLocaleString("id-ID")}`;
 
     const title = action === "verified"
       ? "✅ Transaksi Kamu Diverifikasi!"
@@ -40,7 +78,7 @@ async function createTxNotification(
       body,
       isRead:    false,
       createdAt: now,
-      data:      { txId, amount: txData.amount ?? 0 },
+      data:      { txId, amount: getTotalAmount(txData) },
     };
     const adminLog: AdminNotificationLog = {
       type:           action === "verified" ? "tx_verified" : "tx_rejected",
@@ -114,9 +152,9 @@ async function disbursePoints(
       amount:        points,
       type:          "earn",
       status:        "verified",
-      context:       `Transaction ${txData.posTransactionId ?? txData.transactionId ?? txId}`,
-      location:      txData.storeLocation ?? "",
-      transactionId: txData.posTransactionId ?? txData.transactionId ?? txId,
+      context:       `Transaction ${getReceiptNumber(txData, txId)}`,
+      location:      getStoreName(txData),
+      transactionId: getReceiptNumber(txData, txId),
     };
 
     t.update(memberRef, {
@@ -165,21 +203,32 @@ export async function GET(req: NextRequest) {
       .map((d) => {
         const data = d.data();
         const type = data.type ?? "earn"; // Default to earn if not specified
+        const receiptNumber = getReceiptNumber(data, d.id);
+        const storeId = String(data.storeId ?? data.storeLocation ?? "");
+        const storeName = getStoreName(data);
+        const totalAmount = getTotalAmount(data);
+        const userId = getUserId(data) || null;
+        const status = normalizeStatus(data.status);
         return {
-          docId:           d.id,
-          docPath:         d.ref.path,
-          transactionId:   data.posTransactionId ?? data.transactionId ?? "",
-          memberName:      data.memberName       ?? "-",
-          memberId:        data.memberId         ?? "",
-          staffId:         data.staffId          ?? "",
-          storeLocation:   data.storeLocation    ?? "-",
-          amount:          data.amount           ?? 0,
-          potentialPoints: data.potentialPoints  ?? 0,
-          type:            type,
-          status:          data.status           ?? "pending",
-          createdAt:       data.createdAt?.toDate?.()?.toISOString() ?? data.createdAt ?? null,
-          verifiedAt:      data.verifiedAt?.toDate?.()?.toISOString() ?? data.verifiedAt ?? null,
-          verifiedBy:      data.verifiedBy       ?? null,
+          docId: d.id,
+          docPath: d.ref.path,
+          receiptNumber,
+          transactionId: receiptNumber,
+          memberName: data.memberName ?? "-",
+          userId,
+          memberId: getUserId(data),
+          staffId: String(data.staffId ?? ""),
+          storeId,
+          storeName,
+          storeLocation: storeName,
+          totalAmount,
+          amount: totalAmount,
+          potentialPoints: Number(data.potentialPoints ?? 0),
+          type,
+          status,
+          createdAt: toIsoString(data.createdAt),
+          verifiedAt: toIsoString(data.verifiedAt),
+          verifiedBy: data.verifiedBy ?? null,
         };
       })
       // Filter: only show "earn" (purchase) transactions, exclude "redeem"
@@ -225,7 +274,7 @@ export async function PATCH(req: NextRequest) {
 
     const txData = txSnap.data()!;
 
-    if (txData.status !== "pending") {
+    if (normalizeStatus(txData.status) !== "PENDING") {
       return NextResponse.json(
         { message: `Transaction already has status "${txData.status}". Cannot be changed.` },
         { status: 409 }
@@ -237,19 +286,19 @@ export async function PATCH(req: NextRequest) {
 
     if (action === "verify") {
       // 1. Update transaction status
-      await txRef.update({ status: "verified", verifiedAt: now, verifiedBy });
+      await txRef.update({ status: "COMPLETED", verifiedAt: now, verifiedBy });
 
       // 2. Disburse points to member
       await disbursePoints(
-        txData.memberId,
+        getUserId(txData),
         txData.potentialPoints ?? 0,
         txData,
-        txData.posTransactionId ?? txData.transactionId ?? txSnap.id,
+        getReceiptNumber(txData, txSnap.id),
         verifiedBy
       );
 
       // 3. Auto-notification to member
-      await createTxNotification(txData.memberId, "verified", txData, verifiedBy);
+      await createTxNotification(getUserId(txData), "verified", txData, verifiedBy);
 
       return NextResponse.json({
         success: true,
@@ -258,10 +307,10 @@ export async function PATCH(req: NextRequest) {
       });
     } else {
       // Reject — just update status, no points
-      await txRef.update({ status: "rejected", verifiedAt: now, verifiedBy });
+      await txRef.update({ status: "CANCELLED", verifiedAt: now, verifiedBy });
 
       // Auto-notification to member
-      await createTxNotification(txData.memberId, "rejected", txData, verifiedBy);
+      await createTxNotification(getUserId(txData), "rejected", txData, verifiedBy);
 
       return NextResponse.json({ success: true, action: "rejected" });
     }
@@ -301,7 +350,7 @@ export async function POST(req: NextRequest) {
         const txRef  = adminDb.doc(docPath);
         const txSnap = await txRef.get();
 
-        if (!txSnap.exists || txSnap.data()!.status !== "pending") {
+        if (!txSnap.exists || normalizeStatus(txSnap.data()!.status) !== "PENDING") {
           skipCount++;
           continue;
         }
@@ -309,18 +358,18 @@ export async function POST(req: NextRequest) {
         const txData = txSnap.data()!;
 
         if (actionType === "verify") {
-          await txRef.update({ status: "verified", verifiedAt: now, verifiedBy });
+          await txRef.update({ status: "COMPLETED", verifiedAt: now, verifiedBy });
           await disbursePoints(
-            txData.memberId,
+            getUserId(txData),
             txData.potentialPoints ?? 0,
             txData,
-            txData.posTransactionId ?? txData.transactionId ?? txSnap.id,
+            getReceiptNumber(txData, txSnap.id),
             verifiedBy
           );
-          await createTxNotification(txData.memberId, "verified", txData, verifiedBy);
+          await createTxNotification(getUserId(txData), "verified", txData, verifiedBy);
         } else {
-          await txRef.update({ status: "rejected", verifiedAt: now, verifiedBy });
-          await createTxNotification(txData.memberId, "rejected", txData, verifiedBy);
+          await txRef.update({ status: "CANCELLED", verifiedAt: now, verifiedBy });
+          await createTxNotification(getUserId(txData), "rejected", txData, verifiedBy);
         }
 
         successCount++;
@@ -349,7 +398,7 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ message: validation.error }, { status: validation.status });
   }
 
-  if (validation.userRole !== "admin") {
+  if (!["admin", "SUPER_ADMIN"].includes(validation.userRole ?? "")) {
     return NextResponse.json(
       { message: "Only admin is allowed to delete transactions." },
       { status: 403 }

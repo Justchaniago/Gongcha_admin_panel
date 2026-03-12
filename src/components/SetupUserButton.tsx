@@ -62,7 +62,7 @@ export default function SetupUserButton() {
       border: "1px solid #FECACA",
       borderRadius: "12px",
       marginBottom: "16px",
-      fontFamily: "'Plus Jakarta Sans', sans-serif"
+      fontFamily: "Inter, sans-serif"
     }}>
       <h3 style={{ margin: "0 0 8px 0", color: "#991B1B", fontSize: "16px", fontWeight: 700 }}>
         ⚠️ Hak Akses Belum Terkonfigurasi

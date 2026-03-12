@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
+import { GcButton, GcPage, GcPageHeader, GcPanel } from "@/components/ui/gc";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface NotifLog {
@@ -33,7 +35,7 @@ interface Props {
 const C = {
   bg: "#F4F6FB", white: "#FFFFFF", border: "#EAECF2", border2: "#F0F2F7",
   tx1: "#0F1117", tx2: "#4A5065", tx3: "#9299B0",
-  blue: "#4361EE", blueL: "#EEF2FF",
+  blue: "#3B82F6", blueL: "#EFF6FF",
   green: "#12B76A", greenBg: "#ECFDF3",
   red: "#C8102E", redBg: "#FEF3F2",
   amber: "#F79009", amberBg: "#FFFAEB",
@@ -42,7 +44,7 @@ const C = {
   shadowMd: "0 4px 16px rgba(16,24,40,.08), 0 2px 4px rgba(16,24,40,.04)",
 } as const;
 
-const font = "'Plus Jakarta Sans', system-ui, sans-serif";
+const font = "Inter, system-ui, sans-serif";
 
 const card: React.CSSProperties = {
   background: C.white,
@@ -75,7 +77,15 @@ function TypeBadge({ type }: { type: string }) {
 // ── Main component ────────────────────────────────────────────────────────────
 export default function NotificationsClient({ initialRole = "", initialLogs = [], members = [] }: Props) {
   const { user } = useAuth();
+  const router = useRouter();
   const canMutate = user?.role === "SUPER_ADMIN";
+
+  // Redirect staff users to dashboard
+  useEffect(() => {
+    if (user && user.role !== "SUPER_ADMIN") {
+      router.replace("/dashboard");
+    }
+  }, [user, router]);
   const [tab, setTab] = useState<"send" | "history">("send");
   const [logs, setLogs] = useState<NotifLog[]>(initialLogs);
 
@@ -152,20 +162,13 @@ export default function NotificationsClient({ initialRole = "", initialLogs = []
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div style={{ padding: "28px 32px", maxWidth: 1200, fontFamily: font, WebkitFontSmoothing: "antialiased" }}>
-
-      {/* Header */}
-      <div style={{ marginBottom: 28 }}>
-        <p style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: C.tx3, marginBottom: 6 }}>
-          Admin Panel
-        </p>
-        <h1 style={{ fontSize: 28, fontWeight: 800, letterSpacing: "-.025em", color: C.tx1, margin: 0 }}>
-          🔔 Notification Management
-        </h1>
-        <p style={{ fontSize: 14, color: C.tx2, marginTop: 6 }}>
-          Kirim notifikasi ke member secara broadcast maupun personal. Auto-notif aktif untuk voucher &amp; transaksi.
-        </p>
-      </div>
+    <GcPage maxWidth={1240}>
+      <GcPageHeader
+        eyebrow="Communication Center"
+        title="Notification Management"
+        description="Send member notifications via broadcast or personal targeting. Voucher and transaction auto-notifications remain active as part of the system."
+        actions={canMutate ? <GcButton variant="blue" onClick={() => setTab("send")}>Compose Notification</GcButton> : undefined}
+      />
 
       {/* Auto-event info cards */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 24 }}>
@@ -223,7 +226,7 @@ export default function NotificationsClient({ initialRole = "", initialLogs = []
         <div style={{ display: "grid", gridTemplateColumns: "1fr 400px", gap: 20 }}>
 
           {/* Compose form */}
-          <div style={{ ...card, padding: "28px 32px" }}>
+          <GcPanel style={{ padding: "28px 32px" }}>
             <h2 style={{ fontSize: 17, fontWeight: 700, color: C.tx1, margin: "0 0 22px" }}>Tulis Pesan</h2>
 
             {/* Target type */}
@@ -369,10 +372,10 @@ export default function NotificationsClient({ initialRole = "", initialLogs = []
             >
               {sending ? "Mengirim…" : targetType === "all" ? `📢 Kirim ke Semua Member (${members.length})` : `🎯 Kirim ke ${selectedMember?.name ?? "Member Terpilih"}`}
             </button>
-          </div>
+          </GcPanel>
 
           {/* Preview card */}
-          <div style={{ ...card, padding: "28px 24px" }}>
+          <GcPanel style={{ padding: "28px 24px" }}>
             <h2 style={{ fontWeight: 700, color: C.tx2, margin: "0 0 18px", letterSpacing: ".03em", textTransform: "uppercase", fontSize: 11 }}>
               Preview Notifikasi
             </h2>
@@ -418,25 +421,27 @@ export default function NotificationsClient({ initialRole = "", initialLogs = []
                 </div>
               </div>
             </div>
-          </div>
+          </GcPanel>
         </div>
       )}
 
       {/* ── Tab: History ── */}
       {tab === "history" && (
-        <div style={{ ...card, overflow: "hidden" }}>
+        <GcPanel style={{ overflow: "hidden" }}>
           {/* Header */}
           <div style={{ padding: "20px 24px 16px", borderBottom: `1px solid ${C.border2}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <h2 style={{ fontSize: 16, fontWeight: 700, color: C.tx1, margin: 0 }}>Riwayat Notifikasi Terkirim</h2>
-            <button
+            <GcButton
               onClick={async () => {
                 const res = await fetch("/api/notifications");
                 if (res.ok) { const d = await res.json(); setLogs(d.logs ?? []); }
               }}
-              style={{ fontSize: 12, fontWeight: 600, color: C.blue, background: C.blueL, border: "none", borderRadius: 8, padding: "7px 14px", cursor: "pointer" }}
+              variant="ghost"
+              size="sm"
+              style={{ color: C.blue, background: C.blueL, borderColor: "#C7D2FE" }}
             >
               🔄 Refresh
-            </button>
+            </GcButton>
           </div>
 
           {logs.length === 0 ? (
@@ -492,8 +497,8 @@ export default function NotificationsClient({ initialRole = "", initialLogs = []
               Menampilkan <strong style={{ color: C.tx2 }}>{logs.length}</strong> notifikasi terakhir
             </span>
           </div>
-        </div>
+        </GcPanel>
       )}
-    </div>
+    </GcPage>
   );
 }

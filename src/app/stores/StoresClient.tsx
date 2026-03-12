@@ -2,11 +2,15 @@
 // src/app/dashboard/stores/StoresClient.tsx
 
 import { useState, useMemo, useEffect, useCallback } from "react";
+import dynamic from "next/dynamic";
 import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
 import { db } from "@/lib/firebaseClient";
 import { Store, storeConverter } from "@/types/firestore";
 import { createStore, updateStore, deleteStore } from "@/actions/storeActions";
 import { useAuth } from "@/context/AuthContext";
+import { GcButton, GcEmptyState, GcFieldLabel, GcInput, GcModalShell, GcPage, GcPageHeader, GcPanel, GcSelect, GcTextarea, GcToast } from "@/components/ui/gc";
+
+const StoreMapPicker = dynamic(() => import("./StoreMapPicker"), { ssr: false });
 
 type StoreWithId = Store & { id: string };
 type SyncStatus  = "connecting" | "live" | "error";
@@ -43,14 +47,14 @@ function getStoreOpenStatus(store: StoreWithId): "BUKA" | "TUTUP" {
 const C = {
   bg: '#F4F6FB', white: '#FFFFFF', border: '#EAECF2', border2: '#F0F2F7',
   tx1: '#0F1117', tx2: '#4A5065', tx3: '#9299B0', tx4: '#BCC1D3',
-  blue: '#4361EE', blueL: '#EEF2FF',
+  blue: '#3B82F6', blueL: '#EFF6FF',
   green: '#12B76A', greenBg: '#ECFDF3',
   orange: '#F79009', orangeBg: '#FFFAEB',
   red: '#C8102E', redBg: '#FEF3F2',
   shadow: '0 1px 3px rgba(16,24,40,.06), 0 1px 2px rgba(16,24,40,.04)',
   shadowLg: '0 20px 60px rgba(16,24,40,.18), 0 4px 12px rgba(16,24,40,.08)',
 } as const;
-const font = "'Plus Jakarta Sans', system-ui, sans-serif";
+const font = "Inter, system-ui, sans-serif";
 
 // ── Primitives ─────────────────────────────────────────────────────────────────
 function LiveBadge({ status }: { status: SyncStatus }) {
@@ -86,46 +90,14 @@ function StatusOverridePill({ status }: { status: StatusOverride }) {
 }
 
 function FL({ children, required }: { children: React.ReactNode; required?: boolean }) {
-  return (
-    <label style={{ display: 'block', marginBottom: 6, fontSize: 11, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: C.tx3 }}>
-      {children}{required && <span style={{ color: C.red, marginLeft: 3 }}>*</span>}
-    </label>
-  );
-}
-
-function GcInput({ style, ...p }: React.InputHTMLAttributes<HTMLInputElement>) {
-  const [f, setF] = useState(false);
-  return (
-    <input {...p} onFocus={e => { setF(true); p.onFocus?.(e); }} onBlur={e => { setF(false); p.onBlur?.(e); }}
-      style={{ width: '100%', height: 42, borderRadius: 9, outline: 'none', border: `1.5px solid ${f ? C.blue : C.border}`, background: f ? C.white : C.bg, boxShadow: f ? '0 0 0 3px rgba(67,97,238,.1)' : 'none', padding: '0 13px', fontFamily: font, fontSize: 13.5, color: C.tx1, transition: 'all .14s', boxSizing: 'border-box', ...style }}
-    />
-  );
-}
-
-function GcTextarea({ style, ...p }: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  const [f, setF] = useState(false);
-  return (
-    <textarea {...p} rows={3} onFocus={e => { setF(true); p.onFocus?.(e); }} onBlur={e => { setF(false); p.onBlur?.(e); }}
-      style={{ width: '100%', borderRadius: 9, outline: 'none', resize: 'vertical', border: `1.5px solid ${f ? C.blue : C.border}`, background: f ? C.white : C.bg, boxShadow: f ? '0 0 0 3px rgba(67,97,238,.1)' : 'none', padding: '10px 13px', fontFamily: font, fontSize: 13.5, color: C.tx1, lineHeight: 1.5, transition: 'all .14s', boxSizing: 'border-box', ...style }}
-    />
-  );
-}
-
-function GcSelect({ style, ...p }: React.SelectHTMLAttributes<HTMLSelectElement>) {
-  const [f, setF] = useState(false);
-  return (
-    <select {...p} onFocus={e => { setF(true); p.onFocus?.(e); }} onBlur={e => { setF(false); p.onBlur?.(e); }}
-      style={{ width: '100%', height: 42, borderRadius: 9, outline: 'none', border: `1.5px solid ${f ? C.blue : C.border}`, background: f ? C.white : C.bg, boxShadow: f ? '0 0 0 3px rgba(67,97,238,.1)' : 'none', padding: '0 13px', fontFamily: font, fontSize: 13.5, color: C.tx1, transition: 'all .14s', cursor: 'pointer', ...style }}
-    />
-  );
+  return <GcFieldLabel required={required}>{children}</GcFieldLabel>;
 }
 
 function Toast({ msg, type, onDone }: { msg: string; type: 'success'|'error'; onDone: () => void }) {
   useEffect(() => { const t = setTimeout(onDone, 3200); return () => clearTimeout(t); }, [onDone]);
   return (
-    <div style={{ position: 'fixed', bottom: 28, right: 28, zIndex: 999, padding: '13px 20px', borderRadius: 13, fontFamily: font, fontSize: 13.5, fontWeight: 600, color: '#fff', background: type === 'success' ? C.green : C.red, boxShadow: '0 8px 32px rgba(0,0,0,.22)', display: 'flex', alignItems: 'center', gap: 10, animation: 'gcRise .28s ease' }}>
-      {type === 'success' ? '✓' : '✕'} {msg}
-      <style>{`@keyframes gcRise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}`}</style>
+    <div style={{ position: 'fixed', bottom: 28, right: 28, zIndex: 999 }}>
+      <GcToast msg={msg} type={type} />
     </div>
   );
 }
@@ -145,30 +117,28 @@ function DeleteModal({ store, onClose, onDeleted }: { store: StoreWithId; onClos
   }
 
   return (
-    <div onClick={e => { if (e.target === e.currentTarget) onClose(); }} style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, background: 'rgba(10,12,20,.52)', backdropFilter: 'blur(8px)', fontFamily: font }}>
-      <div style={{ background: C.white, borderRadius: 20, width: '100%', maxWidth: 420, boxShadow: C.shadowLg, padding: '32px 28px', animation: 'gcRise .22s ease' }}>
-        <div style={{ width: 52, height: 52, borderRadius: 14, background: C.redBg, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 18 }}>
-          <svg width="24" height="24" fill="none" viewBox="0 0 24 24" stroke={C.red} strokeWidth={2}><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
-        </div>
-        <h2 style={{ fontSize: 20, fontWeight: 800, color: C.tx1, marginBottom: 8 }}>Delete Store?</h2>
-        <p style={{ fontSize: 13.5, color: C.tx2, lineHeight: 1.6, marginBottom: 6 }}>Store <strong>"{store.name}"</strong> will be permanently deleted from Firestore.</p>
-        <code style={{ fontSize: 11, color: C.tx3, background: C.bg, padding: '4px 8px', borderRadius: 6, display: 'inline-block', marginBottom: 18 }}>ID: {store.id}</code>
-        {error && <div style={{ padding: '10px 14px', background: C.redBg, border: '1px solid #FECDD3', borderRadius: 9, fontSize: 12.5, color: '#B42318', marginBottom: 14 }}>{error}</div>}
-        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-          <button onClick={onClose} style={{ height: 40, padding: '0 20px', borderRadius: 9, border: `1.5px solid ${C.border}`, background: C.white, color: C.tx2, fontFamily: font, fontSize: 13.5, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
-          <button onClick={confirm} disabled={loading} style={{ height: 40, padding: '0 20px', borderRadius: 9, border: 'none', background: loading ? '#fca5a5' : C.red, color: '#fff', fontFamily: font, fontSize: 13.5, fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer' }}>
-            {loading ? 'Deleting…' : 'Yes, Delete'}
-          </button>
-        </div>
-      </div>
-    </div>
+    <GcModalShell
+      onClose={onClose}
+      title="Delete Store?"
+      eyebrow="Destructive Action"
+      description={<>Store <strong>"{store.name}"</strong> will be permanently deleted from Firestore.</>}
+      maxWidth={440}
+      footer={
+        <>
+          <GcButton variant="ghost" size="lg" onClick={onClose}>Cancel</GcButton>
+          <GcButton variant="danger" size="lg" onClick={confirm} loading={loading}>Yes, Delete</GcButton>
+        </>
+      }
+    >
+      <code style={{ fontSize: 11, color: C.tx3, background: C.bg, padding: '4px 8px', borderRadius: 6, display: 'inline-block', marginBottom: 18 }}>ID: {store.id}</code>
+      {error && <div style={{ padding: '10px 14px', background: C.redBg, border: '1px solid #FECDD3', borderRadius: 9, fontSize: 12.5, color: '#B42318', marginBottom: 14 }}>{error}</div>}
+    </GcModalShell>
   );
 }
 
 // ── Store Modal ────────────────────────────────────────────────────────────────
 // Form fields = exact Firestore document fields
 type StoreForm = {
-  storeId:        string;   // document ID (hanya saat create)
   name:           string;
   address:        string;
   latitude:       string;
@@ -184,7 +154,6 @@ function StoreModal({ store, onClose, onSaved }: {
   const isNew = !store;
 
   const [form, setForm] = useState<StoreForm>({
-    storeId:        store?.id              ?? '',
     name:           store?.name            ?? '',
     address:        store?.address         ?? '',
     latitude:       store?.location?.latitude  != null ? String(store.location.latitude)  : '',
@@ -196,21 +165,21 @@ function StoreModal({ store, onClose, onSaved }: {
 
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState('');
-  const [idTouched, setIdTouched] = useState(false);
 
-  // Auto-generate ID suggestion from name
-  useEffect(() => {
-    if (!isNew || idTouched) return;
-    const suggested = 'store_' + form.name
-      .toLowerCase()
-      .replace(/[^a-z0-9\s]/g, '')
-      .trim()
-      .split(/\s+/)
-      .map(w => w.slice(0, 3))
-      .join('')
-      .slice(0, 10);
-    setForm(p => ({ ...p, storeId: suggested }));
-  }, [form.name, isNew, idTouched]);
+  const selectedPoint = useMemo(() => {
+    if (form.latitude === '' || form.longitude === '') return null;
+    const lat = Number(form.latitude);
+    const lng = Number(form.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    return { lat, lng };
+  }, [form.latitude, form.longitude]);
+
+  const initialMapPoint = useMemo(() => {
+    const lat = Number(store?.location?.latitude);
+    const lng = Number(store?.location?.longitude);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
+    return null;
+  }, [store?.location?.latitude, store?.location?.longitude]);
 
   useEffect(() => {
     const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -223,12 +192,10 @@ function StoreModal({ store, onClose, onSaved }: {
 
   async function handleSave() {
     if (!form.name.trim()) { setError('Store name is required.'); return; }
-    if (isNew && !form.storeId.trim()) { setError('Store ID is required.'); return; }
 
     setLoading(true); setError('');
     try {
       const payload = {
-        storeId: form.storeId.trim(),
         name: form.name.trim(),
         address: form.address.trim(),
         latitude: form.latitude !== '' ? form.latitude : null,
@@ -257,42 +224,27 @@ function StoreModal({ store, onClose, onSaved }: {
   );
 
   return (
-    <div onClick={e => { if (e.target === e.currentTarget) onClose(); }} style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, background: 'rgba(10,12,20,.52)', backdropFilter: 'blur(8px)', animation: 'gcFadeIn .18s ease', fontFamily: font }}>
-      <div style={{ background: C.white, borderRadius: 22, width: '100%', maxWidth: 560, maxHeight: '92vh', overflow: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: C.shadowLg, animation: 'gcRise .26s cubic-bezier(.22,.68,0,1.15) both' }}>
-
-        {/* Head */}
-        <div style={{ padding: '24px 28px 18px', borderBottom: `1px solid ${C.border2}`, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexShrink: 0 }}>
-          <div>
-            <p style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase', color: C.blue, marginBottom: 4 }}>{isNew ? 'New Store' : 'Edit Store'}</p>
-            <h2 style={{ fontSize: 22, fontWeight: 800, letterSpacing: '-.02em', color: C.tx1, margin: 0 }}>{isNew ? 'Add Store' : store!.name}</h2>
-            {!isNew && <code style={{ fontSize: 11, color: C.tx3, background: C.bg, padding: '2px 8px', borderRadius: 6, border: `1px solid ${C.border2}`, display: 'inline-block', marginTop: 4 }}>ID: {store!.id}</code>}
-          </div>
-          <button onClick={onClose} style={{ width: 34, height: 34, borderRadius: 9, cursor: 'pointer', border: `1.5px solid ${C.border}`, background: 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-            onMouseOver={e => (e.currentTarget.style.background = C.bg)}
-            onMouseOut={e  => (e.currentTarget.style.background = 'transparent')}>
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M1 1l10 10M11 1L1 11" stroke={C.tx3} strokeWidth="1.7" strokeLinecap="round"/></svg>
-          </button>
-        </div>
-
-        {/* Body */}
-        <div style={{ overflowY: 'auto', flex: 1, padding: '20px 28px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-
-          {/* ── Document ID (hanya saat create) ── */}
+    <GcModalShell
+      onClose={onClose}
+      title={isNew ? 'Add Store' : store!.name}
+      eyebrow={isNew ? 'New Store' : 'Edit Store'}
+      description={!isNew ? <code style={{ fontSize: 11, color: C.tx3, background: C.bg, padding: '2px 8px', borderRadius: 6, border: `1px solid ${C.border2}`, display: 'inline-block' }}>ID: {store!.id}</code> : undefined}
+      maxWidth={560}
+      footer={
+        <>
+          <p style={{ fontSize: 11.5, color: C.tx3, marginRight: 'auto' }}>Fields marked <span style={{ color: C.red }}>*</span> are required</p>
+          <GcButton variant="ghost" size="lg" onClick={onClose}>Cancel</GcButton>
+          <GcButton variant="blue" size="lg" onClick={handleSave} loading={loading}>
+            {isNew ? '+ Add Store' : 'Save Changes'}
+          </GcButton>
+        </>
+      }
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {isNew && (
-            <div>
-              {section('Document ID')}
-              <div>
-                <FL required>Store ID</FL>
-                <GcInput
-                  placeholder="store_abc (huruf kecil, angka, underscore)"
-                  value={form.storeId}
-                  onChange={e => { setIdTouched(true); setForm(p => ({ ...p, storeId: e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, '') })); }}
-                />
-                <p style={{ fontSize: 11.5, color: C.tx3, marginTop: 5 }}>
-                  Will become the document ID in Firestore. Example: <code style={{ background: C.bg, padding: '1px 5px', borderRadius: 4, border: `1px solid ${C.border2}` }}>store_tp6</code>. Cannot be changed after saving.
-                </p>
-              </div>
-            </div>
+            <p style={{ fontSize: 12, color: C.tx3, background: C.bg, border: `1px solid ${C.border2}`, borderRadius: 10, padding: '10px 12px' }}>
+              Document ID will be generated automatically from <strong>Store Name</strong> (format: <code style={{ background: '#fff', padding: '1px 5px', borderRadius: 4, border: `1px solid ${C.border2}` }}>store_your_store_name</code>).
+            </p>
           )}
 
           {/* ── Store Information ── */}
@@ -318,11 +270,22 @@ function StoreModal({ store, onClose, onSaved }: {
               <GcInput type="number" step="any" placeholder="106.821456" value={form.longitude} onChange={set('longitude')}/>
             </div>
           </div>
+          <StoreMapPicker
+            initialPoint={initialMapPoint}
+            selectedPoint={selectedPoint}
+            onPick={(point) => {
+              setForm((p) => ({
+                ...p,
+                latitude: point.lat.toFixed(6),
+                longitude: point.lng.toFixed(6),
+              }));
+            }}
+          />
           {form.latitude && form.longitude && (
             <a href={`https://maps.google.com/?q=${form.latitude},${form.longitude}`} target="_blank" rel="noopener noreferrer"
               style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 12.5, fontWeight: 600, color: C.blue, textDecoration: 'none', padding: '8px 14px', borderRadius: 9, background: C.blueL, border: `1.5px solid rgba(67,97,238,.2)`, width: 'fit-content' }}>
               <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
-              Preview di Google Maps ↗
+              Preview on Google Maps ↗
             </a>
           )}
 
@@ -359,22 +322,8 @@ function StoreModal({ store, onClose, onSaved }: {
           </div>
 
           {error && <div style={{ padding: '11px 14px', background: C.redBg, border: '1px solid #FECDD3', borderRadius: 9, fontSize: 12.5, color: '#B42318' }}>{error}</div>}
-        </div>
-
-        {/* Footer */}
-        <div style={{ padding: '16px 28px 24px', borderTop: `1px solid ${C.border2}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
-          <p style={{ fontSize: 11.5, color: C.tx3 }}>Fields marked <span style={{ color: C.red }}>*</span> are required</p>
-          <div style={{ display: 'flex', gap: 10 }}>
-            <button onClick={onClose} style={{ height: 40, padding: '0 20px', borderRadius: 9, border: `1.5px solid ${C.border}`, background: C.white, color: C.tx2, fontFamily: font, fontSize: 13.5, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
-            <button onClick={handleSave} disabled={loading}
-              style={{ height: 40, padding: '0 22px', borderRadius: 9, border: 'none', background: loading ? '#9ca3af' : C.tx1, color: '#fff', fontFamily: font, fontSize: 13.5, fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer', transition: 'all .15s', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
-              {loading ? 'Saving…' : isNew ? '+ Add Store' : 'Save Changes'}
-            </button>
-          </div>
-        </div>
       </div>
-      <style>{`@keyframes gcFadeIn{from{opacity:0}to{opacity:1}}@keyframes gcRise{from{opacity:0;transform:translateY(18px) scale(.97)}to{opacity:1;transform:none}}`}</style>
-    </div>
+    </GcModalShell>
   );
 }
 
@@ -474,12 +423,9 @@ export default function StoresClient({ initialStores = [], showAddTrigger }: { i
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <LiveBadge status={syncStatus}/>
           {canManageStores && (
-            <button onClick={() => setShowAdd(true)} style={{ height: 42, padding: '0 20px', borderRadius: 10, border: 'none', background: C.tx1, color: '#fff', fontFamily: font, fontSize: 13.5, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8, transition: 'all .15s' }}
-              onMouseOver={e => { e.currentTarget.style.background = C.red; e.currentTarget.style.transform = 'translateY(-1px)'; }}
-              onMouseOut={e  => { e.currentTarget.style.background = C.tx1; e.currentTarget.style.transform = 'none'; }}>
-              <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+            <GcButton variant="blue" size="lg" onClick={() => setShowAdd(true)}>
               Add Store
-            </button>
+            </GcButton>
           )}
         </div>
         {canManageStores && showAdd && <StoreModal store={null} onClose={() => setShowAdd(false)} onSaved={msg => { showToast(msg); setShowAdd(false); }}/>} 
@@ -489,83 +435,94 @@ export default function StoresClient({ initialStores = [], showAddTrigger }: { i
   }
 
   return (
-    <>
+    <GcPage style={{ background: C.bg }}>
+      <GcPageHeader
+        eyebrow="Gong Cha Admin"
+        title="Stores & Operational Status"
+        description="Manage outlets, GPS coordinates, operating hours, and status overrides with a consistent visual system."
+        actions={
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <LiveBadge status={syncStatus}/>
+            {canManageStores && (
+              <GcButton variant="blue" size="lg" onClick={() => setShowAdd(true)}>
+                Add Store
+              </GcButton>
+            )}
+          </div>
+        }
+      />
+
       {/* Toolbar */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, gap: 12, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, gap: 12, flexWrap: 'wrap', padding: '10px 12px', borderRadius: 14, border: '1px solid rgba(15,17,23,.08)', background: 'rgba(255,255,255,.72)', backdropFilter: 'saturate(160%) blur(8px)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, height: 40, padding: '0 13px', minWidth: 240, background: C.white, border: `1.5px solid ${searchFocus ? C.blue : C.border}`, borderRadius: 10, boxShadow: searchFocus ? '0 0 0 3px rgba(67,97,238,.1)' : 'none', transition: 'all .14s' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, height: 40, padding: '0 13px', minWidth: 240, background: C.white, border: `1px solid ${searchFocus ? 'rgba(59,130,246,.48)' : 'rgba(15,17,23,.10)'}`, borderRadius: 10, boxShadow: searchFocus ? '0 0 0 3px rgba(59,130,246,.10)' : 'none', transition: 'all .14s' }}>
             <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke={C.tx3} strokeWidth={2.2}><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
             <input style={{ flex: 1, border: 'none', background: 'transparent', outline: 'none', fontFamily: font, fontSize: 13.5, color: C.tx1 }} placeholder="Search name, ID, address…" value={search} onChange={e => setSearch(e.target.value)} onFocus={() => setSearchFocus(true)} onBlur={() => setSearchFocus(false)}/>
             {search && <button onClick={() => setSearch('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.tx3, fontSize: 15, padding: 0 }}>✕</button>}
           </div>
-          <div style={{ display: 'flex', background: C.bg, border: `1.5px solid ${C.border}`, borderRadius: 10, padding: 3 }}>
+          <div style={{ display: 'flex', background: '#F6F7FB', border: '1px solid rgba(15,17,23,.08)', borderRadius: 10, padding: 3 }}>
             {(['all', 'active', 'inactive'] as const).map(f => (
-              <button key={f} onClick={() => setFilter(f)} style={{ padding: '5px 14px', borderRadius: 7, border: 'none', fontFamily: font, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', transition: 'all .13s', background: filter === f ? C.white : 'transparent', color: filter === f ? C.tx1 : C.tx3, boxShadow: filter === f ? C.shadow : 'none' }}>
+              <button key={f} onClick={() => setFilter(f)} style={{ padding: '5px 14px', borderRadius: 7, border: 'none', fontFamily: font, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', transition: 'all .13s', background: filter === f ? C.white : 'transparent', color: filter === f ? C.tx1 : C.tx3, boxShadow: filter === f ? '0 1px 2px rgba(15,17,23,.06)' : 'none' }}>
                 {f === 'all' ? 'All' : f === 'active' ? 'Active' : 'Inactive'}
               </button>
             ))}
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <LiveBadge status={syncStatus}/>
           <span style={{ fontSize: 12.5, color: C.tx3 }}>{filtered.length} / {stores.length} stores</span>
         </div>
       </div>
 
       {/* Table */}
-      <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 18, boxShadow: C.shadow, overflow: 'hidden' }}>
+      <GcPanel style={{ borderRadius: 18, overflow: 'hidden', border: '1px solid rgba(15,17,23,.08)', boxShadow: '0 1px 2px rgba(15,17,23,.04)' }}>
         {filtered.length === 0 ? (
-          <div style={{ padding: '60px 24px', textAlign: 'center' }}>
-            <p style={{ fontSize: 15, fontWeight: 700, color: C.tx1, marginBottom: 6 }}>Store not found</p>
-            <p style={{ fontSize: 13, color: C.tx3 }}>{syncStatus === 'connecting' ? 'Loading data…' : search ? `No results for "${search}"` : 'No registered outlets yet.'}</p>
-          </div>
+          <GcEmptyState
+            title="Store not found"
+            description={syncStatus === 'connecting' ? 'Loading data…' : search ? `No results for "${search}"` : 'No registered outlets yet.'}
+            icon={syncStatus === 'connecting' ? '⏳' : '📭'}
+          />
         ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: font }}>
-            <thead>
-              <tr style={{ background: '#F8F9FC' }}>
-                {['Store / ID', 'Address', 'Opening Hours', 'GPS', 'Status Override', 'isActive', ''].map((h, i) => (
-                  <th key={i} style={{ padding: '11px 18px', textAlign: 'left', fontSize: 10.5, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: C.tx3, borderBottom: `1px solid ${C.border2}`, whiteSpace: 'nowrap' }}>{h}</th>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', minWidth: 980, borderCollapse: 'collapse', fontFamily: font }}>
+              <thead>
+                <tr style={{ background: '#FAFBFE' }}>
+                  {['Store / ID', 'Address', 'Opening Hours', 'GPS', 'Status Override', 'isActive', ''].map((h, i) => (
+                    <th key={i} style={{ padding: '11px 18px', textAlign: 'left', fontSize: 10.5, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: C.tx3, borderBottom: `1px solid ${C.border2}`, whiteSpace: 'nowrap' }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((s, i) => (
+                  <StoreRow key={s.id} store={s} isLast={i === filtered.length - 1}
+                    onEdit={() => setEditTarget(s)}
+                    onDelete={() => setDeleteTarget(s)}
+                    canManage={canManageStores}
+                  />
                 ))}
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((s, i) => (
-                <StoreRow key={s.id} store={s} isLast={i === filtered.length - 1}
-                  onEdit={() => setEditTarget(s)}
-                  onDelete={() => setDeleteTarget(s)}
-                  canManage={canManageStores}
-                />
-              ))}
-            </tbody>
-          </table>
+              </tbody>
+            </table>
+          </div>
         )}
 
-        <div style={{ padding: '12px 18px', borderTop: `1px solid ${C.border2}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ padding: '12px 18px', borderTop: '1px solid rgba(15,17,23,.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#FCFDFF' }}>
           <p style={{ fontSize: 12, color: C.tx3 }}>
             <strong style={{ color: C.tx2 }}>{stores.filter(s => s.isActive !== false).length}</strong> active ·{' '}
             <strong style={{ color: C.tx2 }}>{stores.filter(s => s.isActive === false).length}</strong> inactive ·{' '}
             <strong style={{ color: C.tx2 }}>{stores.filter(s => s.location?.latitude && s.location?.longitude).length}</strong> with GPS
           </p>
-          <button onClick={() => { /* refresh */ }} style={{ height: 34, padding: '0 16px', borderRadius: 8, background: C.bg, color: C.tx2, border: `1px solid ${C.border}`, fontFamily: font, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, marginRight: 10 }} >
-            <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-            Refresh
-          </button>
           {canManageStores && (
-            <button onClick={() => setShowAdd(true)} style={{ height: 34, padding: '0 16px', borderRadius: 8, background: C.tx1, color: '#fff', border: 'none', fontFamily: font, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}
-              onMouseOver={e => (e.currentTarget.style.background = C.red)}
-              onMouseOut={e  => (e.currentTarget.style.background = C.tx1)}>
-              <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+            <GcButton variant="blue" size="sm" onClick={() => setShowAdd(true)}>
               Add Store
-            </button>
+            </GcButton>
           )}
         </div>
-      </div>
+      </GcPanel>
 
       {canManageStores && editTarget   && <StoreModal store={editTarget}   onClose={() => setEditTarget(null)}    onSaved={msg => { showToast(msg); setEditTarget(null); }}/>} 
       {canManageStores && showAdd      && <StoreModal store={null}          onClose={() => setShowAdd(false)}       onSaved={msg => { showToast(msg); setShowAdd(false); }}/>} 
       {canManageStores && deleteTarget && <DeleteModal store={deleteTarget} onClose={() => setDeleteTarget(null)}   onDeleted={msg => { showToast(msg); setDeleteTarget(null); }}/>} 
 
       {toast && <Toast msg={toast.msg} type={toast.type} onDone={() => setToast(null)}/>}
-    </>
+    </GcPage>
   );
 }

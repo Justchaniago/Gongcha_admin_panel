@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Reward } from "@/types/firestore";
-import { GcInput, GcSelect, FL } from "./RewardsClient";
+import { GcButton, GcFieldLabel, GcInput, GcModalShell, GcSelect } from "@/components/ui/gc";
 const C = {
   white:    '#FFFFFF',
   border:   '#EAECF2',
@@ -10,7 +10,7 @@ const C = {
   purple:   '#6D28D9',
   shadowLg: '0 20px 60px rgba(16,24,40,.18), 0 4px 12px rgba(16,24,40,.08)',
 };
-const font = "'Plus Jakarta Sans', system-ui, sans-serif";
+const font = "Inter, system-ui, sans-serif";
 
 export default function InjectVoucherModal({ rewards, onClose, onSuccess }: {
   rewards: (Reward & { id: string })[];
@@ -50,17 +50,30 @@ export default function InjectVoucherModal({ rewards, onClose, onSuccess }: {
   }
 
   return (
-    <div onClick={e => { if (e.target === e.currentTarget) onClose(); }}
-      style={{ position: 'fixed', inset: 0, zIndex: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(10,12,20,.52)', backdropFilter: 'blur(8px)' }}>
-      <div style={{ background: C.white, borderRadius: 22, width: '100%', maxWidth: 420, boxShadow: C.shadowLg, padding: '32px 28px', fontFamily: font }}>
-        <h2 style={{ fontSize: 20, fontWeight: 800, color: C.tx1, marginBottom: 18 }}>Inject Voucher to User</h2>
+    <GcModalShell
+      onClose={onClose}
+      title="Inject Voucher to User"
+      eyebrow="Voucher Injection"
+      description="Specify the target user and reward to inject manually."
+      maxWidth={460}
+      footer={
+        <>
+          <GcButton variant="ghost" size="lg" onClick={onClose}>
+            Cancel
+          </GcButton>
+          <GcButton variant="blue" size="lg" onClick={handleInject} loading={loading}>
+            Inject Voucher
+          </GcButton>
+        </>
+      }
+    >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>
-            <FL required>UID User</FL>
+            <GcFieldLabel required>UID User</GcFieldLabel>
             <GcInput placeholder="Enter user UID" value={uid} onChange={e => setUid(e.target.value)} />
           </div>
           <div>
-            <FL required>Select Voucher (Reward)</FL>
+            <GcFieldLabel required>Select Voucher (Reward)</GcFieldLabel>
             <GcSelect value={rewardId} onChange={e => setRewardId(e.target.value)}>
               <option value="">Select reward...</option>
               {rewards.map(r => (
@@ -69,20 +82,15 @@ export default function InjectVoucherModal({ rewards, onClose, onSuccess }: {
             </GcSelect>
           </div>
           <div>
-            <FL required>Voucher Code</FL>
+            <GcFieldLabel required>Voucher Code</GcFieldLabel>
             <GcInput placeholder="Unique voucher code" value={code} onChange={e => setCode(e.target.value)} />
           </div>
           <div>
-            <FL required>Expiration Date</FL>
+            <GcFieldLabel required>Expiration Date</GcFieldLabel>
             <GcInput type="date" value={expiresAt} onChange={e => setExpiresAt(e.target.value)} />
           </div>
           {error && <div style={{ color: C.red, fontSize: 13, marginTop: 6 }}>{error}</div>}
         </div>
-        <div style={{ display: 'flex', gap: 10, marginTop: 24, justifyContent: 'flex-end' }}>
-          <button onClick={onClose} style={{ height: 40, padding: '0 20px', borderRadius: 9, border: `1.5px solid ${C.border}`, background: C.white, color: C.tx2, fontFamily: font, fontSize: 13.5, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
-          <button onClick={handleInject} disabled={loading} style={{ height: 40, padding: '0 22px', borderRadius: 9, border: 'none', background: loading ? '#9ca3af' : C.purple, color: '#fff', fontFamily: font, fontSize: 13.5, fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer', transition: 'all .15s' }}>{loading ? 'Injecting...' : 'Inject Voucher'}</button>
-        </div>
-      </div>
-    </div>
+    </GcModalShell>
   );
 }

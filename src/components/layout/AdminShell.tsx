@@ -5,7 +5,7 @@ import Sidebar from "@/components/layout/Sidebar";
 // import { AuthProvider } from "@/components/AuthProvider";
 
 // Pages that should NOT show the sidebar
-const NO_SIDEBAR_ROUTES = ["/login", "/register", "/forgot-password"];
+const NO_SIDEBAR_ROUTES = ["/login", "/register", "/forgot-password", "/unauthorized"];
 
 export default function AdminShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -16,13 +16,12 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
   }
 
   return (
-    <div className="flex min-h-screen" style={{ background: "#F1F5FF" }}>
+    <div className="gc-shell">
       <Sidebar />
-      <main
-        className="flex-1 min-h-screen overflow-y-auto"
-        style={{ marginLeft: "72px" }}
-      >
-        {children}
+      <main className="gc-shell-main">
+        <div className="gc-shell-content">
+          {children}
+        </div>
       </main>
     </div>
   );

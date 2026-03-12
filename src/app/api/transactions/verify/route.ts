@@ -4,14 +4,15 @@ import { Timestamp } from "firebase-admin/firestore";
 import { cookies } from "next/headers";
 
 interface VerifyRequest {
-  transactionId: string;     // Transaction number from POS (must match)
+  receiptNumber?: string;    // Transaction number from POS (must match)
+  transactionId?: string;    // Legacy alias
   posAmount: number;         // Total amount from POS (must match)
   posDate: string;           // Date from POS in YYYY-MM-DD format (must match)
 }
 
 interface VerifyResponse {
   success: boolean;
-  status?: "verified" | "rejected";
+  status?: "COMPLETED" | "CANCELLED";
   reason?: string;
   message: string;
 }
@@ -49,28 +50,29 @@ export async function POST(req: NextRequest): Promise<NextResponse<VerifyRespons
 
     // ── Parse request ──
     const body: VerifyRequest = await req.json();
-    const { transactionId, posAmount, posDate } = body;
+    const receiptNumber = body.receiptNumber ?? body.transactionId ?? "";
+    const { posAmount, posDate } = body;
 
-    if (!transactionId || posAmount === undefined || !posDate) {
+    if (!receiptNumber || posAmount === undefined || !posDate) {
       return NextResponse.json(
-        { success: false, message: "Missing required fields: transactionId, posAmount, and posDate are all required for POS verification" },
+        { success: false, message: "Missing required fields: receiptNumber, posAmount, and posDate are all required for POS verification" },
         { status: 400 }
       );
     }
 
-    // ── Fetch transaction by cashier-entered POS transaction ID ──
+    // ── Fetch transaction by receipt number, then fall back to legacy keys ──
     let txQuery;
     try {
       txQuery = await adminDb
         .collectionGroup("transactions")
-        .where("posTransactionId", "==", transactionId)
+        .where("receiptNumber", "==", receiptNumber)
         .limit(1)
         .get();
     } catch (err: any) {
       if (!isFirestoreNotFoundError(err)) throw err;
       txQuery = await adminDb
         .collection("transactions")
-        .where("posTransactionId", "==", transactionId)
+        .where("receiptNumber", "==", receiptNumber)
         .limit(1)
         .get();
     }
@@ -80,14 +82,31 @@ export async function POST(req: NextRequest): Promise<NextResponse<VerifyRespons
       try {
         txQuery = await adminDb
           .collectionGroup("transactions")
-          .where("transactionId", "==", transactionId)
+          .where("posTransactionId", "==", receiptNumber)
           .limit(1)
           .get();
       } catch (err: any) {
         if (!isFirestoreNotFoundError(err)) throw err;
         txQuery = await adminDb
           .collection("transactions")
-          .where("transactionId", "==", transactionId)
+          .where("posTransactionId", "==", receiptNumber)
+          .limit(1)
+          .get();
+      }
+    }
+
+    if (txQuery.empty) {
+      try {
+        txQuery = await adminDb
+          .collectionGroup("transactions")
+          .where("transactionId", "==", receiptNumber)
+          .limit(1)
+          .get();
+      } catch (err: any) {
+        if (!isFirestoreNotFoundError(err)) throw err;
+        txQuery = await adminDb
+          .collection("transactions")
+          .where("transactionId", "==", receiptNumber)
           .limit(1)
           .get();
       }
@@ -97,7 +116,7 @@ export async function POST(req: NextRequest): Promise<NextResponse<VerifyRespons
       return NextResponse.json(
         {
           success: false,
-          status: "rejected",
+          status: "CANCELLED",
           reason: "Transaction not found in database",
           message: "Transaction not found",
         },
@@ -112,7 +131,7 @@ export async function POST(req: NextRequest): Promise<NextResponse<VerifyRespons
       return NextResponse.json(
         {
           success: false,
-          status: "rejected",
+          status: "CANCELLED",
           reason: "Transaction data is empty",
           message: "Transaction data invalid",
         },
@@ -123,6 +142,17 @@ export async function POST(req: NextRequest): Promise<NextResponse<VerifyRespons
     // ── POS Verification: Match transaction number, date, and total ──
     const errors: string[] = [];
 
+    const currentStatus = String(txData.status ?? "").toUpperCase();
+    if (currentStatus && currentStatus !== "PENDING") {
+      return NextResponse.json(
+        {
+          success: false,
+          message: `Transaction already has status "${txData.status}".`,
+        },
+        { status: 409 }
+      );
+    }
+
     // 1. Transaction number is already matched by query (posTransactionId field)
 
     // 2. Check date (REQUIRED - must match)
@@ -132,12 +162,13 @@ export async function POST(req: NextRequest): Promise<NextResponse<VerifyRespons
     }
 
     // 3. Check amount (REQUIRED - must match exactly)
-    if (Math.abs(txData.amount - posAmount) > 0.01) {
-      errors.push(`Amount mismatch: DB=${txData.amount}, POS=${posAmount}`);
+    const dbAmount = Number(txData.totalAmount ?? txData.amount ?? 0);
+    if (Math.abs(dbAmount - posAmount) > 0.01) {
+      errors.push(`Amount mismatch: DB=${dbAmount}, POS=${posAmount}`);
     }
 
     // ── Update status ──
-    const newStatus = errors.length === 0 ? "verified" : "rejected";
+    const newStatus = errors.length === 0 ? "COMPLETED" : "CANCELLED";
     const reason = errors.length > 0 ? errors.join(" | ") : undefined;
 
     // Update transaction status
@@ -155,9 +186,10 @@ export async function POST(req: NextRequest): Promise<NextResponse<VerifyRespons
     await txSnapshot.ref.update(updateData);
 
     // ── Release points if verified ──
-    if (newStatus === "verified" && txData.userId && txData.potentialPoints) {
+    const userId = txData.userId ?? txData.memberId;
+    if (newStatus === "COMPLETED" && userId && txData.potentialPoints) {
       try {
-        const userRef = adminDb.collection("users").doc(txData.userId);
+        const userRef = adminDb.collection("users").doc(userId);
         const userSnap = await userRef.get();
         
         if (userSnap.exists) {
@@ -172,7 +204,7 @@ export async function POST(req: NextRequest): Promise<NextResponse<VerifyRespons
             updatedAt: Timestamp.now(),
           });
 
-          console.log(`[verify] Released ${pointsToAdd} points to user ${txData.userId}`);
+          console.log(`[verify] Released ${pointsToAdd} points to user ${userId}`);
         }
       } catch (pointError) {
         console.error("[verify] Error releasing points:", pointError);
@@ -185,7 +217,7 @@ export async function POST(req: NextRequest): Promise<NextResponse<VerifyRespons
         success: true,
         status: newStatus,
         reason,
-        message: newStatus === "verified" 
+        message: newStatus === "COMPLETED"
           ? "Transaction verified and points have been released to customer" 
           : "Transaction rejected - requires manual verification to ensure no system errors",
       },

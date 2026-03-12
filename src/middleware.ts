@@ -17,12 +17,13 @@ export function middleware(request: NextRequest) {
 
   // 2. Rute Publik
   const isLoginPage = pathname === '/login';
+  const isUnauthorizedPage = pathname === '/unauthorized';
   
   // 🔥 PERBAIKAN DI SINI: Kita izinkan semua rute yang berawalan /api/auth
   // agar API /api/auth/session (pembuat cookie) tidak diblokir!
   const isPublicApi = pathname.startsWith('/api/auth'); 
 
-  if (isLoginPage || isPublicApi) {
+  if (isLoginPage || isUnauthorizedPage || isPublicApi) {
     if (session && isLoginPage) {
       return NextResponse.redirect(new URL('/dashboard', request.url));
     }

@@ -1,5 +1,6 @@
 import * as admin from "firebase-admin";
 import * as dotenv from "dotenv";
+import { getFirestore as getAdminFirestore } from "firebase-admin/firestore";
 
 dotenv.config({ path: require("path").resolve(process.cwd(), ".env.local") });
 
@@ -16,7 +17,16 @@ if (!admin.apps.length) {
   });
 }
 
-export const adminDb = admin.firestore();
+const rawFirestoreDatabaseId = process.env.FIRESTORE_DATABASE_ID?.trim();
+const firestoreDatabaseId =
+  rawFirestoreDatabaseId &&
+  rawFirestoreDatabaseId !== "default" &&
+  rawFirestoreDatabaseId !== "(default)"
+    ? rawFirestoreDatabaseId
+    : undefined;
+export const adminDb = firestoreDatabaseId
+  ? getAdminFirestore(admin.app(), firestoreDatabaseId)
+  : getAdminFirestore(admin.app());
 export const FieldValue = admin.firestore.FieldValue;
 export const Timestamp = admin.firestore.Timestamp;
 export const adminAuth = admin.auth();

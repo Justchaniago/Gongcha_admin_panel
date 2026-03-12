@@ -29,8 +29,16 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-white">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-4 border-blue-600"></div>
+      <div className="gc-auth-loading">
+        <div className="gc-auth-loading-card">
+          <div className="gc-auth-spinner">
+            <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" strokeOpacity=".25"/>
+              <path d="M21 12a9 9 0 00-9-9"/>
+            </svg>
+          </div>
+          <p style={{ fontSize: 13, color: "var(--gc-tx3)", fontWeight: 700 }}>Memuat workspace…</p>
+        </div>
       </div>
     );
   }
@@ -38,8 +46,16 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
   // Hard fallback: jangan render route private jika user null.
   if (!user && !isPublicPage) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-white">
-        <div className="animate-spin rounded-full h-10 w-10 border-t-4 border-blue-600"></div>
+      <div className="gc-auth-loading">
+        <div className="gc-auth-loading-card">
+          <div className="gc-auth-spinner">
+            <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" strokeOpacity=".25"/>
+              <path d="M21 12a9 9 0 00-9-9"/>
+            </svg>
+          </div>
+          <p style={{ fontSize: 13, color: "var(--gc-tx3)", fontWeight: 700 }}>Mengalihkan ke login…</p>
+        </div>
       </div>
     );
   }

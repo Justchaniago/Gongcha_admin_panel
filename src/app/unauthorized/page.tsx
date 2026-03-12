@@ -1,7 +1,8 @@
 "use client";
 import { useRouter } from "next/navigation";
+import { GcButton, GcPanel } from "@/components/ui/gc";
 
-const font = "'Plus Jakarta Sans', system-ui, sans-serif";
+const font = "Inter, system-ui, sans-serif";
 
 export default function UnauthorizedPage() {
   const router = useRouter();
@@ -10,10 +11,7 @@ export default function UnauthorizedPage() {
       minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
       background: "linear-gradient(135deg,#F4F6FB 0%,#EEF2FF 100%)", fontFamily: font, padding: 24,
     }}>
-      <div style={{
-        background: "#fff", borderRadius: 24, padding: "48px 40px", maxWidth: 440, width: "100%",
-        boxShadow: "0 20px 60px rgba(16,24,40,.12)", textAlign: "center",
-      }}>
+      <GcPanel style={{ borderRadius: 24, padding: "48px 40px", maxWidth: 440, width: "100%", textAlign: "center" }}>
         {/* Icon */}
         <div style={{
           width: 72, height: 72, borderRadius: 20, background: "#FEF2F2",
@@ -37,35 +35,18 @@ export default function UnauthorizedPage() {
           No Permission
         </h1>
         <p style={{ fontSize: 14, color: "#4A5065", lineHeight: 1.7, marginBottom: 32 }}>
-          Akun Anda tidak memiliki izin untuk mengakses halaman ini.
-          Hubungi administrator jika Anda merasa ini adalah kesalahan.
+          You do not have permission to access this page. Please contact the administrator if you believe this is an error.
         </p>
 
         <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
-          <button
-            onClick={() => router.back()}
-            style={{
-              height: 42, padding: "0 20px", borderRadius: 10,
-              border: "1.5px solid #E2E8F0", background: "#fff",
-              color: "#4A5065", fontFamily: font, fontSize: 13.5, fontWeight: 600,
-              cursor: "pointer",
-            }}
-          >
+          <GcButton variant="ghost" size="lg" onClick={() => router.back()}>
             ← Kembali
-          </button>
-          <button
-            onClick={() => router.push("/dashboard")}
-            style={{
-              height: 42, padding: "0 20px", borderRadius: 10, border: "none",
-              background: "linear-gradient(135deg,#4361EE,#3A0CA3)",
-              color: "#fff", fontFamily: font, fontSize: 13.5, fontWeight: 600,
-              cursor: "pointer",
-            }}
-          >
+          </GcButton>
+          <GcButton variant="blue" size="lg" onClick={() => router.push("/dashboard")}>
             Ke Dashboard
-          </button>
+          </GcButton>
         </div>
-      </div>
+      </GcPanel>
     </div>
   );
 }

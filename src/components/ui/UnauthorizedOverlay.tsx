@@ -1,7 +1,7 @@
 "use client";
 import { useRouter } from "next/navigation";
 
-const font = "'Plus Jakarta Sans', system-ui, sans-serif";
+const font = "Inter, system-ui, sans-serif";
 
 export default function UnauthorizedOverlay() {
   const router = useRouter();
@@ -90,7 +90,7 @@ export default function UnauthorizedOverlay() {
               onClick={() => router.push("/dashboard")}
               style={{
                 height: 42, padding: "0 20px", borderRadius: 10, border: "none",
-                background: "linear-gradient(135deg,#4361EE,#3A0CA3)",
+                background: "linear-gradient(135deg,#059669,#047857)",
                 color: "#fff", fontFamily: font, fontSize: 13.5, fontWeight: 600,
                 cursor: "pointer",
               }}

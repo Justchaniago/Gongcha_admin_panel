@@ -2,13 +2,16 @@
 // src/app/settings/page.tsx
 
 import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import UnauthorizedOverlay from "@/components/ui/UnauthorizedOverlay";
+import { useAuth } from "@/context/AuthContext";
+import { GcButton, GcPage, GcPageHeader } from "@/components/ui/gc";
 
-const font = "'Plus Jakarta Sans',system-ui,sans-serif";
+const font = "Inter, system-ui, sans-serif";
 const C = {
   bg:"#F4F6FB", white:"#FFFFFF", border:"#EAECF2", border2:"#F0F2F7",
   tx1:"#0F1117", tx2:"#4A5065", tx3:"#9299B0",
-  blue:"#4361EE", blueL:"#EEF2FF",
+  blue:"#3B82F6", blueL:"#EFF6FF",
   green:"#059669", red:"#DC2626",
   shadow:"0 1px 3px rgba(16,24,40,.06)",
   shadowLg:"0 20px 60px rgba(16,24,40,.18)",
@@ -110,6 +113,8 @@ const inputStyle: React.CSSProperties = {
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function SettingsPage() {
+  const { user: authUser } = useAuth();
+  const router = useRouter();
   const [settings,  setSettings]  = useState<Settings>(DEFAULTS);
   const [loading,   setLoading]   = useState(true);
   const [saving,    setSaving]    = useState(false);
@@ -117,6 +122,13 @@ export default function SettingsPage() {
   const [toast,     setToast]     = useState<{msg:string;type:"success"|"error"}|null>(null);
   const [dangerConfirm, setDangerConfirm] = useState<string|null>(null);
   const [unauthorized, setUnauthorized] = useState(false);
+
+  // Redirect staff users to dashboard
+  useEffect(() => {
+    if (authUser && authUser.role !== "SUPER_ADMIN") {
+      router.replace("/dashboard");
+    }
+  }, [authUser, router]);
 
   const showToast = (msg: string, type: "success"|"error" = "success") => setToast({ msg, type });
 
@@ -213,44 +225,25 @@ export default function SettingsPage() {
 
   return (
     <>
-      <div style={{ padding:"32px 32px 48px", maxWidth:1200, fontFamily:font }}>
-
-        {/* Header */}
-        <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:28 }}>
-          <div>
-            <h1 style={{ fontSize:24, fontWeight:800, color:C.tx1, margin:0, letterSpacing:"-.02em" }}>Global Settings</h1>
-            <p style={{ fontSize:13.5, color:C.tx2, marginTop:6, marginBottom:0 }}>
-              Points system, member tiers, and notification preferences configuration.
-            </p>
-            {settings.updatedAt && (
-              <p style={{ fontSize:11, color:C.tx3, marginTop:4, marginBottom:0 }}>
-                Last updated: {new Date(settings.updatedAt).toLocaleString("en-US")}
-              </p>
-            )}
-          </div>
-          <div style={{ display:"flex", gap:10 }}>
-            {dirty && (
-              <button
-                onClick={loadSettings}
-                style={{ height:40, padding:"0 18px", borderRadius:10, border:`1.5px solid ${C.border}`, background:C.white, color:C.tx2, fontFamily:font, fontSize:13.5, fontWeight:600, cursor:"pointer" }}
-              >
-                Batalkan
-              </button>
-            )}
-            <button
-              onClick={handleSave}
-              disabled={!dirty || saving}
-              style={{
-                height:40, padding:"0 22px", borderRadius:10, border:"none",
-                background: !dirty || saving ? "#9ca3af" : "linear-gradient(135deg,#4361EE,#3A0CA3)",
-                color:"#fff", fontFamily:font, fontSize:13.5, fontWeight:700,
-                cursor: !dirty || saving ? "not-allowed" : "pointer", transition:"all .2s",
-              }}
-            >
-              {saving ? "Saving…" : dirty ? "💾 Save Changes" : "✓ Saved"}
-            </button>
-          </div>
-        </div>
+      <GcPage maxWidth={1240}>
+        <GcPageHeader
+          eyebrow="Gongcha App Admin"
+          title="Settings"
+          description="Configure application settings and preferences."
+          meta={settings.updatedAt ? <p style={{ fontSize:11, color:C.tx3, margin:0 }}>Last updated: {new Date(settings.updatedAt).toLocaleString("en-US")}</p> : undefined}
+          actions={
+            <>
+              {dirty && (
+                <GcButton variant="ghost" size="lg" onClick={loadSettings}>
+                  Batalkan
+                </GcButton>
+              )}
+              <GcButton variant="blue" size="lg" onClick={handleSave} disabled={!dirty || saving}>
+                {saving ? "Saving…" : dirty ? "Save Changes" : "Saved"}
+              </GcButton>
+            </>
+          }
+        />
 
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
 
@@ -399,7 +392,7 @@ export default function SettingsPage() {
           </Card>
 
         </div>
-      </div>
+      </GcPage>
 
       {toast && <Toast msg={toast.msg} type={toast.type} onDone={() => setToast(null)}/>}
     </>

@@ -8,7 +8,7 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    // Check if the calling user has a specific role in the /staff collection
+    // Legacy helper (kept for backward compatibility with old /staff collection)
     function staffHasRole(roles) {
       return isSignedIn() &&
         exists(/databases/$(database)/documents/staff/$(request.auth.uid)) &&
@@ -16,11 +16,35 @@ service cloud.firestore {
         get(/databases/$(database)/documents/staff/$(request.auth.uid)).data.role in roles;
     }
 
-    // Check if the calling user is an admin/master in the /users collection
+    // Current admin panel role source: /admin_users
+    function adminUserHasRole(roles) {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/admin_users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/admin_users/$(request.auth.uid)).data.isActive == true &&
+        get(/databases/$(database)/documents/admin_users/$(request.auth.uid)).data.role in roles;
+    }
+
+    // Legacy helper for old schema in /users
     function userIsAdmin() {
       return isSignedIn() &&
         exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'master'];
+    }
+
+    function isPrivilegedAdmin() {
+      return adminUserHasRole(['SUPER_ADMIN']) || userIsAdmin() || staffHasRole(['admin', 'store_manager']);
+    }
+
+    function isActiveAdminPanelUser() {
+      return adminUserHasRole(['SUPER_ADMIN', 'STAFF']) || staffHasRole(['admin', 'store_manager', 'cashier']);
+    }
+
+    // ── /admin_users ───────────────────────────────────────────────────────
+    match /admin_users/{uid} {
+      // Each admin/staff can read own profile; super admin can read all.
+      allow read: if isSignedIn() && (request.auth.uid == uid || isPrivilegedAdmin());
+      // Mutations should go through Admin SDK routes/actions.
+      allow create, update, delete: if false;
     }
 
     // ── /accounts ──────────────────────────────────────────────────────────
@@ -59,7 +83,29 @@ service cloud.firestore {
     match /stores/{storeId} {
       // Anyone signed in can read store list (needed for POS UI)
       allow read:   if isSignedIn();
-      allow write:  if staffHasRole(['admin']) || userIsAdmin();
+      allow write:  if isPrivilegedAdmin();
+    }
+
+    // ── /products ──────────────────────────────────────────────────────────
+    // Admin panel menu management collection.
+    match /products/{productId} {
+      allow read:  if isActiveAdminPanelUser();
+      allow write: if isPrivilegedAdmin();
+    }
+
+    // ── /transactions (top-level) ──────────────────────────────────────────
+    // Dashboard + transactions page read this collection directly.
+    match /transactions/{txId} {
+      allow read: if isActiveAdminPanelUser();
+      // Writes/deletes should be done via server/Admin SDK routes.
+      allow create, update, delete: if false;
+    }
+
+    // ── /daily_stats ────────────────────────────────────────────────────────
+    // Dashboard aggregate docs.
+    match /daily_stats/{statId} {
+      allow read: if isActiveAdminPanelUser();
+      allow create, update, delete: if false;
     }
 
     // ── /stores/{storeId}/transactions ─────────────────────────────────────
@@ -73,8 +119,16 @@ service cloud.firestore {
 
     // ── /rewards_catalog ───────────────────────────────────────────────────
     match /rewards_catalog/{rewardId} {
-      allow read:   if isSignedIn();
-      allow write:  if staffHasRole(['admin']) || userIsAdmin();
+      allow read:   if isActiveAdminPanelUser() || isSignedIn();
+      allow write:  if isPrivilegedAdmin();
+    }
+
+    // ── /rewards ───────────────────────────────────────────────────────────
+    // Current admin app reads this collection directly via client SDK.
+    // Mutations should still go through Admin SDK routes.
+    match /rewards/{rewardId} {
+      allow read:   if isActiveAdminPanelUser() || isSignedIn();
+      allow write:  if isPrivilegedAdmin();
     }
 
     // ── /settings ──────────────────────────────────────────────────────────
@@ -83,7 +137,7 @@ service cloud.firestore {
     // Write: only admin staff or admin users — but mutations go through
     //        /api/settings (Admin SDK), so direct client writes are blocked.
     match /settings/{settingId} {
-      allow read:   if staffHasRole(['admin', 'store_manager', 'cashier']) || userIsAdmin();
+      allow read:   if isActiveAdminPanelUser() || userIsAdmin();
       allow create: if false; // Must use /api/settings (Admin SDK)
       allow update: if false; // Must use /api/settings (Admin SDK)
       allow delete: if false;

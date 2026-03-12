@@ -19,7 +19,7 @@ const Ctx = createContext<AuthCtx>({ user: null, loading: true, logout: async ()
 // Hook utama yang dipakai oleh semua komponen UI kamu
 export function useAuth() { return useContext(Ctx); }
 
-const font = "'Plus Jakarta Sans', system-ui, sans-serif";
+const font = "Inter, system-ui, sans-serif";
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthCtx['user']>(null);
@@ -34,7 +34,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return "STAFF";
   };
 
+  const fetchSessionProfile = async () => {
+    const res = await fetch('/api/auth/session', {
+      method: 'GET',
+      credentials: 'include',
+      cache: 'no-store',
+    });
+
+    if (!res.ok) return null;
+
+    const data = await res.json();
+    return data ?? null;
+  };
+
   const hydrateAdminUser = async (uid: string, fallbackEmail?: string | null, fallbackName?: string | null) => {
+    // Prefer server session profile (Admin SDK) so role is accurate even if
+    // client Firestore rules block reads to admin_users.
+    try {
+      const sessionData = await fetchSessionProfile();
+      if (sessionData?.authenticated && sessionData?.uid === uid) {
+        const profile = sessionData?.profile ?? null;
+        return {
+          uid,
+          email: profile?.email ?? sessionData?.email ?? fallbackEmail ?? "",
+          name: profile?.name ?? sessionData?.name ?? fallbackName ?? fallbackEmail?.split("@")[0] ?? "Admin",
+          role: normalizeRole(profile?.role ?? sessionData?.roleHint),
+          isActive: profile?.isActive !== false,
+          assignedStoreId: profile?.assignedStoreId ?? null,
+        } as AdminUser;
+      }
+    } catch (error) {
+      console.warn("[AuthContext] Failed to fetch session profile:", error);
+    }
+
     const adminRef = doc(db, "admin_users", uid).withConverter(adminUserConverter);
     let adminSnap = await getDoc(adminRef);
 
@@ -85,37 +117,62 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } as AdminUser;
   };
 
+  const buildOptimisticUser = (
+    uid: string,
+    email?: string | null,
+    name?: string | null,
+  ): AdminUser => ({
+    uid,
+    email: email ?? "",
+    name: name ?? email?.split("@")[0] ?? "Admin",
+    role: "STAFF",
+    assignedStoreId: null,
+    isActive: true,
+  });
+
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      if (!firebaseUser) {
+        setUser(null);
+        setLoading(false);
+        return;
+      }
+
+      const optimisticUser = buildOptimisticUser(
+        firebaseUser.uid,
+        firebaseUser.email,
+        firebaseUser.displayName,
+      );
+
+      // Jangan block UI dengan spinner panjang: tampilkan dulu user optimistic.
+      setUser((prev) => prev ?? optimisticUser);
+      setLoading(false);
+
+      // Hydrate profile admin di background.
+      (async () => {
         try {
-          const hydratedUser = await hydrateAdminUser(
+          const hydratedOrFallback = await hydrateAdminUser(
             firebaseUser.uid,
             firebaseUser.email,
-            firebaseUser.displayName
+            firebaseUser.displayName,
           );
 
-          if (hydratedUser && hydratedUser.isActive) {
-            setUser(hydratedUser);
-          } else {
+          if (hydratedOrFallback?.isActive === false) {
             await signOut(auth);
             setUser(null);
             if (pathname !== "/login") {
-              router.push("/unauthorized");
+              router.replace("/unauthorized");
             }
+            return;
           }
+
+          setUser(hydratedOrFallback ?? optimisticUser);
         } catch (error) {
           console.error("Gagal memverifikasi admin user:", error);
-          await signOut(auth);
-          setUser(null);
-          if (pathname !== "/login") {
-            router.push("/unauthorized");
-          }
+          // Keep optimistic user to prevent false unauthorized loop.
+          setUser((prev) => prev ?? optimisticUser);
         }
-      } else {
-        setUser(null);
-      }
-      setLoading(false);
+      })();
     });
 
     return () => unsubscribe();
@@ -123,9 +180,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function handleLogout() {
     try {
+      // Hapus session cookie server-side (dipakai middleware)
+      try {
+        await fetch('/api/auth/session', {
+          method: 'DELETE',
+          credentials: 'include',
+          cache: 'no-store',
+        });
+      } catch (cookieErr) {
+        console.warn('Failed to clear /api/auth/session cookie:', cookieErr);
+      }
+
+      // Backward compatibility endpoint
+      try {
+        await fetch('/api/auth/logout', {
+          method: 'POST',
+          credentials: 'include',
+          cache: 'no-store',
+        });
+      } catch (legacyErr) {
+        console.warn('Failed to call /api/auth/logout:', legacyErr);
+      }
+
       await signOut(auth);
       setUser(null);
-      router.push("/login");
+      router.replace('/login');
+      router.refresh();
     } catch (error) {
       console.error("Logout error:", error);
     }
@@ -135,7 +215,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return (
       <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#F4F6FB", fontFamily: font }}>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
-          <div style={{ width: 48, height: 48, borderRadius: 14, background: "linear-gradient(135deg,#4361EE,#3A0CA3)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 8px 24px rgba(67,97,238,.3)" }}>
+          <div style={{ width: 48, height: 48, borderRadius: 14, background: "linear-gradient(135deg,#059669,#047857)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 8px 24px rgba(5,150,105,.3)" }}>
             <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="white" strokeWidth={2} style={{ animation: "spin 1s linear infinite" }}>
               <path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" strokeOpacity=".25"/><path d="M21 12a9 9 0 00-9-9"/>
             </svg>

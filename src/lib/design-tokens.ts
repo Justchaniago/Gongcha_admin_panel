@@ -1,4 +1,4 @@
-export const font = "'Plus Jakarta Sans', system-ui, sans-serif";
+export const font = "Inter, system-ui, sans-serif";
 
 export const typography = {
   labelSm: { fontSize: 11, fontWeight: 700, letterSpacing: ".1em" } as const,
@@ -20,7 +20,7 @@ export const C = {
   tx2: "#6B7280",
   tx3: "#9CA3AF",
   tx4: "#C2C6D9",
-  blue: "#2563EB",
+  blue: "#3B82F6",
   blueLight: "#EFF6FF",
   blueL: "#EFF6FF",
   blueBorder: "#BFDBFE",

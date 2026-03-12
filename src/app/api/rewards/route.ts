@@ -5,7 +5,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { cookies } from "next/headers";
 import { adminAuth } from "@/lib/firebaseAdmin";
 
-async function validateSession() {
+async function validateSession(requireSuperAdmin = true) {
   const cookieStore = await cookies();
   const sessionCookie = cookieStore.get("session")?.value;
   if (!sessionCookie) {
@@ -15,7 +15,10 @@ async function validateSession() {
     const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
     const profileSnap = await adminDb.collection("admin_users").doc(decodedClaims.uid).get();
     const profile = profileSnap.data();
-    if (profile?.isActive !== true || profile?.role !== "SUPER_ADMIN") {
+    if (profile?.isActive !== true) {
+      return { error: "Access denied. Account inactive.", status: 403 };
+    }
+    if (requireSuperAdmin && profile?.role !== "SUPER_ADMIN") {
       return { error: "Access denied. SUPER_ADMIN required.", status: 403 };
     }
     return { token: decodedClaims, userRole: profile.role, error: null };
@@ -50,7 +53,7 @@ function parseRewardBody(body: any) {
 // ── GET /api/rewards ───────────────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
   // Validasi session
-  const validation = await validateSession();
+  const validation = await validateSession(false);
   if (validation.error) {
     return NextResponse.json({ message: validation.error }, { status: validation.status });
   }
@@ -67,7 +70,7 @@ export async function GET(req: NextRequest) {
 // ── POST /api/rewards ─────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   // Validasi session
-  const validation = await validateSession();
+  const validation = await validateSession(true);
   if (validation.error) {
     return NextResponse.json({ message: validation.error }, { status: validation.status });
   }

@@ -19,7 +19,7 @@ type StoreMutationInput = {
 };
 
 function generateStoreId(name: string): string {
-  return name
+  const slug = name
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
@@ -28,6 +28,9 @@ function generateStoreId(name: string): string {
     .replace(/[\s-]+/g, "_")
     .replace(/_+/g, "_")
     .replace(/^_+|_+$/g, "");
+
+  if (!slug) return "";
+  return `store_${slug}`;
 }
 
 function isValidTime(value: string): boolean {

@@ -1,10 +1,12 @@
 "use client";
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { User, UserTier, UserRole, userConverter, AdminUser, AdminRole, adminUserConverter } from "@/types/firestore";
 import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
 import { db } from "@/lib/firebaseClient";
 import { useAuth } from "@/context/AuthContext";
+import { GcModalShell, GcPage, GcPageHeader, GcPanel } from "@/components/ui/gc";
 import { 
   createAccountAction, 
   updateAccountAction, 
@@ -25,6 +27,7 @@ function normalizeStoreAccess(s: StaffWithUid): { storeLocations: string[]; acce
 }
 type TabType   = "member" | "staff";
 type ToastType = "success" | "error" | "info";
+type SyncStatus = "connecting" | "live" | "error";
 
 interface Toast { id: string; type: ToastType; message: string; }
 interface ConfirmOptions {
@@ -36,7 +39,7 @@ interface ConfirmOptions {
 const C = {
   bg: "#F4F6FB", white: "#FFFFFF", border: "#EAECF2", border2: "#F0F2F7",
   tx1: "#0F1117", tx2: "#4A5065", tx3: "#9299B0", tx4: "#BCC1D3",
-  blue: "#4361EE", blueL: "#EEF2FF", blueD: "#3A0CA3",
+  blue: "#3B82F6", blueL: "#EFF6FF", blueD: "#2563EB",
   green: "#12B76A", greenBg: "#ECFDF3",
   amber: "#F79009", amberBg: "#FFFAEB",
   red: "#C8102E", redBg: "#FEF3F2",
@@ -45,7 +48,7 @@ const C = {
   shadowLg: "0 20px 60px rgba(16,24,40,.18), 0 4px 12px rgba(16,24,40,.08)",
 } as const;
 
-const font = "'Plus Jakarta Sans', system-ui, sans-serif";
+const font = "Inter, system-ui, sans-serif";
 
 const TIER_CFG: Record<string, { bg: string; color: string; ring: string }> = {
   Platinum: { bg: "#F5F3FF", color: "#5B21B6", ring: "#DDD6FE" },
@@ -85,7 +88,7 @@ export function FL({ children }: { children: React.ReactNode }) {
 function Avatar({ name, size = 36 }: { name?: string; size?: number }) {
   const char = (name ?? "?")[0].toUpperCase();
   const code = (name ?? "A").charCodeAt(0);
-  const g = [["#4361EE","#3A0CA3"],["#7C3AED","#4361EE"],["#059669","#0D9488"],["#D97706","#B45309"],["#DC2626","#B91C1C"]];
+  const g = [["#3B82F6","#2563EB"],["#7C3AED","#3B82F6"],["#059669","#0D9488"],["#D97706","#B45309"],["#DC2626","#B91C1C"]];
   const [a, b] = g[code % g.length];
   return (
     <div style={{ width: size, height: size, borderRadius: size < 40 ? 10 : 14, background: `linear-gradient(135deg,${a},${b})`, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 700, fontSize: size * 0.38, fontFamily: font }}>
@@ -159,40 +162,62 @@ function ActionBtn({ onClick, label, danger }: { onClick: () => void; label: str
   );
 }
 
-// ── Modal Components ──────────────────────────────────────────────────────────
-function Modal({ children, onClose, maxW = 520 }: { children: React.ReactNode; onClose: () => void; maxW?: number }) {
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [onClose]);
+function SyncBadge({ status }: { status: SyncStatus }) {
+  const cfg = {
+    connecting: { color: C.amber, label: "Connecting…" },
+    live: { color: C.green, label: "Live" },
+    error: { color: C.red, label: "Error" },
+  }[status];
+
   return (
-    <div onClick={e => { if (e.target === e.currentTarget) onClose(); }}
-      style={{ position: "fixed", inset: 0, zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, background: "rgba(10,12,20,.52)", backdropFilter: "blur(8px)", animation: "gcFadeIn .18s ease", fontFamily: font }}>
-      <div style={{ background: C.white, borderRadius: 22, width: "100%", maxWidth: maxW, maxHeight: "92vh", overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: C.shadowLg, animation: "gcRise .26s cubic-bezier(.22,.68,0,1.15) both" }}>
-        {children}
-      </div>
-    </div>
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 700, color: cfg.color }}>
+      <span
+        style={{
+          width: 7,
+          height: 7,
+          borderRadius: "50%",
+          background: cfg.color,
+          boxShadow: status === "live" ? "0 0 0 3px rgba(18,183,106,.2)" : "none",
+          animation: status === "connecting" ? "pulse .9s infinite" : "none",
+        }}
+      />
+      {cfg.label}
+      <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}`}</style>
+    </span>
   );
 }
 
-function MHead({ eyebrow, title, onClose }: { eyebrow: string; title: string; onClose: () => void }) {
-  const [h, setH] = useState(false);
+// ── Modal Components ──────────────────────────────────────────────────────────
+function ModalFrame({
+  children,
+  onClose,
+  maxW = 520,
+  eyebrow,
+  title,
+  description,
+  footer,
+}: {
+  children: React.ReactNode;
+  onClose: () => void;
+  maxW?: number;
+  eyebrow: string;
+  title: string;
+  description?: React.ReactNode;
+  footer?: React.ReactNode;
+}) {
   return (
-    <div style={{ padding: "24px 28px 18px", borderBottom: `1px solid ${C.border2}`, display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexShrink: 0 }}>
-      <div>
-        <p style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".14em", textTransform: "uppercase", color: C.blue, marginBottom: 4 }}>{eyebrow}</p>
-        <h2 style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-.02em", color: C.tx1, margin: 0 }}>{title}</h2>
-      </div>
-      <button type="button" onClick={onClose} onMouseOver={() => setH(true)} onMouseOut={() => setH(false)}
-        style={{ width: 34, height: 34, borderRadius: 9, border: `1.5px solid ${C.border}`, background: h ? C.bg : "transparent", cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", transition: "background .13s" }}>
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M1 1l10 10M11 1L1 11" stroke={C.tx3} strokeWidth="1.7" strokeLinecap="round"/></svg>
-      </button>
-    </div>
+    <GcModalShell
+      onClose={onClose}
+      eyebrow={eyebrow}
+      title={title}
+      description={description}
+      maxWidth={maxW}
+      footer={footer}
+    >
+      {children}
+    </GcModalShell>
   );
 }
-function MBody({ children }: { children: React.ReactNode }) { return <div style={{ overflowY: "auto", flex: 1, padding: "22px 28px" }}>{children}</div>; }
-function MFoot({ children }: { children: React.ReactNode }) { return <div style={{ padding: "16px 28px 24px", borderTop: `1px solid ${C.border2}`, display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 10, flexShrink: 0 }}>{children}</div>; }
 function SL({ children }: { children: React.ReactNode }) { return <p style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".12em", textTransform: "uppercase", color: C.tx3, marginBottom: 14, paddingBottom: 10, borderBottom: `1px solid ${C.border2}` }}>{children}</p>; }
 function ErrorBox({ message }: { message: string }) { return <div style={{ marginTop: 14, padding: "10px 14px", background: C.redBg, border: "1px solid #FECDD3", borderRadius: 9, fontSize: 12.5, color: "#B42318", animation: "gcShake .3s ease" }}>{message}</div>; }
 function EmptyState({ query, type }: { query: string; type: TabType }) {
@@ -246,26 +271,29 @@ function ConfirmDialog({ opts, onCancel }: { opts: ConfirmOptions; onCancel: () 
   const [loading, setLoading] = useState(false);
   async function handleConfirm() { setLoading(true); await opts.onConfirm(); setLoading(false); }
   return (
-    <div onClick={e => { if (e.target === e.currentTarget && !loading) onCancel(); }}
-      style={{ position: "fixed", inset: 0, zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, background: "rgba(10,12,20,.52)", backdropFilter: "blur(8px)", animation: "gcFadeIn .18s ease", fontFamily: font }}>
-      <div style={{ background: C.white, borderRadius: 18, width: "100%", maxWidth: 400, boxShadow: C.shadowLg, animation: "gcRise .24s cubic-bezier(.22,.68,0,1.15) both", overflow: "hidden" }}>
-        <div style={{ padding: "24px 28px 20px" }}>
-          {opts.danger && (
-            <div style={{ width: 44, height: 44, borderRadius: 12, background: C.redBg, border: `1px solid #FECDD3`, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={C.red} strokeWidth={2.2} strokeLinecap="round"><path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
-            </div>
-          )}
-          <h3 style={{ fontSize: 17, fontWeight: 800, color: C.tx1, marginBottom: 8 }}>{opts.title}</h3>
-          <p style={{ fontSize: 13.5, color: C.tx2, lineHeight: 1.6 }}>{opts.description}</p>
-        </div>
-        <div style={{ padding: "16px 28px 24px", display: "flex", gap: 10, justifyContent: "flex-end", borderTop: `1px solid ${C.border2}` }}>
+    <ModalFrame
+      onClose={() => !loading && onCancel()}
+      maxW={400}
+      eyebrow={opts.danger ? "Danger Zone" : "Confirmation"}
+      title={opts.title}
+      description={opts.description}
+      footer={
+        <>
           <GcBtn variant="ghost" onClick={onCancel} disabled={loading}>Batal</GcBtn>
           <GcBtn variant={opts.danger ? "danger" : "blue"} onClick={handleConfirm} disabled={loading}>
             {loading ? "Memproses…" : (opts.confirmLabel ?? "Konfirmasi")}
           </GcBtn>
+        </>
+      }
+    >
+      {opts.danger ? (
+        <div style={{ width: 44, height: 44, borderRadius: 12, background: C.redBg, border: `1px solid #FECDD3`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={C.red} strokeWidth={2.2} strokeLinecap="round"><path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
         </div>
-      </div>
-    </div>
+      ) : (
+        <div style={{ paddingTop: 2, fontSize: 13, color: C.tx3 }}>Pastikan aksi ini memang sudah final.</div>
+      )}
+    </ModalFrame>
   );
 }
 
@@ -322,9 +350,20 @@ function EditPointsModal({
   const deltaLifetime = lifetimeNum - (user.lifetimePoints ?? 0);
 
   return (
-    <Modal onClose={onClose} maxW={460}>
-      <MHead eyebrow="Edit Points" title={user.name ?? "—"} onClose={onClose} />
-      <MBody>
+    <ModalFrame
+      onClose={onClose}
+      maxW={460}
+      eyebrow="Edit Points"
+      title={user.name ?? "—"}
+      footer={
+        <>
+          <GcBtn variant="ghost" onClick={onClose} disabled={loading}>Batal</GcBtn>
+          <GcBtn variant="blue" onClick={handleSave} disabled={loading || !isValid || (deltaPoints === 0 && deltaLifetime === 0)}>
+            {loading ? "Menyimpan…" : "Simpan Perubahan"}
+          </GcBtn>
+        </>
+      }
+    >
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 22 }}>
           {[
             { label: "Poin Aktif Sekarang",  value: (user.currentPoints  ?? 0).toLocaleString("id"), color: C.blue   },
@@ -361,14 +400,7 @@ function EditPointsModal({
           </div>
         )}
         {error && <ErrorBox message={error} />}
-      </MBody>
-      <MFoot>
-        <GcBtn variant="ghost" onClick={onClose} disabled={loading}>Batal</GcBtn>
-        <GcBtn variant="blue" onClick={handleSave} disabled={loading || !isValid || (deltaPoints === 0 && deltaLifetime === 0)}>
-          {loading ? "Menyimpan…" : "Simpan Perubahan"}
-        </GcBtn>
-      </MFoot>
-    </Modal>
+    </ModalFrame>
   );
 }
 
@@ -399,9 +431,19 @@ function MemberDetailModal({
 
   return (
     <>
-      <Modal onClose={onClose} maxW={540}>
-        <MHead eyebrow="Detail Member" title={localUser.name ?? "—"} onClose={onClose} />
-        <MBody>
+      <ModalFrame
+        onClose={onClose}
+        maxW={540}
+        eyebrow="Detail Member"
+        title={localUser.name ?? "—"}
+        footer={
+          <>
+            <GcBtn variant="ghost"  onClick={onClose}>Tutup</GcBtn>
+            <GcBtn variant="blue"   onClick={onEdit}>Edit Member</GcBtn>
+            <GcBtn variant="danger" onClick={handleDelete}>Delete Account</GcBtn>
+          </>
+        }
+      >
           <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "16px 18px", background: C.bg, borderRadius: 14, border: `1px solid ${C.border}`, marginBottom: 20 }}>
             <Avatar name={localUser.name} size={52} />
             <div style={{ flex: 1 }}>
@@ -446,13 +488,7 @@ function MemberDetailModal({
               </div>
             ))}
           </div>
-        </MBody>
-        <MFoot>
-          <GcBtn variant="ghost"  onClick={onClose}>Tutup</GcBtn>
-          <GcBtn variant="blue"   onClick={onEdit}>Edit Member</GcBtn>
-          <GcBtn variant="danger" onClick={handleDelete}>Delete Account</GcBtn>
-        </MFoot>
-      </Modal>
+      </ModalFrame>
 
       {showEditPoints && (
         <EditPointsModal
@@ -504,9 +540,18 @@ function EditMemberModal({
 
     return (
       <>
-        <Modal onClose={onClose} maxW={520}>
-          <MHead eyebrow="Edit Account" title="Edit Member" onClose={onClose} />
-          <MBody>
+        <ModalFrame
+          onClose={onClose}
+          maxW={520}
+          eyebrow="Edit Account"
+          title="Edit Member"
+          footer={
+            <>
+              <GcBtn variant="ghost" onClick={onClose} disabled={loading}>Batal</GcBtn>
+              <GcBtn variant="blue" onClick={save} disabled={loading}>Simpan Perubahan</GcBtn>
+            </>
+          }
+        >
             <SL>Informasi Member</SL>
             <div style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 22 }}>
               <div><FL>Nama</FL><GcInput value={form.name}        onChange={e => set("name",        e.target.value)} /></div>
@@ -535,12 +580,7 @@ function EditMemberModal({
               </div>
             </div>
             {error && <ErrorBox message={error} />}
-          </MBody>
-          <MFoot>
-            <GcBtn variant="ghost" onClick={onClose} disabled={loading}>Batal</GcBtn>
-            <GcBtn variant="blue" onClick={save} disabled={loading}>Simpan Perubahan</GcBtn>
-          </MFoot>
-        </Modal>
+        </ModalFrame>
         {showInject && (
           <InjectVoucherModalForMember
             uid={user.uid}
@@ -593,9 +633,17 @@ function EditStaffModal({ staff, storeIds, onClose, onSaved, toast }: {
   }
 
   return (
-    <Modal onClose={onClose}>
-      <MHead eyebrow="Edit Account" title="Edit Staff" onClose={onClose} />
-      <MBody>
+    <ModalFrame
+      onClose={onClose}
+      eyebrow="Edit Account"
+      title="Edit Staff"
+      footer={
+        <>
+          <GcBtn variant="ghost" onClick={onClose} disabled={loading}>Batal</GcBtn>
+          <GcBtn variant="blue"  onClick={save}    disabled={loading || !canSave}>{loading ? "Menyimpan…" : "Simpan"}</GcBtn>
+        </>
+      }
+    >
         <SL>Informasi Staff</SL>
         <div style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 22 }}>
           <div><FL>Nama</FL><GcInput value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} /></div>
@@ -615,6 +663,7 @@ function EditStaffModal({ staff, storeIds, onClose, onSaved, toast }: {
             accessAll={form.role === "SUPER_ADMIN"}
             onChangeSelected={v => setForm(p => ({ ...p, assignedStoreId: v[0] ?? "" }))}
             onChangeAccessAll={v => setForm(p => ({ ...p, role: v ? "SUPER_ADMIN" : "STAFF", assignedStoreId: v ? "" : p.assignedStoreId }))}
+            singleSelect
           />
         </div>
         <SL>Status Akun</SL>
@@ -631,12 +680,7 @@ function EditStaffModal({ staff, storeIds, onClose, onSaved, toast }: {
           </div>
         </div>
         {error && <ErrorBox message={error} />}
-      </MBody>
-      <MFoot>
-        <GcBtn variant="ghost" onClick={onClose} disabled={loading}>Batal</GcBtn>
-        <GcBtn variant="blue"  onClick={save}    disabled={loading || !canSave}>{loading ? "Menyimpan…" : "Simpan"}</GcBtn>
-      </MFoot>
-    </Modal>
+    </ModalFrame>
   );
 }
 
@@ -660,9 +704,18 @@ function BatchEditModal({ type, count, storeIds, onClose, onSaved }: { type: Tab
     try { await onSaved(buildPayload()); } catch (e: any) { setError(e.message ?? "Terjadi kesalahan."); } finally { setLoading(false); }
   }
   return (
-    <Modal onClose={onClose} maxW={440}>
-      <MHead eyebrow="Batch Action" title={`Edit ${count} Akun`} onClose={onClose} />
-      <MBody>
+    <ModalFrame
+      onClose={onClose}
+      maxW={440}
+      eyebrow="Batch Action"
+      title={`Edit ${count} Akun`}
+      footer={
+        <>
+          <GcBtn variant="ghost" onClick={onClose} disabled={loading}>Batal</GcBtn>
+          <GcBtn variant="blue" onClick={save} disabled={loading || !hasChanges}>{loading ? "Menyimpan…" : "Terapkan Perubahan"}</GcBtn>
+        </>
+      }
+    >
         <p style={{ fontSize: 13, color: C.tx2, marginBottom: 20, lineHeight: 1.6 }}>Field yang dibiarkan kosong <strong>tidak akan diubah</strong> pada akun yang dipilih.</p>
         {type === "member" ? (
           <><div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -685,9 +738,7 @@ function BatchEditModal({ type, count, storeIds, onClose, onSaved }: { type: Tab
         )}
         {!hasChanges && <p style={{ marginTop: 14, fontSize: 12, color: C.tx3, fontStyle: "italic" }}>Pilih minimal satu field untuk mengaktifkan tombol Terapkan.</p>}
         {error && <ErrorBox message={error} />}
-      </MBody>
-      <MFoot><GcBtn variant="ghost" onClick={onClose} disabled={loading}>Batal</GcBtn><GcBtn variant="blue" onClick={save} disabled={loading || !hasChanges}>{loading ? "Menyimpan…" : "Terapkan Perubahan"}</GcBtn></MFoot>
-    </Modal>
+    </ModalFrame>
   );
 }
 
@@ -726,9 +777,18 @@ function CreateModal({ storeIds, onClose, toast }: { storeIds: string[]; onClose
     } catch (e: any) { setError(e.message ?? "Failed to create account."); } finally { setLoading(false); }
   }
   return (
-    <Modal onClose={onClose}>
-      <MHead eyebrow="New Account" title="Add Account" onClose={onClose} />
-      <MBody>
+    <ModalFrame
+      onClose={onClose}
+      eyebrow="New Account"
+      title="Add Account"
+      footer={
+        <>
+          <p style={{ flex: 1, fontSize: 11.5, color: C.tx3 }}>Kolom <span style={{ color: C.red }}>*</span> wajib diisi</p>
+          <GcBtn variant="ghost" onClick={onClose} disabled={loading}>Batal</GcBtn>
+          <GcBtn variant="blue" onClick={create} disabled={loading || pwMismatch || !storeValid}>{loading ? "Membuat…" : `Buat ${type === "member" ? "Member" : "Staff"}`}</GcBtn>
+        </>
+      }
+    >
         <div style={{ display: "flex", background: C.bg, border: `1.5px solid ${C.border}`, borderRadius: 12, padding: 4, marginBottom: 22 }}>
           {(["member","staff"] as const).map(t => (
             <button key={t} type="button" onClick={() => setType(t)} style={{ flex: 1, height: 36, borderRadius: 9, border: "none", fontFamily: font, fontSize: 13, fontWeight: 600, cursor: "pointer", transition: "all .15s", background: type === t ? C.white : "transparent", color: type === t ? C.tx1 : C.tx3, boxShadow: type === t ? C.shadow : "none" }}>
@@ -751,7 +811,7 @@ function CreateModal({ storeIds, onClose, toast }: { storeIds: string[]; onClose
             <div><FL>Email *</FL><GcInput type="email" placeholder="siti@gongcha.id" value={form.email} onChange={e => set("email", e.target.value)} /></div>
             <div><FL>Role</FL><GcSelect value={form.staffRole} onChange={e => set("staffRole", e.target.value)}><option value="STAFF">Staff</option><option value="SUPER_ADMIN">Super Admin</option></GcSelect></div>
           </div>
-          {storeIds.length > 0 && <><SL>Akses Outlet</SL><div style={{ marginBottom: 22 }}><StoreAccessPicker storeIds={storeIds} selected={assignedStoreId ? [assignedStoreId] : []} accessAll={accessAllStores || form.staffRole === "SUPER_ADMIN"} onChangeSelected={v => setAssignedStoreId(v[0] ?? "")} onChangeAccessAll={v => { setAccessAllStores(v); if (v) setAssignedStoreId(""); }} /></div></>}</>
+          {storeIds.length > 0 && <><SL>Akses Outlet</SL><div style={{ marginBottom: 22 }}><StoreAccessPicker storeIds={storeIds} selected={assignedStoreId ? [assignedStoreId] : []} accessAll={accessAllStores || form.staffRole === "SUPER_ADMIN"} onChangeSelected={v => setAssignedStoreId(v[0] ?? "")} onChangeAccessAll={v => { setAccessAllStores(v); if (v) setAssignedStoreId(""); }} singleSelect /></div></>}</>
         )}
         <SL>Password</SL>
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -763,13 +823,7 @@ function CreateModal({ storeIds, onClose, toast }: { storeIds: string[]; onClose
           </div>
         </div>
         {error && <ErrorBox message={error} />}
-      </MBody>
-      <MFoot>
-        <p style={{ flex: 1, fontSize: 11.5, color: C.tx3 }}>Kolom <span style={{ color: C.red }}>*</span> wajib diisi</p>
-        <GcBtn variant="ghost" onClick={onClose} disabled={loading}>Batal</GcBtn>
-        <GcBtn variant="blue" onClick={create} disabled={loading || pwMismatch || !storeValid}>{loading ? "Membuat…" : `Buat ${type === "member" ? "Member" : "Staff"}`}</GcBtn>
-      </MFoot>
-    </Modal>
+    </ModalFrame>
   );
 }
 
@@ -843,8 +897,43 @@ function StaffRow({ s, isLast, onEdit, checked, onCheck, canManageStaff }: { s: 
   );
 }
 
-function StoreAccessPicker({ storeIds, selected, accessAll, onChangeSelected, onChangeAccessAll }: { storeIds: string[]; selected: string[]; accessAll: boolean; onChangeSelected: (ids: string[]) => void; onChangeAccessAll: (v: boolean) => void; }) {
-  function toggleStore(id: string) { onChangeSelected(selected.includes(id) ? selected.filter(x => x !== id) : [...selected, id]); }
+function StoreAccessPicker({
+  storeIds,
+  selected,
+  accessAll,
+  onChangeSelected,
+  onChangeAccessAll,
+  singleSelect = false,
+}: {
+  storeIds: string[];
+  selected: string[];
+  accessAll: boolean;
+  onChangeSelected: (ids: string[]) => void;
+  onChangeAccessAll: (v: boolean) => void;
+  singleSelect?: boolean;
+}) {
+  const [hint, setHint] = useState("");
+
+  function toggleStore(id: string) {
+    const isSelected = selected.includes(id);
+    if (singleSelect) {
+      if (isSelected) {
+        onChangeSelected([]);
+        setHint("");
+        return;
+      }
+      if (selected.length > 0) {
+        setHint("Hanya 1 toko yang bisa dipilih. Hapus pilihan toko saat ini dulu untuk mengganti.");
+        return;
+      }
+      onChangeSelected([id]);
+      setHint("");
+      return;
+    }
+
+    onChangeSelected(isSelected ? selected.filter(x => x !== id) : [...selected, id]);
+    setHint("");
+  }
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       <div onClick={() => onChangeAccessAll(!accessAll)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", borderRadius: 10, cursor: "pointer", border: `1.5px solid ${accessAll ? C.blue : C.border}`, background: accessAll ? C.blueL : C.bg, transition: "all .15s" }}>
@@ -871,6 +960,16 @@ function StoreAccessPicker({ storeIds, selected, accessAll, onChangeSelected, on
           </div>
         );
       })}
+      {singleSelect && !accessAll && selected.length > 0 && (
+        <p style={{ fontSize: 11.5, color: C.tx3 }}>
+          Staff hanya bisa terhubung ke <strong>1 toko</strong>.
+        </p>
+      )}
+      {hint && (
+        <div style={{ fontSize: 12, color: "#B42318", background: C.redBg, border: "1px solid #FECDD3", borderRadius: 8, padding: "8px 10px" }}>
+          {hint}
+        </div>
+      )}
     </div>
   );
 }
@@ -899,11 +998,22 @@ export default function MembersClient({ initialUsers = [], initialStaff = [], st
   storeIds?: string[];
 }) {
   const { user: authUser } = useAuth();
+  const router = useRouter();
   const canManageStaff = authUser?.role === "SUPER_ADMIN";
+
+  // Redirect staff users to dashboard
+  useEffect(() => {
+    if (authUser && !canManageStaff) {
+      router.replace("/dashboard");
+    }
+  }, [authUser, canManageStaff, router]);
 
   const [users,    setUsers]   = useState(initialUsers);
   const [staff,    setStaff]   = useState(initialStaff);
   const [liveStoreIds, setLiveStoreIds] = useState<string[]>(storeIds);
+  const [usersSync, setUsersSync] = useState<SyncStatus>("connecting");
+  const [staffSync, setStaffSync] = useState<SyncStatus>("connecting");
+  const [storesSync, setStoresSync] = useState<SyncStatus>("connecting");
   const [tab,      setTab]     = useState<TabType>("member");
   const [search,   setSearch]  = useState("");
   const [tierF,    setTierF]   = useState("All");
@@ -924,33 +1034,63 @@ export default function MembersClient({ initialUsers = [], initialStaff = [], st
 
   // 1. Realtime Data Sync
   useEffect(() => {
-    const unsubUsers = onSnapshot(query(collection(db, "users").withConverter(userConverter), orderBy("name")), (snap) => {
-      setUsers(
-        snap.docs.map((d) => {
-          const u = d.data();
-          return {
-            uid: d.id,
-            name: u.name,
-            email: "",
-            phoneNumber: u.phone ?? "",
-            role: "member",
-            tier: (u.tier?.charAt(0) + u.tier?.slice(1).toLowerCase()) as UserTier,
-            currentPoints: Number(u.points ?? 0),
-            lifetimePoints: Number(u.xp ?? 0),
-            vouchers: u.activeVouchers ?? [],
-            joinedDate: "",
-          } as UserWithUid;
-        })
-      );
-    });
-    const unsubStaff = onSnapshot(query(collection(db, "admin_users").withConverter(adminUserConverter), orderBy("name")), (snap) => {
-      setStaff(snap.docs.map(d => d.data() as StaffWithUid));
-    });
-    const unsubStores = onSnapshot(query(collection(db, "stores"), orderBy("name")), (snap) => {
-      setLiveStoreIds(snap.docs.map((d) => d.id));
-    });
+    if (!canManageStaff) {
+      // Staff role does not manage this workspace; avoid unauthorized listeners.
+      setUsersSync("live");
+      setStaffSync("live");
+      setStoresSync("live");
+      return;
+    }
+
+    const unsubUsers = onSnapshot(
+      query(collection(db, "users").withConverter(userConverter), orderBy("name")),
+      (snap) => {
+        setUsers(
+          snap.docs.map((d) => {
+            const u = d.data();
+            return {
+              uid: d.id,
+              name: u.name,
+              email: "",
+              phoneNumber: u.phone ?? "",
+              role: "member",
+              tier: (u.tier?.charAt(0) + u.tier?.slice(1).toLowerCase()) as UserTier,
+              currentPoints: Number(u.points ?? 0),
+              lifetimePoints: Number(u.xp ?? 0),
+              vouchers: u.activeVouchers ?? [],
+              joinedDate: "",
+            } as UserWithUid;
+          })
+        );
+        setUsersSync("live");
+      },
+      (err: any) => setUsersSync(err?.code === "permission-denied" ? "live" : "error")
+    );
+    const unsubStaff = onSnapshot(
+      query(collection(db, "admin_users").withConverter(adminUserConverter), orderBy("name")),
+      (snap) => {
+        setStaff(snap.docs.map(d => d.data() as StaffWithUid));
+        setStaffSync("live");
+      },
+      (err: any) => setStaffSync(err?.code === "permission-denied" ? "live" : "error")
+    );
+    const unsubStores = onSnapshot(
+      query(collection(db, "stores"), orderBy("name")),
+      (snap) => {
+        setLiveStoreIds(snap.docs.map((d) => d.id));
+        setStoresSync("live");
+      },
+      (err: any) => setStoresSync(err?.code === "permission-denied" ? "live" : "error")
+    );
     return () => { unsubUsers(); unsubStaff(); unsubStores(); };
-  }, []);
+  }, [canManageStaff]);
+
+  const overallSyncStatus: SyncStatus =
+    usersSync === "error" || staffSync === "error" || storesSync === "error"
+      ? "error"
+      : usersSync === "live" && staffSync === "live" && storesSync === "live"
+        ? "live"
+        : "connecting";
 
   // 2. Computed Filters
   const fUsers = useMemo(() => { 
@@ -1017,41 +1157,44 @@ export default function MembersClient({ initialUsers = [], initialStaff = [], st
   const stats = useMemo(() => ({ totalMembers: users.length, platinum: users.filter(u => u.tier === "Platinum").length, gold: users.filter(u => u.tier === "Gold").length, activeStaff: staff.filter(s => s.isActive).length }), [users, staff]);
 
   return (
-    <div style={{ padding: "28px 32px", maxWidth: 1400, fontFamily: font, WebkitFontSmoothing: "antialiased", minHeight: "100vh", background: C.bg }}>
+    <GcPage style={{ background: C.bg }}>
       <GlobalStyle />
 
       {/* Header */}
-      <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", marginBottom: 24 }}>
-        <div>
-          <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".12em", textTransform: "uppercase", color: C.tx3, marginBottom: 5 }}>Gong Cha Admin</p>
-          <h1 style={{ fontSize: 28, fontWeight: 800, letterSpacing: "-.025em", color: C.tx1, lineHeight: 1.1 }}>User & Staff Management</h1>
-        </div>
-        <div style={{ display: "flex", gap: 10 }}>
-          <GcBtn variant="ghost" onClick={() => window.location.reload()} >
-            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-            Refresh
-          </GcBtn>
-          {canManageStaff && <GcBtn variant="blue" onClick={() => setShowCreate(true)}>
-            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
-            Add Account
-          </GcBtn>}
-        </div>
-      </div>
+      <GcPageHeader
+        title="User & Staff Management"
+        description="Manage member and staff accounts, outlet access, tiers, points, vouchers, and batch actions from one consistent workspace."
+        actions={
+          <>
+            <div style={{ minWidth: 96, display: "inline-flex", justifyContent: "center" }}>
+              <SyncBadge status={overallSyncStatus} />
+            </div>
+            <GcBtn variant="ghost" onClick={() => window.location.reload()} >
+              <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+              Refresh
+            </GcBtn>
+            {canManageStaff && <GcBtn variant="blue" onClick={() => setShowCreate(true)}>
+              <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+              Add Account
+            </GcBtn>}
+          </>
+        }
+      />
 
       {/* Stats */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 24 }}>
+      <div className="gc-grid-4" style={{ gap: 12, marginBottom: 24 }}>
         {[
           { label: "Total Member", value: stats.totalMembers, color: C.blue,   bg: C.blueL    },
           { label: "Tier Platinum",value: stats.platinum,     color: C.purple, bg: C.purpleBg },
           { label: "Tier Gold",    value: stats.gold,         color: "#92400E",bg: "#FFFBEB"  },
           { label: "Staff Aktif",  value: stats.activeStaff,  color: C.green,  bg: C.greenBg  },
         ].map(s => (
-          <div key={s.label} style={{ background: C.white, borderRadius: 14, border: `1px solid ${C.border}`, padding: "16px 20px", display: "flex", alignItems: "center", gap: 14, boxShadow: C.shadow }}>
+          <GcPanel key={s.label} style={{ borderRadius: 14, padding: "16px 20px", display: "flex", alignItems: "center", gap: 14 }}>
             <div style={{ width: 42, height: 42, borderRadius: 11, background: s.bg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
               <span style={{ fontSize: 20, fontWeight: 800, color: s.color }}>{s.value}</span>
             </div>
             <p style={{ fontSize: 12, fontWeight: 600, color: C.tx3, lineHeight: 1.4 }}>{s.label}</p>
-          </div>
+          </GcPanel>
         ))}
       </div>
 
@@ -1084,8 +1227,9 @@ export default function MembersClient({ initialUsers = [], initialStaff = [], st
       {tab === "member" && !hasSelection && <div style={{ marginBottom: 14 }}><TierFilter value={tierF} onChange={v => { setTierF(v); setSelectedUsers(new Set()); }} /></div>}
 
       {/* Table Container */}
-      <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 18, boxShadow: C.shadow, overflow: "hidden" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: font }}>
+      <GcPanel style={{ borderRadius: 18, overflow: "hidden" }}>
+        <div className="gc-table-wrap">
+        <table style={{ width: "100%", minWidth: 980, borderCollapse: "collapse", fontFamily: font }}>
           <thead><tr style={{ background: "#F8F9FC" }}>
             <th style={{ padding: "11px 20px", textAlign: "left", borderBottom: `1px solid ${C.border2}` }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -1107,7 +1251,8 @@ export default function MembersClient({ initialUsers = [], initialStaff = [], st
             )}
           </tbody>
         </table>
-      </div>
+        </div>
+      </GcPanel>
 
       {/* Modals Rendering */}
       {showBatchEdit && <BatchEditModal type={tab} count={selectedCount} storeIds={liveStoreIds} onClose={() => setShowBatchEdit(false)} onSaved={handleBatchEditSave} />}
@@ -1146,6 +1291,6 @@ export default function MembersClient({ initialUsers = [], initialStaff = [], st
 
       {confirmDialog}
       <ToastContainer toasts={toasts} dismiss={dismiss} />
-    </div>
+    </GcPage>
   );
 }

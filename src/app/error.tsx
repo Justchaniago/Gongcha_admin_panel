@@ -2,8 +2,9 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { GcButton, GcPanel } from "@/components/ui/gc";
 
-const font = "'Plus Jakarta Sans', system-ui, sans-serif";
+const font = "Inter, system-ui, sans-serif";
 
 export default function GlobalError({
   error,
@@ -29,15 +30,12 @@ export default function GlobalError({
       fontFamily: font,
       padding: "24px"
     }}>
-      <div style={{ 
-        background: "#fff", 
+      <GcPanel style={{ 
         padding: "48px", 
         borderRadius: "24px", 
         maxWidth: "460px", 
         width: "100%", 
-        textAlign: "center", 
-        boxShadow: "0 20px 40px rgba(15, 17, 23, 0.05), 0 1px 3px rgba(15, 17, 23, 0.03)",
-        border: "1px solid #EAECF2"
+        textAlign: "center",
       }}>
         
         {/* Ikon Peringatan yang Estetis */}
@@ -65,31 +63,20 @@ export default function GlobalError({
 
         {/* Tombol Solusi / Alur Penyelesaian */}
         <div style={{ display: "flex", gap: "12px", justifyContent: "center" }}>
-          <button 
-            onClick={() => reset()} 
-            style={{ 
-              flex: 1, height: "48px", borderRadius: "14px", border: "1.5px solid #EAECF2", 
-              background: "#fff", color: "#4A5065", fontFamily: font, fontSize: "14px", fontWeight: 700, 
-              cursor: "pointer", transition: "all .2s ease" 
-            }}
-            onMouseOver={(e) => e.currentTarget.style.background = "#F9FAFB"}
-            onMouseOut={(e) => e.currentTarget.style.background = "#fff"}
-          >
+          <GcButton variant="ghost" size="lg" onClick={() => reset()} style={{ flex: 1 }}>
             ↻ Muat Ulang
-          </button>
-          <button 
+          </GcButton>
+          <GcButton 
+            variant="blue"
+            size="lg"
             onClick={() => {
               router.push("/dashboard");
               setTimeout(() => reset(), 500); // Bersihkan error state setelah pindah
-            }} 
-            style={{ 
-              flex: 1, height: "48px", borderRadius: "14px", border: "none", 
-              background: "#4361EE", color: "#fff", fontFamily: font, fontSize: "14px", fontWeight: 700, 
-              cursor: "pointer", boxShadow: "0 8px 16px rgba(67,97,238,.25)", transition: "all .2s ease" 
             }}
+            style={{ flex: 1 }}
           >
             Kembali ke Awal
-          </button>
+          </GcButton>
         </div>
 
         {/* Kode Error untuk Developer (Disembunyikan secara visual agar rapi, tapi bisa dibaca IT) */}
@@ -101,7 +88,7 @@ export default function GlobalError({
             {error.message || "Unknown Rendering/Server Error"}
           </p>
         </div>
-      </div>
+      </GcPanel>
     </div>
   );
 }

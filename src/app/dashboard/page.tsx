@@ -1,8 +1,8 @@
 import DashboardClient from './DashboardClient';
 
 export const metadata = { 
-  title: 'Dashboard | Gong Cha Admin',
-  description: 'Ringkasan data operasional Gong Cha'
+  title: 'Dashboard | Gongcha App Admin',
+  description: 'View and analyze operational data for Gong Cha stores, users, and transactions.'
 };
 
 export default function DashboardPage() {

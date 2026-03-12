@@ -1,4 +1,5 @@
 import * as admin from "firebase-admin";
+import { getFirestore as getAdminFirestore } from "firebase-admin/firestore";
 
 // Singleton — ensure only init once when Next.js server starts
 if (!admin.apps.length) {
@@ -20,5 +21,14 @@ if (!admin.apps.length) {
   });
 }
 
-export const adminDb = admin.firestore();
+const rawFirestoreDatabaseId = process.env.FIRESTORE_DATABASE_ID?.trim();
+const firestoreDatabaseId =
+  rawFirestoreDatabaseId &&
+  rawFirestoreDatabaseId !== "default" &&
+  rawFirestoreDatabaseId !== "(default)"
+    ? rawFirestoreDatabaseId
+    : undefined;
+export const adminDb = firestoreDatabaseId
+  ? getAdminFirestore(admin.app(), firestoreDatabaseId)
+  : getAdminFirestore(admin.app());
 export const adminAuth = admin.auth();

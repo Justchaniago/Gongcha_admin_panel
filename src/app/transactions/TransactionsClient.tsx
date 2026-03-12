@@ -3,13 +3,15 @@
 
 import { useState, useMemo, useEffect, useCallback } from "react";
 import {
-  Tx, C, font, fmtRp, fmtDate, StatusBadge,
+  Tx, TxStatus, C, font, fmtRp, fmtDate, StatusBadge,
   Toast, ConfirmModal, CsvPanel, PendingPanel,
+  getAmount, getReceiptNumber, getStoreLabel, getUserRef,
 } from "./tx-helpers";
+import { GcButton, GcEmptyState, GcPage, GcPageHeader, GcPanel } from "@/components/ui/gc";
 import { useAuth } from "@/context/AuthContext";
 
 type SyncStatus   = "idle"|"loading"|"live"|"error";
-type FilterStatus = "all"|"pending"|"verified"|"rejected";
+type FilterStatus = "all"|TxStatus;
 
 interface TransactionsClientProps {
   initialTransactions?: Tx[];
@@ -56,26 +58,31 @@ export default function TransactionsClient({ initialTransactions = [], initialRo
   useEffect(() => { fetchTxs(); }, [fetchTxs]);
 
   // ── Derived ─────────────────────────────────────────────────────────────────
-  const pending  = useMemo(() => txs.filter(t => t.status === "pending"),  [txs]);
-  const verified = useMemo(() => txs.filter(t => t.status === "verified"), [txs]);
-  const rejected = useMemo(() => txs.filter(t => t.status === "rejected"), [txs]);
-  const totalPendingPts = useMemo(() => pending.reduce((a,t) => a + t.potentialPoints, 0), [pending]);
-  const uniqueStores    = useMemo(() => [...new Set(txs.map(t => t.storeLocation).filter(Boolean))].sort(), [txs]);
+  const pending   = useMemo(() => txs.filter(t => t.status === "PENDING"), [txs]);
+  const completed = useMemo(() => txs.filter(t => t.status === "COMPLETED"), [txs]);
+  const cancelled = useMemo(() => txs.filter(t => t.status === "CANCELLED"), [txs]);
+  const refunded  = useMemo(() => txs.filter(t => t.status === "REFUNDED"), [txs]);
+  const totalPendingPts = useMemo(() => pending.reduce((a, t) => a + (t.potentialPoints ?? 0), 0), [pending]);
+  const uniqueStores = useMemo(
+    () => [...new Set(txs.map((t) => getStoreLabel(t)).filter((value) => value && value !== "-"))].sort(),
+    [txs]
+  );
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
     return txs.filter(tx => {
       const ms = !q ||
         tx.memberName.toLowerCase().includes(q) ||
-        tx.transactionId.toLowerCase().includes(q) ||
-        tx.storeLocation.toLowerCase().includes(q);
+        getReceiptNumber(tx).toLowerCase().includes(q) ||
+        getStoreLabel(tx).toLowerCase().includes(q) ||
+        getUserRef(tx).toLowerCase().includes(q);
       const mf = filterStatus === "all" || tx.status === filterStatus;
       return ms && mf;
     });
   }, [txs, search, filterStatus]);
 
   const filteredDocPaths = useMemo(
-    () => filtered.map((tx) => tx.docPath).filter(Boolean),
+    () => filtered.map((tx) => tx.docPath),
     [filtered]
   );
 
@@ -139,7 +146,7 @@ export default function TransactionsClient({ initialTransactions = [], initialRo
     if (!isAdmin) return;
     setConfirm({
       title: "Delete this transaction?",
-      message: `Transaction ${tx.transactionId || tx.docId} will be permanently deleted. This action cannot be undone.`,
+      message: `Transaction ${getReceiptNumber(tx) || tx.docId} will be permanently deleted. This action cannot be undone.`,
       confirmLabel: "Delete Transaction",
       confirmColor: C.red,
       onConfirm: async () => {
@@ -166,7 +173,7 @@ export default function TransactionsClient({ initialTransactions = [], initialRo
       if (!res.ok) throw new Error(data.message ?? "Failed");
       showToast(
         action === "verify"
-          ? `✓ Verified! +${tx.potentialPoints} pts for ${tx.memberName}`
+          ? `✓ Verified! +${tx.potentialPoints ?? 0} pts for ${tx.memberName}`
           : "Transaction rejected.",
         action === "verify" ? "success" : "error"
       );
@@ -201,7 +208,7 @@ export default function TransactionsClient({ initialTransactions = [], initialRo
   }
 
   // ── CSV match verify (using new /api/transactions/verify endpoint) ────────
-  async function handleMatchVerify(matchedRows: Array<{ tx: Tx; posData: any }>) {
+  async function handleMatchVerify(matchedRows: Array<{ tx: Tx; posData: { receiptNumber: string; amount: number; date: string } }>) {
     if (matchedRows.length === 0) return;
     
     let successCount = 0;
@@ -214,7 +221,7 @@ export default function TransactionsClient({ initialTransactions = [], initialRo
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            transactionId: posData.transactionId,
+            receiptNumber: posData.receiptNumber,
             posAmount: posData.amount,
             posDate: posData.date,
           }),
@@ -223,17 +230,17 @@ export default function TransactionsClient({ initialTransactions = [], initialRo
         const data = await res.json();
         
         if (!res.ok) {
-          errors.push(`${tx.transactionId}: ${data.message ?? "Failed verification"}`);
+          errors.push(`${getReceiptNumber(tx)}: ${data.message ?? "Failed verification"}`);
           continue;
         }
 
-        if (data.status === "verified") {
+        if (data.status === "COMPLETED") {
           successCount++;
-        } else if (data.status === "rejected") {
+        } else if (data.status === "CANCELLED") {
           rejectedCount++;
         }
       } catch (e: any) {
-        errors.push(`${tx.transactionId}: ${e.message}`);
+        errors.push(`${getReceiptNumber(tx)}: ${e.message}`);
       }
     }
 
@@ -248,10 +255,18 @@ export default function TransactionsClient({ initialTransactions = [], initialRo
 
   // ── Export CSV ──────────────────────────────────────────────────────────────
   function handleExport() {
-    const headers = ["docId","transactionId","memberName","storeLocation","amount","potentialPoints","status","createdAt","verifiedAt"];
+    const headers = ["docId", "receiptNumber", "memberName", "userId", "storeName", "totalAmount", "potentialPoints", "status", "createdAt", "verifiedAt"];
     const rows = filtered.map(tx => [
-      tx.docId, tx.transactionId, tx.memberName, tx.storeLocation,
-      tx.amount, tx.potentialPoints, tx.status, tx.createdAt ?? "", tx.verifiedAt ?? "",
+      tx.docId,
+      getReceiptNumber(tx),
+      tx.memberName,
+      getUserRef(tx),
+      getStoreLabel(tx),
+      getAmount(tx),
+      tx.potentialPoints ?? 0,
+      tx.status,
+      tx.createdAt ?? "",
+      tx.verifiedAt ?? "",
     ]);
     const csv  = [headers, ...rows].map(r => r.join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
@@ -286,66 +301,64 @@ export default function TransactionsClient({ initialTransactions = [], initialRo
   }[syncStatus];
 
   const summaryCards = [
-    { label:"Pending",  count:pending.length,  pts:totalPendingPts, bg:"#FEF3C7", color:"#D97706", bdr:"#FDE68A" },
-    { label:"Verified", count:verified.length, pts:null,            bg:"#D1FAE5", color:"#059669", bdr:"#6EE7B7" },
-    { label:"Rejected", count:rejected.length, pts:null,            bg:"#FEE2E2", color:"#DC2626", bdr:"#FCA5A5" },
+    { label:"Pending",  count:pending.length,  pts:totalPendingPts, chipBg:"#FFF7ED", chipColor:"#9A3412", chipBorder:"rgba(154,52,18,.18)" },
+    { label:"Completed", count:completed.length, pts:null,           chipBg:"#F0FDF4", chipColor:"#166534", chipBorder:"rgba(22,101,52,.18)" },
+    { label:"Cancelled", count:cancelled.length, pts:null,           chipBg:"#FEF2F2", chipColor:"#991B1B", chipBorder:"rgba(153,27,27,.18)" },
+    { label:"Refunded",  count:refunded.length,  pts:null,           chipBg:"#F8FAFC", chipColor:"#334155", chipBorder:"rgba(51,65,85,.15)" },
   ];
 
   const filterTabs: { key: FilterStatus; label: string }[] = [
     { key:"all",      label:`All (${txs.length})` },
-    { key:"pending",  label:`Pending (${pending.length})` },
-    { key:"verified", label:`Verified (${verified.length})` },
-    { key:"rejected", label:`Rejected (${rejected.length})` },
+    { key:"PENDING",   label:`Pending (${pending.length})` },
+    { key:"COMPLETED", label:`Completed (${completed.length})` },
+    { key:"CANCELLED", label:`Cancelled (${cancelled.length})` },
+    { key:"REFUNDED",  label:`Refunded (${refunded.length})` },
   ];
 
   return (
     <>
-      <div style={{ padding:"28px 32px 48px", maxWidth:1400, fontFamily:font, background:C.bg, minHeight:"100vh" }}>
+      <GcPage style={{ background: C.bg }}>
 
         {/* ── Header ── */}
-        <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:24 }}>
-          <div>
-            <h1 style={{ fontSize:26, fontWeight:800, color:C.tx1, margin:0, letterSpacing:"-.025em" }}>
-              Transaction Audit &amp; CSV Sync
-            </h1>
-            <p style={{ fontSize:13, color:C.tx2, marginTop:8, marginBottom:0 }}>
-              Upload CSV POS → Auto-match → Verify → Disburse points to members.
-            </p>
-          </div>
-          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-            <span style={{ display:"inline-flex", alignItems:"center", gap:6, fontSize:11, fontWeight:700, color:syncCfg.color }}>
-              <span style={{ width:7, height:7, borderRadius:"50%", background:syncCfg.color, display:"inline-block" }}/>
-              {syncCfg.label}
-            </span>
-            <button onClick={fetchTxs} style={{ height:38, padding:"0 14px", borderRadius:7, border:`1px solid ${C.border}`, background:C.white, color:C.tx2, fontFamily:font, fontSize:12, fontWeight:700, cursor:"pointer", transition:"all 150ms ease" }}>
-              ↻ Refresh
-            </button>
-            <button onClick={handleExport} style={{ height:38, padding:"0 14px", borderRadius:7, border:`1px solid ${C.border}`, background:C.white, color:C.tx2, fontFamily:font, fontSize:12, fontWeight:700, cursor:"pointer", transition:"all 150ms ease" }}>
-              ⬇ Export CSV
-            </button>
-          </div>
-        </div>
+        <GcPageHeader
+          title="Transaction Audit & CSV Sync"
+          description="Upload POS CSV files, reconcile receipts, then verify transactions and member point distribution in one unified workflow."
+          actions={
+            <>
+              <span style={{ minWidth: 96, display: "inline-flex", justifyContent: "center", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 700, color: syncCfg.color }}>
+                <span style={{ width: 7, height: 7, borderRadius: "50%", background: syncCfg.color, display: "inline-block" }} />
+                {syncCfg.label}
+              </span>
+              <GcButton variant="ghost" onClick={fetchTxs}>
+                Refresh
+              </GcButton>
+              <GcButton variant="blue" onClick={handleExport}>
+                Export CSV
+              </GcButton>
+            </>
+          }
+        />
 
         {/* ── Summary cards ── */}
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:14, marginBottom:24 }}>
+        <div className="gc-grid-4" style={{ marginBottom:24 }}>
           {summaryCards.map(c => (
-            <div key={c.label} style={{ background:C.white, borderRadius:16, border:`1px solid ${c.bdr}`, boxShadow:C.shadow, padding:"16px 20px" }}>
+            <GcPanel key={c.label} style={{ borderRadius:16, border:'1px solid rgba(15,17,23,.08)', boxShadow:'0 1px 2px rgba(15,17,23,.04)', padding:"16px 20px", background:'rgba(255,255,255,.86)' }}>
               <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
-                <p style={{ fontSize:12, fontWeight:600, color:C.tx2, margin:0 }}>{c.label}</p>
-                <span style={{ fontSize:10, fontWeight:700, padding:"2px 8px", borderRadius:99, background:c.bg, color:c.color }}>{c.label}</span>
+                <p style={{ fontSize:11, letterSpacing:'.04em', textTransform:'uppercase', fontWeight:600, color:C.tx3, margin:0 }}>{c.label}</p>
+                <span style={{ fontSize:10, fontWeight:700, padding:"2px 8px", borderRadius:99, background:c.chipBg, color:c.chipColor, border:`1px solid ${c.chipBorder}` }}>{c.label}</span>
               </div>
-              <p style={{ fontSize:32, fontWeight:800, color:c.color, margin:0, lineHeight:1 }}>{c.count}</p>
+              <p style={{ fontSize:31, fontWeight:700, color:C.tx1, margin:0, lineHeight:1 }}>{c.count}</p>
               {c.pts !== null && (
                 <p style={{ fontSize:11, color:C.tx3, marginTop:6, marginBottom:0 }}>
                   {c.pts.toLocaleString("id")} pts on hold
                 </p>
               )}
-            </div>
+            </GcPanel>
           ))}
         </div>
 
         {/* ── CSV + Pending row ── */}
-        <div style={{ display:"grid", gridTemplateColumns:"2fr 3fr", gap:14, marginBottom:16 }}>
+        <div className="gc-grid-split" style={{ marginBottom:16 }}>
           <CsvPanel
             pendingTxs={pending}
             stores={uniqueStores}
@@ -362,10 +375,10 @@ export default function TransactionsClient({ initialTransactions = [], initialRo
         </div>
 
         {/* ── Full history table ── */}
-        <div style={{ background:C.white, borderRadius:18, border:`1px solid ${C.border}`, boxShadow:C.shadow, overflow:"hidden" }}>
+        <GcPanel style={{ borderRadius:18, overflow:"hidden" }}>
 
           {/* Table toolbar */}
-          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"14px 20px", borderBottom:`1px solid ${C.border2}` }}>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"14px 20px", borderBottom:`1px solid ${C.border2}`, background:'rgba(255,255,255,.72)', backdropFilter:'saturate(160%) blur(8px)' }}>
             <h2 style={{ fontSize:15, fontWeight:800, color:C.tx1, margin:0 }}>
               Complete History ({filtered.length})
             </h2>
@@ -375,27 +388,17 @@ export default function TransactionsClient({ initialTransactions = [], initialRo
                   <span style={{ fontSize:12, color:C.tx2 }}>
                     {selectedDocPaths.length} selected
                   </span>
-                  <button
+                  <GcButton
+                    variant="danger"
+                    size="sm"
                     onClick={handleDeleteSelected}
-                    style={{
-                      height:32,
-                      padding:"0 12px",
-                      borderRadius:7,
-                      border:"1px solid #FCA5A5",
-                      background:"#FFF5F5",
-                      color:C.red,
-                      fontFamily:font,
-                      fontSize:11,
-                      fontWeight:700,
-                      cursor:"pointer",
-                    }}
                   >
                     🗑 Delete Selected
-                  </button>
+                  </GcButton>
                 </>
               )}
               {/* Search */}
-              <div style={{ display:"flex", alignItems:"center", gap:8, height:38, padding:"0 12px", background:C.bg, border:`1.5px solid ${searchFocus?C.blue:C.border}`, borderRadius:9, transition:"all .14s", minWidth:220 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:8, height:38, padding:"0 12px", background:C.white, border:`1px solid ${searchFocus?'rgba(59,130,246,.48)':'rgba(15,17,23,.10)'}`, borderRadius:9, boxShadow:searchFocus?'0 0 0 3px rgba(59,130,246,.10)':'none', transition:"all .14s", minWidth:220 }}>
                 <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke={C.tx3} strokeWidth={2}>
                   <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
                 </svg>
@@ -415,7 +418,7 @@ export default function TransactionsClient({ initialTransactions = [], initialRo
           </div>
 
           {/* Filter tabs */}
-          <div style={{ display:"flex", gap:0, padding:"0 20px", borderBottom:`1px solid ${C.border2}`, background:C.white }}>
+          <div style={{ display:"flex", gap:0, padding:"0 20px", borderBottom:`1px solid ${C.border2}`, background:'#FCFDFF' }}>
             {filterTabs.map(tab => (
               <button
                 key={tab.key}
@@ -423,8 +426,8 @@ export default function TransactionsClient({ initialTransactions = [], initialRo
                 style={{
                   height:38, padding:"0 16px", border:"none", background:"transparent",
                   fontFamily:font, fontSize:12.5, fontWeight:filterStatus===tab.key?700:500,
-                  color:filterStatus===tab.key?C.blue:C.tx2, cursor:"pointer",
-                  borderBottom:filterStatus===tab.key?`2px solid ${C.blue}`:"2px solid transparent",
+                  color:filterStatus===tab.key?C.tx1:C.tx2, cursor:"pointer",
+                  borderBottom:filterStatus===tab.key?'2px solid rgba(15,17,23,.75)':"2px solid transparent",
                   transition:"all .14s",
                 }}
               >
@@ -435,17 +438,15 @@ export default function TransactionsClient({ initialTransactions = [], initialRo
 
           {/* Table */}
           {filtered.length === 0 ? (
-            <div style={{ padding:"64px 16px", textAlign:"center" }}>
-              <p style={{ fontSize:32, marginBottom:8 }}>📭</p>
-              <p style={{ fontSize:14, fontWeight:700, color:C.tx1 }}>No transactions</p>
-              <p style={{ fontSize:12.5, color:C.tx3, marginTop:4 }}>
-                {search ? `No results for "${search}"` : "No transaction data yet."}
-              </p>
-            </div>
+            <GcEmptyState
+              icon="📭"
+              title="No transactions"
+              description={search ? `No results for "${search}"` : "No transaction data yet."}
+            />
           ) : (
             <div style={{ overflowX:"auto" }}>
               <table style={{ width:"100%", borderCollapse:"collapse" }}>
-                <thead style={{ background:C.bg }}>
+                <thead style={{ background:'#FAFBFE' }}>
                   <tr>
                     {[
                       isAdmin ? "Select" : null,
@@ -467,7 +468,7 @@ export default function TransactionsClient({ initialTransactions = [], initialRo
                 <tbody>
                   {filtered.map(tx => (
                     <tr key={tx.docId} style={{ borderTop:`1px solid ${C.border2}`, transition:"background .12s" }}
-                      onMouseEnter={e => (e.currentTarget.style.background="#F8FAFF")}
+                      onMouseEnter={e => (e.currentTarget.style.background="#FAFBFD")}
                       onMouseLeave={e => (e.currentTarget.style.background="transparent")}
                     >
                       {isAdmin && (
@@ -476,68 +477,72 @@ export default function TransactionsClient({ initialTransactions = [], initialRo
                             type="checkbox"
                             checked={selectedDocPaths.includes(tx.docPath)}
                             onChange={(e) => toggleSelectOne(tx.docPath, e.target.checked)}
-                            aria-label={`Select ${tx.transactionId || tx.docId}`}
+                            aria-label={`Select ${getReceiptNumber(tx) || tx.docId}`}
                           />
                         </td>
                       )}
                       <td style={{ padding:"12px 16px" }}>
-                        <code style={{ fontSize:10, fontFamily:"monospace", color:C.blue, background:C.blueL, padding:"2px 7px", borderRadius:5 }}>
-                          {tx.transactionId || "—"}
+                        <code style={{ fontSize:10, fontFamily:"monospace", color:'#334155', background:'#EEF2F7', border:'1px solid rgba(51,65,85,.14)', padding:"2px 7px", borderRadius:6 }}>
+                          {getReceiptNumber(tx) || "—"}
                         </code>
                       </td>
                       <td style={{ padding:"12px 16px" }}>
                         <p style={{ fontSize:13, fontWeight:600, color:C.tx1, margin:0 }}>{tx.memberName}</p>
-                        <p style={{ fontSize:10.5, color:C.tx3, margin:0, marginTop:2 }}>{tx.memberId}</p>
+                        <p style={{ fontSize:10.5, color:C.tx3, margin:0, marginTop:2 }}>{getUserRef(tx) || "-"}</p>
                       </td>
-                      <td style={{ padding:"12px 16px", fontSize:12.5, color:C.tx2, whiteSpace:"nowrap" }}>{tx.storeLocation}</td>
+                      <td style={{ padding:"12px 16px", fontSize:12.5, color:C.tx2, whiteSpace:"nowrap" }}>{getStoreLabel(tx)}</td>
                       <td style={{ padding:"12px 16px", fontSize:12, color:C.tx2, whiteSpace:"nowrap" }}>{fmtDate(tx.createdAt)}</td>
-                      <td style={{ padding:"12px 16px", fontSize:13, fontWeight:700, color:C.tx1, whiteSpace:"nowrap" }}>{fmtRp(tx.amount)}</td>
+                      <td style={{ padding:"12px 16px", fontSize:13, fontWeight:700, color:C.tx1, whiteSpace:"nowrap" }}>{fmtRp(getAmount(tx))}</td>
                       <td style={{ padding:"12px 16px" }}>
-                        <span style={{ fontSize:12, fontWeight:700, color:C.blue }}>{tx.potentialPoints} pts</span>
+                        <span style={{ fontSize:12, fontWeight:700, color:C.blue }}>{tx.potentialPoints ?? 0} pts</span>
                       </td>
                       <td style={{ padding:"12px 16px" }}>
                         <StatusBadge status={tx.status}/>
                       </td>
                       <td style={{ padding:"12px 16px" }}>
-                        {tx.status === "pending" && (
+                        {tx.status === "PENDING" && (
                           <div style={{ display:"flex", gap:6 }}>
-                            <button
+                            <GcButton
+                              variant="primary"
+                              size="sm"
                               onClick={() => handleAction(tx, "verify")}
                               disabled={loadingId === tx.docId}
-                              style={{ height:28, padding:"0 10px", borderRadius:7, border:"1px solid #A7F3D0", background:C.greenBg, color:C.green, fontFamily:font, fontSize:11, fontWeight:700, cursor:loadingId===tx.docId?"not-allowed":"pointer" }}
                             >
                               {loadingId === tx.docId ? "…" : "✓ Verifikasi"}
-                            </button>
-                            <button
+                            </GcButton>
+                            <GcButton
+                              variant="danger"
+                              size="sm"
                               onClick={() => handleAction(tx, "reject")}
                               disabled={loadingId === tx.docId}
-                              style={{ height:28, padding:"0 10px", borderRadius:7, border:"1px solid #FCA5A5", background:"#FFF5F5", color:C.red, fontFamily:font, fontSize:11, fontWeight:700, cursor:loadingId===tx.docId?"not-allowed":"pointer" }}
                             >
                               ✕ Tolak
-                            </button>
+                            </GcButton>
                             {isAdmin && (
-                              <button
+                              <GcButton
                                 onClick={() => handleDeleteSingle(tx)}
                                 disabled={loadingId === tx.docId}
-                                style={{ height:28, padding:"0 10px", borderRadius:7, border:"1px solid #FCA5A5", background:"#FFF5F5", color:C.red, fontFamily:font, fontSize:11, fontWeight:700, cursor:loadingId===tx.docId?"not-allowed":"pointer" }}
+                                variant="ghost"
+                                size="sm"
                               >
                                 🗑 Delete
-                              </button>
+                              </GcButton>
                             )}
                           </div>
                         )}
-                        {tx.status !== "pending" && (
+                        {tx.status !== "PENDING" && (
                           <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                             <span style={{ fontSize:11, color:C.tx3 }}>
                               {fmtDate(tx.verifiedAt)}
                             </span>
                             {isAdmin && (
-                              <button
+                              <GcButton
                                 onClick={() => handleDeleteSingle(tx)}
-                                style={{ height:26, padding:"0 10px", borderRadius:7, border:"1px solid #FCA5A5", background:"#FFF5F5", color:C.red, fontFamily:font, fontSize:11, fontWeight:700, cursor:"pointer" }}
+                                variant="ghost"
+                                size="sm"
                               >
                                 🗑 Delete
-                              </button>
+                              </GcButton>
                             )}
                           </div>
                         )}
@@ -548,8 +553,8 @@ export default function TransactionsClient({ initialTransactions = [], initialRo
               </table>
             </div>
           )}
-        </div>
-      </div>
+        </GcPanel>
+      </GcPage>
 
       {/* ── Toast ── */}
       {toast && <Toast msg={toast.msg} type={toast.type} onDone={() => setToast(null)}/>}
