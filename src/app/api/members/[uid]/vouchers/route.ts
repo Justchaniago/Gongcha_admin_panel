@@ -28,7 +28,6 @@ async function validateSession() {
 export async function POST(req: NextRequest, { params }: { params: Promise<{ uid: string }> }) {
   const awaitedParams = await params;
   const { uid } = awaitedParams;
-  
   if (!uid) {
     return NextResponse.json({ message: "UID diperlukan." }, { status: 400 });
   }
@@ -40,25 +39,30 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ uid
 
   try {
     const body = await req.json();
-    const { rewardId, title, code, expiresAt } = body;
-    
-    if (!rewardId || !title || !code || !expiresAt) {
-      return NextResponse.json({ message: "Semua field wajib diisi." }, { status: 400 });
+    const { rewardId } = body;
+    if (!rewardId) {
+      return NextResponse.json({ message: "rewardId wajib diisi." }, { status: 400 });
     }
-    
-    // FIX: Bypass TypeScript dengan 'as UserVoucher' dan penuhi field yang wajib
-    // Memakai admin.firestore.Timestamp agar tidak perlu import baru
+
+    // 🔥 AMBIL DATA DARI rewards_catalog
+    const rewardSnap = await adminDb.collection("rewards_catalog").doc(rewardId).get();
+    if (!rewardSnap.exists) throw new Error("Voucher tidak ditemukan di katalog.");
+    const rewardData = rewardSnap.data()!;
+
+    // Buat objek voucher baru untuk disuntikkan ke field 'vouchers' milik user
+    const expiresAt = new Date(Date.now() + (rewardData.expiryDays || 30) * 24 * 60 * 60 * 1000).toISOString();
+    const code = `GC-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
     const voucher: UserVoucher = {
       id: uuidv4(),
-      title,
+      rewardId: rewardSnap.id,
+      title: rewardData.title,
       code,
       expiry: admin.firestore.Timestamp.fromDate(new Date(expiresAt)) as any,
-      rewardId,
       isUsed: false,
       expiresAt,
       type: "personal",
     };
-    
+
     const userRef = adminDb.collection("users").doc(uid);
     await userRef.update({ vouchers: admin.firestore.FieldValue.arrayUnion(voucher) });
 
@@ -75,7 +79,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ uid
     } catch { /* ignore */ }
 
     const notificationTitle = "🎁 Voucher Baru Untukmu!";
-    const notificationBody = `Voucher "${title}" (${code}) telah ditambahkan ke akun kamu. Berlaku hingga ${new Date(expiresAt).toLocaleDateString("id-ID")}.`;
+    const notificationBody = `Voucher \"${rewardData.title}\" (${code}) telah ditambahkan ke akun kamu. Berlaku hingga ${new Date(expiresAt).toLocaleDateString("id-ID")}.`;
 
     const adminLog: AdminNotificationLog = {
       type:           "voucher_injected",

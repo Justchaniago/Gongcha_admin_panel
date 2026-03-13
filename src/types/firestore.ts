@@ -96,16 +96,25 @@ export const userConverter: FirestoreDataConverter<User> = {
   },
   fromFirestore(snapshot: QueryDocumentSnapshot, options: SnapshotOptions): User {
     const data = snapshot.data(options)!;
+    // 🔥 PERBAIKAN: Pastikan semua field dipetakan dari database
     return {
       uid: snapshot.id,
-      name: data.name,
-      phone: data.phone,
-      dob: data.dob,
-      points: data.points || 0,
-      xp: data.xp || 0,
-      tier: data.tier as UserTier,
-      activeVouchers: data.activeVouchers || [],
+      name: data.name || data.fullName || "Member",
+      email: data.email || "",
+      phoneNumber: data.phoneNumber || data.phone || "",
+      photoURL: data.photoURL || "",
+      points: data.currentPoints || data.points || 0,
+      xp: data.lifetimePoints || data.xp || 0,
+      tier: (data.tier || "Silver") as UserTier,
+      vouchers: data.vouchers || data.activeVouchers || [],
+      joinedDate: data.joinedDate || data.joinDate || "",
+      currentPoints: data.currentPoints || data.points || 0,
+      lifetimePoints: data.lifetimePoints || data.xp || 0,
+      role: data.role || "member",
+      // Field lain tetap diambil dari hasil Firestore
       fcmTokens: data.fcmTokens || [],
+      dob: data.dob || "",
+      xpHistory: data.xpHistory || [],
     };
   }
 };
@@ -216,6 +225,7 @@ export const productConverter: FirestoreDataConverter<Product> = {
       category: data.category,
       basePrice: data.basePrice,
       imageUrl: data.imageUrl,
+      description: data.description || "", // 🔥 MAPPING DESKRIPSI
       isLargeAvailable: data.isLargeAvailable,
       isHotAvailable: data.isHotAvailable,
       isAvailable: data.isAvailable,

@@ -85,7 +85,16 @@ export function FL({ children }: { children: React.ReactNode }) {
   return <label style={{ display: "block", marginBottom: 6, fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: C.tx3 }}>{children}</label>;
 }
 
-function Avatar({ name, size = 36 }: { name?: string; size?: number }) {
+function Avatar({ name, src, size = 36 }: { name?: string; src?: string; size?: number }) {
+  if (src) {
+    return (
+      <img 
+        src={src} 
+        alt={name} 
+        style={{ width: size, height: size, borderRadius: size < 40 ? 10 : 14, objectFit: "cover", flexShrink: 0 }} 
+      />
+    );
+  }
   const char = (name ?? "?")[0].toUpperCase();
   const code = (name ?? "A").charCodeAt(0);
   const g = [["#3B82F6","#2563EB"],["#7C3AED","#3B82F6"],["#059669","#0D9488"],["#D97706","#B45309"],["#DC2626","#B91C1C"]];
@@ -415,6 +424,7 @@ function MemberDetailModal({
   const tier = TIER_CFG[user.tier] ?? TIER_CFG.Silver;
   const [localUser, setLocalUser] = useState(user);
   const [showEditPoints, setShowEditPoints] = useState(false);
+  const [showPhotoPreview, setShowPhotoPreview] = useState(false);
 
   function handleDelete() {
     confirm({
@@ -444,50 +454,91 @@ function MemberDetailModal({
           </>
         }
       >
-          <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "16px 18px", background: C.bg, borderRadius: 14, border: `1px solid ${C.border}`, marginBottom: 20 }}>
-            <Avatar name={localUser.name} size={52} />
-            <div style={{ flex: 1 }}>
-              <p style={{ fontSize: 16, fontWeight: 700, color: C.tx1, marginBottom: 3 }}>{localUser.name}</p>
-              <p style={{ fontSize: 12.5, color: C.tx3, marginBottom: 2 }}>{localUser.email}</p>
-              <p style={{ fontSize: 12.5, color: C.tx3 }}>{localUser.phoneNumber}</p>
+        {/* Foto profil dengan preview */}
+        <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "16px 18px", background: C.bg, borderRadius: 14, border: `1px solid ${C.border}`, marginBottom: 20 }}>
+          <div style={{ position: "relative" }}>
+            <div style={{ cursor: localUser.photoURL ? "pointer" : "default" }} onClick={() => localUser.photoURL && setShowPhotoPreview(true)}>
+              <Avatar name={localUser.name} src={localUser.photoURL} size={52} />
             </div>
-            <span style={{ padding: "5px 12px", borderRadius: 99, fontSize: 11, fontWeight: 700, background: tier.bg, color: tier.color, border: `1.5px solid ${tier.ring}` }}>{localUser.tier}</span>
           </div>
-
-          <div style={{ marginBottom: 20 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10, marginBottom: 10 }}>
-              {[
-                { label: "Poin Aktif",  value: (localUser.currentPoints  ?? 0).toLocaleString("id"), color: C.blue   },
-                { label: "Lifetime XP", value: (localUser.lifetimePoints ?? 0).toLocaleString("id"), color: C.purple },
-                { label: "Voucher",     value: String(localUser.vouchers?.length ?? 0),               color: C.green  },
-              ].map(s => (
-                <div key={s.label} style={{ textAlign: "center", padding: "14px 10px", background: C.bg, border: `1px solid ${C.border2}`, borderRadius: 12 }}>
-                  <p style={{ fontSize: 22, fontWeight: 800, color: s.color, lineHeight: 1, marginBottom: 5 }}>{s.value}</p>
-                  <p style={{ fontSize: 10.5, color: C.tx3, fontWeight: 600, letterSpacing: ".05em", textTransform: "uppercase" }}>{s.label}</p>
-                </div>
-              ))}
-            </div>
-
-            <button type="button" onClick={() => setShowEditPoints(true)}
-              style={{ width: "100%", height: 34, borderRadius: 8, border: `1.5px dashed ${C.blue}`, background: C.blueL, color: C.blue, fontFamily: font, fontSize: 12.5, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, transition: "all .13s" }}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-              Edit Points & Lifetime XP
-            </button>
+          <div style={{ flex: 1 }}>
+            <p style={{ fontSize: 16, fontWeight: 700, color: C.tx1, marginBottom: 3 }}>{localUser.name}</p>
+            <p style={{ fontSize: 12.5, color: C.tx3, marginBottom: 2 }}>{localUser.email}</p>
+            <p style={{ fontSize: 12.5, color: C.tx3 }}>{localUser.phoneNumber}</p>
           </div>
+          <span style={{ padding: "5px 12px", borderRadius: 99, fontSize: 11, fontWeight: 700, background: tier.bg, color: tier.color, border: `1.5px solid ${tier.ring}` }}>{localUser.tier}</span>
+        </div>
 
-          <SL>Informasi Akun</SL>
-          <div style={{ marginBottom: 20 }}>
+        {/* Preview foto besar */}
+        {showPhotoPreview && localUser.photoURL && (
+          <div style={{ position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh", background: "rgba(0,0,0,0.5)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setShowPhotoPreview(false)}>
+            <img src={localUser.photoURL} alt={localUser.name} style={{ maxWidth: 420, maxHeight: 420, borderRadius: 18, boxShadow: "0 8px 32px rgba(0,0,0,.18)" }} />
+          </div>
+        )}
+
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10, marginBottom: 10 }}>
             {[
-              { label: "UID",       value: <code style={{ fontSize: 11, background: C.blueL, padding: "2px 8px", borderRadius: 6, color: C.blue }}>{localUser.uid}</code> },
-              { label: "Role",      value: localUser.role },
-              { label: "Bergabung", value: localUser.joinedDate ? new Date(localUser.joinedDate).toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" }) : "—" },
-            ].map((r, i) => (
-              <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderBottom: `1px solid ${C.border2}` }}>
-                <span style={{ fontSize: 12.5, color: C.tx3, fontWeight: 500 }}>{r.label}</span>
-                <span style={{ fontSize: 12.5, color: C.tx1, fontWeight: 600 }}>{r.value}</span>
+              { label: "Poin Aktif",  value: (localUser.currentPoints  ?? 0).toLocaleString("id"), color: C.blue   },
+              { label: "Lifetime XP", value: (localUser.lifetimePoints ?? 0).toLocaleString("id"), color: C.purple },
+              { label: "Voucher",     value: String(localUser.vouchers?.length ?? 0),               color: C.green  },
+            ].map(s => (
+              <div key={s.label} style={{ textAlign: "center", padding: "14px 10px", background: C.bg, border: `1px solid ${C.border2}`, borderRadius: 12 }}>
+                <p style={{ fontSize: 22, fontWeight: 800, color: s.color, lineHeight: 1, marginBottom: 5 }}>{s.value}</p>
+                <p style={{ fontSize: 10.5, color: C.tx3, fontWeight: 600, letterSpacing: ".05em", textTransform: "uppercase" }}>{s.label}</p>
               </div>
             ))}
           </div>
+
+          <button type="button" onClick={() => setShowEditPoints(true)}
+            style={{ width: "100%", height: 34, borderRadius: 8, border: `1.5px dashed ${C.blue}`, background: C.blueL, color: C.blue, fontFamily: font, fontSize: 12.5, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, transition: "all .13s" }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            Edit Points & Lifetime XP
+          </button>
+        </div>
+
+        <SL>Informasi Akun</SL>
+        <div style={{ marginBottom: 20 }}>
+          {[
+            { label: "UID",       value: <code style={{ fontSize: 11, background: C.blueL, padding: "2px 8px", borderRadius: 6, color: C.blue }}>{localUser.uid}</code> },
+            { label: "Role",      value: localUser.role },
+            { label: "Bergabung", value: localUser.joinedDate ? new Date(localUser.joinedDate).toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" }) : "—" },
+          ].map((r, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderBottom: `1px solid ${C.border2}` }}>
+              <span style={{ fontSize: 12.5, color: C.tx3, fontWeight: 500 }}>{r.label}</span>
+              <span style={{ fontSize: 12.5, color: C.tx1, fontWeight: 600 }}>{r.value}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Detail voucher member */}
+        <SL>Voucher Member</SL>
+        <div style={{ marginBottom: 20 }}>
+          {(localUser.vouchers && localUser.vouchers.length > 0) ? (
+            <table style={{ width: "100%", fontSize: 12.5, borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ background: C.bg, color: C.tx3 }}>
+                  <th style={{ padding: "8px 10px", textAlign: "left" }}>Kode</th>
+                  <th style={{ padding: "8px 10px", textAlign: "left" }}>Judul</th>
+                  <th style={{ padding: "8px 10px", textAlign: "left" }}>Status</th>
+                  <th style={{ padding: "8px 10px", textAlign: "left" }}>Expiry</th>
+                </tr>
+              </thead>
+              <tbody>
+                {localUser.vouchers.map((v, idx) => (
+                  <tr key={v.id || idx} style={{ borderBottom: `1px solid ${C.border2}` }}>
+                    <td style={{ padding: "8px 10px" }}>{v.code}</td>
+                    <td style={{ padding: "8px 10px" }}>{v.title}</td>
+                    <td style={{ padding: "8px 10px" }}>{v.isUsed ? "Digunakan" : "Aktif"}</td>
+                    <td style={{ padding: "8px 10px" }}>{v.expiresAt ? new Date(v.expiresAt).toLocaleDateString("id-ID") : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <div style={{ color: C.tx3, fontSize: 12, padding: "10px 0" }}>Member belum memiliki voucher.</div>
+          )}
+        </div>
       </ModalFrame>
 
       {showEditPoints && (
@@ -662,8 +713,8 @@ function EditStaffModal({ staff, storeIds, onClose, onSaved, toast }: {
             selected={form.assignedStoreId ? [form.assignedStoreId] : []}
             accessAll={form.role === "SUPER_ADMIN"}
             onChangeSelected={v => setForm(p => ({ ...p, assignedStoreId: v[0] ?? "" }))}
-            onChangeAccessAll={v => setForm(p => ({ ...p, role: v ? "SUPER_ADMIN" : "STAFF", assignedStoreId: v ? "" : p.assignedStoreId }))}
-            singleSelect
+            onChangeAccessAll={v => { setForm(p => ({ ...p, role: v ? "SUPER_ADMIN" : "STAFF", assignedStoreId: v ? "" : p.assignedStoreId })); }}
+            singleSelect={true}
           />
         </div>
         <SL>Status Akun</SL>
@@ -837,7 +888,7 @@ function UserRow({ u, isLast, onDetail, onEdit, checked, onCheck }: { u: UserWit
       <td style={{ padding: "14px 20px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <input type="checkbox" checked={checked} onChange={e => onCheck(e.target.checked)} onClick={e => e.stopPropagation()} style={{ width: 16, height: 16, cursor: "pointer", accentColor: C.blue, flexShrink: 0 }} />
-          <Avatar name={u.name} size={36} />
+          <Avatar name={u.name} src={u.photoURL} size={36} />
           <div>
             <p style={{ fontSize: 13.5, fontWeight: 700, color: C.tx1, marginBottom: 2 }}>{u.name}</p>
             <code style={{ fontSize: 10.5, color: C.tx3, background: C.bg, padding: "1px 6px", borderRadius: 5, border: `1px solid ${C.border2}` }}>{u.uid.slice(0, 12)}…</code>
@@ -1042,47 +1093,52 @@ export default function MembersClient({ initialUsers = [], initialStaff = [], st
       return;
     }
 
+    // ...existing code...
     const unsubUsers = onSnapshot(
       query(collection(db, "users").withConverter(userConverter), orderBy("name")),
       (snap) => {
+        console.log("[SYNC] users snapshot received", snap.size);
         setUsers(
           snap.docs.map((d) => {
             const u = d.data();
             return {
+              ...u,
               uid: d.id,
-              name: u.name,
-              email: "",
-              phoneNumber: u.phone ?? "",
-              role: "member",
-              tier: (u.tier?.charAt(0) + u.tier?.slice(1).toLowerCase()) as UserTier,
-              currentPoints: Number(u.points ?? 0),
-              lifetimePoints: Number(u.xp ?? 0),
-              vouchers: u.activeVouchers ?? [],
-              joinedDate: "",
+              tier: (u.tier?.charAt(0).toUpperCase() + u.tier?.slice(1).toLowerCase()) as UserTier,
             } as UserWithUid;
           })
         );
         setUsersSync("live");
       },
-      (err: any) => setUsersSync(err?.code === "permission-denied" ? "live" : "error")
+      (err: any) => {
+        console.error("[SYNC ERROR] users", err);
+        setUsersSync(err?.code === "permission-denied" ? "live" : "error");
+      }
     );
     const unsubStaff = onSnapshot(
       query(collection(db, "admin_users").withConverter(adminUserConverter), orderBy("name")),
       (snap) => {
+        console.log("[SYNC] staff snapshot received", snap.size);
         setStaff(snap.docs.map(d => d.data() as StaffWithUid));
         setStaffSync("live");
       },
-      (err: any) => setStaffSync(err?.code === "permission-denied" ? "live" : "error")
+      (err: any) => {
+        console.error("[SYNC ERROR] staff", err);
+        setStaffSync(err?.code === "permission-denied" ? "live" : "error");
+      }
     );
     const unsubStores = onSnapshot(
       query(collection(db, "stores"), orderBy("name")),
       (snap) => {
+        console.log("[SYNC] stores snapshot received", snap.size);
         setLiveStoreIds(snap.docs.map((d) => d.id));
         setStoresSync("live");
       },
-      (err: any) => setStoresSync(err?.code === "permission-denied" ? "live" : "error")
+      (err: any) => {
+        console.error("[SYNC ERROR] stores", err);
+        setStoresSync(err?.code === "permission-denied" ? "live" : "error");
+      }
     );
-    return () => { unsubUsers(); unsubStaff(); unsubStores(); };
   }, [canManageStaff]);
 
   const overallSyncStatus: SyncStatus =

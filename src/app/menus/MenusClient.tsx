@@ -320,7 +320,7 @@ function MenuModal({ menu, onClose, onSaved }: {
         await updateMenu(menu!.id, payload);
       }
 
-      onSaved(isNew ? `Product "${form.name}" successfully added!` : `"${form.name}" successfully updated.`);
+      onSaved('Berhasil menyimpan menu.');
       onClose();
     } catch (e: any) {
       setError(e.message);
