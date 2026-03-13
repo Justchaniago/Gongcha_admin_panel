@@ -1,12 +1,15 @@
 "use server";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { Product, productConverter } from "@/types/firestore";
+// 🔥 FIX: Import FieldValue dari firebase-admin
+import { FieldValue } from "firebase-admin/firestore";
 
 type ProductMutationInput = {
   name?: string;
   category?: string;
   basePrice?: number | string;
   imageUrl?: string;
+  description?: string;
   isAvailable?: boolean;
   isHotAvailable?: boolean;
   isLargeAvailable?: boolean;
@@ -34,6 +37,7 @@ function normalizeProductInput(data: ProductMutationInput, productId: string): O
   const name = String(data.name ?? "").trim();
   const category = String(data.category ?? "").trim();
   const basePrice = Number(data.basePrice);
+  const description = typeof data.description === "string" ? data.description.trim() : "";
 
   if (!name) throw new Error("Product name is required");
   if (!category) throw new Error("Product category is required");
@@ -46,6 +50,7 @@ function normalizeProductInput(data: ProductMutationInput, productId: string): O
     category,
     basePrice,
     imageUrl,
+    description,
     isAvailable: Boolean(data.isAvailable ?? true),
     isHotAvailable: Boolean(data.isHotAvailable ?? false),
     isLargeAvailable: Boolean(data.isLargeAvailable ?? true),
@@ -81,7 +86,15 @@ export async function createMenu(data: ProductMutationInput) {
     }
 
     const normalized = normalizeProductInput(data, productId);
-    const converted = productConverter.toFirestore(normalized as any);
+    
+    // 🔥 DELTA SYNC: Sisipkan createdAt dan updatedAt
+    const payload = {
+      ...normalized,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp()
+    };
+
+    const converted = productConverter.toFirestore(payload as any);
     await setDoc(ref as any, converted as FirebaseFirestore.DocumentData);
     return { success: true, id: productId };
   } catch (error: any) {
@@ -103,7 +116,13 @@ export async function updateMenu(id: string, data: ProductMutationInput) {
       id
     );
 
-    const converted = productConverter.toFirestore(normalized as any);
+    // 🔥 DELTA SYNC: Sisipkan updatedAt setiap kali ada perubahan
+    const payload = {
+      ...normalized,
+      updatedAt: FieldValue.serverTimestamp()
+    };
+
+    const converted = productConverter.toFirestore(payload as any);
     await setDoc(ref as any, converted as FirebaseFirestore.DocumentData, { merge: true });
     return { success: true };
   } catch (error: any) {
@@ -113,7 +132,12 @@ export async function updateMenu(id: string, data: ProductMutationInput) {
 
 export async function deleteMenu(id: string) {
   try {
-    await adminDb.collection("products").doc(id).delete();
+    // 🔥 DELTA SYNC ARCHITECTURE: SOFT DELETE!
+    // HARAM menggunakan .delete(). Kita ubah isAvailable jadi false, lalu beri Timestamp.
+    await adminDb.collection("products").doc(id).update({
+      isAvailable: false,
+      updatedAt: FieldValue.serverTimestamp()
+    });
     return { success: true };
   } catch (error: any) {
     throw new Error(error.message || "Failed to delete product");

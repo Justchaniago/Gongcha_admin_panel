@@ -133,7 +133,8 @@ function DeleteModal({ reward, onClose, onDeleted }: { reward:Reward; onClose:()
   );
 }
 
-type RewardForm = { rewardId:string; title:string; description:string; pointsrequired:string; isActive:boolean; imageUrl:string; };
+// 🔥 UPDATE TYPE: Tambah isRedeemable
+type RewardForm = { rewardId:string; title:string; description:string; pointsrequired:string; isActive:boolean; isRedeemable:boolean; imageUrl:string; };
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -152,6 +153,8 @@ function RewardModal({ reward, onClose, onSaved, onDeleteRequest }: { reward:Rew
     description:    reward?.description ?? '',
     pointsrequired: reward ? String(reward.pointsrequired) : '',
     isActive:       reward?.isActive ?? true,
+    // 🔥 DEFAULT: Katalog aktif jika baru dibuat
+    isRedeemable:   (reward as any)?.isRedeemable ?? true, 
     imageUrl:       reward ? reward.imageUrl : '',
   });
   
@@ -219,7 +222,8 @@ function RewardModal({ reward, onClose, onSaved, onDeleteRequest }: { reward:Rew
     try {
       const method = isNew ? 'POST' : 'PATCH';
       const url    = isNew ? '/api/rewards' : `/api/rewards/${reward!.id}`;
-      const payload = { ...(isNew ? { rewardId: form.rewardId.trim() } : {}), title: form.title.trim(), description: form.description.trim(), pointsrequired: form.pointsrequired !== '' ? Number(form.pointsrequired) : 0, isActive: form.isActive, imageUrl: form.imageUrl.trim() };
+      // 🔥 PAYLOAD: Kirim isRedeemable ke API
+      const payload = { ...(isNew ? { rewardId: form.rewardId.trim() } : {}), title: form.title.trim(), description: form.description.trim(), pointsrequired: form.pointsrequired !== '' ? Number(form.pointsrequired) : 0, isActive: form.isActive, isRedeemable: form.isRedeemable, imageUrl: form.imageUrl.trim() };
       const r = await fetch(url, { method, headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) });
       if (!r.ok) throw new Error((await r.json().catch(()=>({}))).message ?? 'Failed to save.');
       onSaved(isNew ? `Reward "${form.title}" successfully added!` : `"${form.title}" successfully updated.`);
@@ -269,6 +273,29 @@ function RewardModal({ reward, onClose, onSaved, onDeleteRequest }: { reward:Rew
               </div>
             </div>
           </div>
+
+          <div>
+            <SectionLabel>App Visibility Settings</SectionLabel>
+            <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+              {/* Toggle Aktifitas Global */}
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'10px 14px', borderRadius:10, background:C.bg, border:`1px solid ${C.border}` }}>
+                <div><p style={{ fontSize:13, fontWeight:700, color:C.tx1, marginBottom:2 }}>Active Status</p><p style={{ fontSize:11.5, color:C.tx3 }}>Global switch for this voucher</p></div>
+                <button type="button" onClick={() => setForm(p=>({...p,isActive:!p.isActive}))} style={{ width:40, height:22, borderRadius:99, border:'none', cursor:'pointer', background:form.isActive?C.blue:C.tx4, position:'relative', transition:'background .2s' }}>
+                  <span style={{ position:'absolute', top:3, borderRadius:'50%', width:16, height:16, background:'#fff', left:form.isActive?21:3, transition:'left .2s cubic-bezier(.34,1.56,.64,1)' }}/>
+                </button>
+              </div>
+
+              {/* 🔥 NEW TOGGLE: isRedeemable */}
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'10px 14px', borderRadius:10, background:C.bg, border:`1px solid ${C.border}` }}>
+                <div><p style={{ fontSize:13, fontWeight:700, color:C.tx1, marginBottom:2 }}>Show in Catalog (Redeemable)</p><p style={{ fontSize:11.5, color:C.tx3 }}>Visible in member reward catalog for point exchange</p></div>
+                <button type="button" onClick={() => setForm(p=>({...p,isRedeemable:!p.isRedeemable}))} style={{ width:40, height:22, borderRadius:99, border:'none', cursor:'pointer', background:form.isRedeemable?C.green:C.tx4, position:'relative', transition:'background .2s' }}>
+                  <span style={{ position:'absolute', top:3, borderRadius:'50%', width:16, height:16, background:'#fff', left:form.isRedeemable?21:3, transition:'left .2s cubic-bezier(.34,1.56,.64,1)' }}/>
+                </button>
+              </div>
+              {!form.isRedeemable && <p style={{ fontSize:11, color:C.orange, fontWeight:600 }}>ℹ️ Special Voucher: This is only for direct injection to specific users.</p>}
+            </div>
+          </div>
+
           <div>
             <SectionLabel>Media (Optional)</SectionLabel>
             <FL>Upload Voucher Image (WebP)</FL>
@@ -302,37 +329,40 @@ function RewardModal({ reward, onClose, onSaved, onDeleteRequest }: { reward:Rew
                 )}
               </div>
             )}
-            <p style={{ fontSize:11.5, color:C.tx4, marginTop:5 }}>If empty, the application will use the default image.</p>
           </div>
-          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'13px 16px', borderRadius:12, background:C.bg, border:`1.5px solid ${C.border}` }}>
-            <div><p style={{ fontSize:13.5, fontWeight:600, color:C.tx1, marginBottom:2 }}>Active Status</p><p style={{ fontSize:12, color:C.tx3 }}>{form.isActive ? 'Can be redeemed by members' : 'Hidden from members'}</p></div>
-            <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-              <button type="button" onClick={() => setForm(p=>({...p,isActive:!p.isActive}))} style={{ width:44, height:25, borderRadius:99, border:'none', cursor:'pointer', background:form.isActive?C.blue:C.bgSub, position:'relative', transition:'background .2s', flexShrink:0, boxShadow:form.isActive?'0 2px 8px rgba(58,86,232,.30)':'none' }}>
-                <span style={{ position:'absolute', top:3.5, borderRadius:'50%', width:18, height:18, background:'#fff', boxShadow:'0 1px 4px rgba(0,0,0,.18)', left:form.isActive?23:3, transition:'left .2s cubic-bezier(.34,1.56,.64,1)', display:'block' }}/>
-              </button>
-            </div>
-          </div>
+          
           {error && <div style={{ padding:'11px 14px', background:C.redBg, border:`1px solid ${C.red}30`, borderRadius:9, fontSize:12.5, color:C.red }}>{error}</div>}
       </div>
     </GcModalShell>
   );
 }
 
-// ── TICKET CARD (Dibesihkan dari Action Button & Status Pill) ──────────────────
+// ── TICKET CARD ──────────────────
 function RewardCard({ reward, onEdit }: { reward:Reward; onEdit:()=>void }) {
   const cat = CAT_CFG.Drink; 
   const notch = 14;
+  // 🔥 INDICATOR: Redeemable vs Direct
+  const isRedeemable = (reward as any).isRedeemable !== false;
+
   return (
     <div className="gc-ticket" onClick={onEdit} style={{ background: C.white, borderRadius: 16, border: `1px solid ${C.border}`, boxShadow: C.shadow, display: 'flex', overflow: 'visible', position: 'relative', cursor: 'pointer' }}>
-      <div style={{ width: 110, flexShrink: 0, background: cat.bg, borderRadius: '15px 0 0 15px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '14px 10px', position: 'relative', gap: 6 }}>
+      <div style={{ width: 110, flexShrink: 0, background: isRedeemable ? cat.bg : '#F3F4F6', borderRadius: '15px 0 0 15px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '14px 10px', position: 'relative', gap: 6 }}>
         <div style={{ textAlign: 'center' }}>
           {reward.pointsrequired === 0 ? (
             <p style={{ fontSize: 16, fontWeight: 800, color: C.green, letterSpacing: '-.02em', lineHeight: 1, fontFamily: font, margin: 0 }}>FREE</p>
           ) : (
-            <><p style={{ fontSize: reward.pointsrequired >= 10000 ? 14 : reward.pointsrequired >= 1000 ? 17 : 20, fontWeight: 800, color: cat.color, letterSpacing: '-.03em', lineHeight: 1, fontFamily: font, margin: 0 }}>{reward.pointsrequired.toLocaleString('id')}</p><p style={{ fontSize: 9, fontWeight: 700, color: cat.color, opacity:.6, letterSpacing:'.07em', textTransform:'uppercase', fontFamily:font, margin: '3px 0 0' }}>pts</p></>
+            <><p style={{ fontSize: reward.pointsrequired >= 10000 ? 14 : reward.pointsrequired >= 1000 ? 17 : 20, fontWeight: 800, color: isRedeemable ? cat.color : C.tx3, letterSpacing: '-.03em', lineHeight: 1, fontFamily: font, margin: 0 }}>{reward.pointsrequired.toLocaleString('id')}</p><p style={{ fontSize: 9, fontWeight: 700, color: isRedeemable ? cat.color : C.tx3, opacity:.6, letterSpacing:'.07em', textTransform:'uppercase', fontFamily:font, margin: '3px 0 0' }}>pts</p></>
           )}
         </div>
-        {!reward.isActive && <div style={{ marginTop: 4 }}><span style={{ padding: '2px 6px', background: C.redBg, color: C.red, borderRadius: 4, fontSize: 9, fontWeight: 700, fontFamily: font, letterSpacing: '.05em', textTransform: 'uppercase' }}>Inactive</span></div>}
+        
+        {/* 🔥 BADGE: Katalog vs Suntikan */}
+        <div style={{ marginTop: 4, display:'flex', flexDirection:'column', gap:4, alignItems:'center' }}>
+          <span style={{ padding: '2px 6px', background: isRedeemable ? '#ECFDF5' : '#FFF7ED', color: isRedeemable ? '#059669' : '#D97706', borderRadius: 4, fontSize: 8.5, fontWeight: 800, fontFamily: font, textTransform: 'uppercase' }}>
+            {isRedeemable ? 'Catalog' : 'Direct Only'}
+          </span>
+          {!reward.isActive && <span style={{ padding: '2px 6px', background: C.redBg, color: C.red, borderRadius: 4, fontSize: 8.5, fontWeight: 800, fontFamily: font, textTransform: 'uppercase' }}>Inactive</span>}
+        </div>
+
         <div style={{ position: 'absolute', right: -notch/2, top: '50%', transform: 'translateY(-50%)', width: notch, height: notch*2, background: C.bg, borderRadius: `0 ${notch}px ${notch}px 0`, border: `1px solid ${C.border}`, borderLeft: 'none', zIndex: 2 }}/>
       </div>
       <div style={{ position: 'absolute', left: 110, top: 10, bottom: 10, width: 0, borderLeft: `1.5px dashed ${C.border}`, zIndex: 1 }}/>
@@ -394,26 +424,12 @@ export default function RewardsClient({ initialRewards = [], showAddTrigger }: {
 
   const showToast = useCallback((msg:string, type:'success'|'error'='success') => setToast({msg,type}), []);
 
-  const fetchRewardsFromApi = useCallback(async () => {
-    try {
-      const res = await fetch('/api/rewards', { cache: 'no-store' });
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message ?? 'Failed to load rewards.');
-      const payload = await res.json();
-      const rows = Array.isArray(payload?.rewards) ? payload.rewards : [];
-      setRewards(rows as Reward[]);
-      setSyncStatus('live');
-    } catch (apiErr) {
-      console.error('[RewardsClient] API fallback failed:', apiErr);
-      setSyncStatus('error');
-    }
-  }, []);
-
   useEffect(() => {
     const q = query(collection(db, "rewards_catalog").withConverter(rewardConverter), orderBy("title"));
     const unsub = onSnapshot(
       q,
       (snap) => {
-        setRewards(snap.docs.map((d) => d.data() as RewardWithId));
+        setRewards(snap.docs.map((d) => d.data() as Reward));
         setSyncStatus("live");
       },
       (err) => {

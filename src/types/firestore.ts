@@ -198,6 +198,7 @@ export interface Product {
   category: string;
   basePrice: number;
   imageUrl: string;
+  description?: string;
   isLargeAvailable: boolean;
   isHotAvailable: boolean;
   isAvailable: boolean;
@@ -305,15 +306,17 @@ export const dailyStatConverter: FirestoreDataConverter<DailyStat> = {
 };
 
 // ============================================================================
-// 6. MARKETING (Rewards & Promos) - Collection: 'rewards', 'global_promos'
+// 6. MARKETING (Rewards & Promos) - Collection: 'rewards_catalog'
 // ============================================================================
+
 export interface Reward {
   id: string;
   title: string;
   description: string;
-  pointsRequired: number;
+  pointsrequired: number;
   imageUrl: string;
   isActive: boolean;
+  isRedeemable: boolean; // 🔥 WAJIB ADA: Untuk status "Show in Catalog"
   category?: "Drink" | "Topping" | "Discount";
   pointsCost?: number;
   imageURL?: string;
@@ -325,17 +328,22 @@ export const rewardConverter: FirestoreDataConverter<Reward> = {
   },
   fromFirestore(snapshot: QueryDocumentSnapshot, options: SnapshotOptions): Reward {
     const data = snapshot.data(options)!;
-    const pointsRequired = Number(data.pointsRequired ?? data.pointsCost ?? 0);
+
+    // 🔥 FIX: Mapping fleksibel untuk support pointsrequired (lowercase) dari database
+    const pointsValue = Number(data.pointsrequired ?? data.pointsRequired ?? data.pointsCost ?? 0);
     const imageUrl = String(data.imageUrl ?? data.imageURL ?? "");
+
     return {
       id: snapshot.id,
       title: data.title,
       description: data.description,
-      pointsRequired,
+      pointsrequired: pointsValue,
       imageUrl,
       isActive: data.isActive,
+      // 🔥 FIX: Sertakan isRedeemable di sini agar TS tidak error dan data terbaca
+      isRedeemable: data.isRedeemable !== false, 
       category: data.category,
-      pointsCost: pointsRequired,
+      pointsCost: pointsValue,
       imageURL: imageUrl,
     };
   }

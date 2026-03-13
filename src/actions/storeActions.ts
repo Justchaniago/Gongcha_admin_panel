@@ -1,7 +1,8 @@
 "use server";
 
 import { cookies } from "next/headers";
-import { GeoPoint } from "firebase-admin/firestore";
+// 🔥 FIX 1: Import FieldValue untuk inject Timestamp dari Server
+import { GeoPoint, FieldValue } from "firebase-admin/firestore"; 
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import { Store, storeConverter } from "@/types/firestore";
 
@@ -140,7 +141,9 @@ async function verifyAdmin() {
   }
 }
 
+// ============================================================================
 // CREATE STORE
+// ============================================================================
 export async function createStore(data: StoreMutationInput) {
   await verifyAdmin();
   const name = data.name?.trim();
@@ -165,19 +168,30 @@ export async function createStore(data: StoreMutationInput) {
   };
 
   const converted = storeConverter.toFirestore(storeData as any);
-  await setDoc(storesRef as any, converted as FirebaseFirestore.DocumentData);
+
+  // 🔥 FIX 2: Suntikkan Timestamp dan isAvailable (untuk Customer App) 
+  const payload = {
+    ...converted,
+    isAvailable: typeof data.isActive === "boolean" ? data.isActive : true,
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp()
+  };
+
+  await setDoc(storesRef as any, payload as FirebaseFirestore.DocumentData);
 
   return { success: true, id: storeId };
 }
 
+// ============================================================================
 // UPDATE STORE
+// ============================================================================
 export async function updateStore(id: string, data: StoreMutationInput) {
   await verifyAdmin();
   const ref = doc("stores", id).withConverter(storeConverter as any);
   const snap = await ref.get();
   if (!snap.exists) throw new Error(`Store "${id}" tidak ditemukan.`);
 
-  const updates: Partial<Omit<Store, "id">> = {};
+  const updates: any = {};
 
   if (typeof data.name === "string") updates.name = data.name.trim();
   if (typeof data.address === "string") updates.address = data.address.trim();
@@ -193,25 +207,51 @@ export async function updateStore(id: string, data: StoreMutationInput) {
     updates.operationalHours = parseOperationalHours(data);
   }
 
-  if (typeof data.isForceClosed === "boolean") updates.isForceClosed = data.isForceClosed;
-  if (typeof data.isActive === "boolean") updates.isActive = data.isActive;
+  if (typeof data.isForceClosed === "boolean") {
+    updates.isForceClosed = data.isForceClosed;
+    // Map isForceClosed jadi statusOverride "closed" agar UI map HP langsung paham
+    updates.statusOverride = data.isForceClosed ? 'closed' : 'open'; 
+  }
+  
+  if (typeof data.isActive === "boolean") {
+    updates.isActive = data.isActive;
+    updates.isAvailable = data.isActive; // Samakan dengan rules filter Customer App
+  }
 
   if (Object.keys(updates).length === 0) {
     throw new Error("No valid fields to update.");
   }
 
   const converted = storeConverter.toFirestore(updates as any);
-  await setDoc(ref as any, converted as FirebaseFirestore.DocumentData, { merge: true });
+  
+  // 🔥 FIX 3: Suntikkan `updatedAt` setiap kali tombol Save dipencet
+  const payload = {
+    ...converted,
+    updatedAt: FieldValue.serverTimestamp()
+  };
+
+  await setDoc(ref as any, payload as FirebaseFirestore.DocumentData, { merge: true });
   return { success: true, id };
 }
 
-// DELETE STORE
+// ============================================================================
+// DELETE STORE (SOFT DELETE)
+// ============================================================================
 export async function deleteStore(id: string) {
   await verifyAdmin();
   const ref = adminDb.collection("stores").doc(id);
   const snap = await ref.get();
   if (!snap.exists) throw new Error(`Store "${id}" tidak ditemukan.`);
 
-  await ref.delete();
+  // 🔥 FIX 4: HARAM pakai .delete() karena HP user tak akan sadar.
+  // Gunakan metode Soft Delete.
+  await ref.update({
+    isActive: false,
+    isAvailable: false,     // Menghilangkan dari Map Customer App
+    isForceClosed: true,    // Tutup paksa
+    statusOverride: 'closed',
+    updatedAt: FieldValue.serverTimestamp() // Trigger ke HP user
+  });
+  
   return { success: true };
 }

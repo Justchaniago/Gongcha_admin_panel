@@ -35,7 +35,6 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
   const safeId = guardId(id);
   if (!safeId) return NextResponse.json({ message: 'Reward ID tidak valid.' }, { status: 400 });
   try {
-    // 🔥 MENGARAH KE rewards_catalog
     const doc = await adminDb.collection("rewards_catalog").doc(safeId).get();
     if (!doc.exists) return NextResponse.json({ message: `Reward "${safeId}" tidak ditemukan.` }, { status: 404 });
     return NextResponse.json({ id: doc.id, ...doc.data() });
@@ -53,26 +52,21 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
   if (!safeId) return NextResponse.json({ message: 'Reward ID tidak valid.' }, { status: 400 });
   try {
     const body = await req.json();
-    // 🔥 MENGARAH KE rewards_catalog
     const docRef = adminDb.collection("rewards_catalog").doc(safeId);
 
     const existing = await docRef.get();
     if (!existing.exists) return NextResponse.json({ message: `Reward "${safeId}" tidak ditemukan.` }, { status: 404 });
 
-    const pointsPayload = body.pointsrequired;
-    if (pointsPayload !== undefined && (typeof pointsPayload !== "number" || pointsPayload < 0)) {
-      return NextResponse.json({ message: "pointsrequired harus angka positif." }, { status: 400 });
-    }
-
-    const allowed = ["title", "description", "isActive"] as const;
+    // 🔥 WHITELIST UPDATE: Tambahkan isRedeemable ke dalam array allowed
+    const allowed = ["title", "description", "isActive", "isRedeemable"] as const;
     const update: Record<string, unknown> = {};
     for (const key of allowed) {
       if (key in body) {
-        update[key] = key === "title" || key === "description" ? (body[key] as string).trim?.() ?? body[key] : body[key];
+        update[key] = body[key];
       }
     }
 
-    if (pointsPayload !== undefined) update.pointsrequired = Number(pointsPayload);
+    if (body.pointsrequired !== undefined) update.pointsrequired = Number(body.pointsrequired);
     if (body.imageUrl !== undefined) update.imageUrl = String(body.imageUrl).trim();
 
     if (Object.keys(update).length === 0) return NextResponse.json({ message: "No fields to update." }, { status: 400 });
@@ -95,12 +89,11 @@ export async function DELETE(req: NextRequest, ctx: RouteContext) {
   const safeId = guardId(id);
   if (!safeId) return NextResponse.json({ message: 'Reward ID tidak valid.' }, { status: 400 });
   try {
-    // 🔥 MENGARAH KE rewards_catalog
     const docRef = adminDb.collection("rewards_catalog").doc(safeId);
-
     const existing = await docRef.get();
     if (!existing.exists) return NextResponse.json({ message: `Reward "${safeId}" tidak ditemukan.` }, { status: 404 });
 
+    // Gunakan delete() permanen jika benar-benar ingin menghapus dari Admin Panel
     await docRef.delete();
     return NextResponse.json({ success: true, id: safeId });
   } catch (err: any) {

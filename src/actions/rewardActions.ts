@@ -1,53 +1,22 @@
 "use server";
 
-import { cookies } from "next/headers";
-import { revalidatePath } from "next/cache";
+import { adminDb } from "@/lib/firebaseAdmin";
+import { Reward, rewardConverter } from "@/types/firestore";
+// 🔥 FIX: Import FieldValue untuk Delta Sync
 import { FieldValue } from "firebase-admin/firestore";
-import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 
-type RewardPayload = {
-  id?: string;
-  title: string;
+type RewardMutationInput = {
+  title?: string;
   description?: string;
-  pointsRequired: number;
+  pointsCost?: number | string;
   imageUrl?: string;
-  isActive?: boolean;
-  category?: "Drink" | "Topping" | "Discount";
+  isAvailable?: boolean;
+  category?: string;
+  expiryDays?: number | string;
 };
 
-async function verifySuperAdmin() {
-  const cookieStore = await cookies();
-  const session = cookieStore.get("session")?.value;
-  if (!session) throw new Error("Unauthorized");
-
-  const decoded = await adminAuth.verifySessionCookie(session, true);
-  const adminSnap = await adminDb.collection("admin_users").doc(decoded.uid).get();
-  const admin = adminSnap.data();
-  if (!admin || admin.isActive !== true || admin.role !== "SUPER_ADMIN") {
-    throw new Error("Forbidden");
-  }
-}
-
-function normalizeReward(payload: RewardPayload) {
-  const title = payload.title.trim();
-  const pointsRequired = Math.floor(Number(payload.pointsRequired));
-  if (!title) throw new Error("title is required");
-  if (!Number.isFinite(pointsRequired) || pointsRequired < 0) {
-    throw new Error("pointsRequired must be a non-negative number");
-  }
-
-  return {
-    title,
-    description: String(payload.description ?? "").trim(),
-    pointsRequired,
-    imageUrl: String(payload.imageUrl ?? "").trim(),
-    isActive: payload.isActive !== false,
-    ...(payload.category ? { category: payload.category } : {}),
-  };
-}
-
-function toId(value: string) {
-  return value
+function generateRewardId(title: string): string {
+  return title
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
@@ -58,42 +27,79 @@ function toId(value: string) {
     .replace(/^_+|_+$/g, "");
 }
 
-export async function upsertRewardAction(payload: RewardPayload) {
-  await verifySuperAdmin();
-  const normalized = normalizeReward(payload);
-  const id = toId(payload.id?.trim() || normalized.title);
-  if (!id) throw new Error("Invalid reward id");
-
-  await adminDb.collection("rewards").doc(id).set(
-    {
-      ...normalized,
-      updatedAt: FieldValue.serverTimestamp(),
-      createdAt: FieldValue.serverTimestamp(),
-    },
-    { merge: true }
-  );
-
-  revalidatePath("/rewards");
-  return { success: true, id };
+function doc(id: string) {
+  return adminDb.collection("rewards_catalog").doc(id);
 }
 
-export async function blastGlobalPromoAction(input: { title: string; description: string; imageUrl?: string }) {
-  await verifySuperAdmin();
-  const title = input.title.trim();
-  const description = input.description.trim();
-  if (!title || !description) throw new Error("title and description are required");
+// ============================================================================
+// CREATE REWARD
+// ============================================================================
+export async function createReward(data: RewardMutationInput) {
+  try {
+    const title = String(data.title ?? "").trim();
+    if (!title) throw new Error("Reward title is required");
 
-  const id = `${new Date().toISOString().slice(0, 10)}_${toId(title)}`;
+    const rewardId = generateRewardId(title);
+    const ref = doc(rewardId).withConverter(rewardConverter as any);
+    
+    const existing = await ref.get();
+    if (existing.exists) throw new Error(`Reward ID "${rewardId}" is already in use`);
 
-  await adminDb.collection("global_promos").doc(id).set({
-    title,
-    description,
-    imageUrl: String(input.imageUrl ?? "").trim(),
-    isActive: true,
-    createdAt: FieldValue.serverTimestamp(),
-    updatedAt: FieldValue.serverTimestamp(),
-  });
+    const payload = {
+      title,
+      description: String(data.description ?? "").trim(),
+      pointsCost: Number(data.pointsCost),
+      imageUrl: String(data.imageUrl ?? "").trim(),
+      isAvailable: typeof data.isAvailable === "boolean" ? data.isAvailable : true,
+      category: String(data.category ?? "Beverage").trim(),
+      expiryDays: Number(data.expiryDays || 30),
+      // 🔥 DELTA SYNC: Wajib ada Timestamp
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp()
+    };
 
-  revalidatePath("/notifications");
-  return { success: true, id };
+    await ref.set(payload as any);
+    return { success: true, id: rewardId };
+  } catch (error: any) {
+    throw new Error(error.message || "Failed to add reward");
+  }
+}
+
+// ============================================================================
+// UPDATE REWARD
+// ============================================================================
+export async function updateReward(id: string, data: RewardMutationInput) {
+  try {
+    const ref = doc(id).withConverter(rewardConverter as any);
+    const snap = await ref.get();
+    if (!snap.exists) throw new Error(`Reward "${id}" not found`);
+
+    const updates: any = { ...data };
+    if (updates.pointsCost) updates.pointsCost = Number(updates.pointsCost);
+    if (updates.expiryDays) updates.expiryDays = Number(updates.expiryDays);
+    
+    // 🔥 DELTA SYNC: Update waktu setiap ada perubahan
+    updates.updatedAt = FieldValue.serverTimestamp();
+
+    await ref.update(updates);
+    return { success: true };
+  } catch (error: any) {
+    throw new Error(error.message || "Failed to update reward");
+  }
+}
+
+// ============================================================================
+// DELETE REWARD (SOFT DELETE)
+// ============================================================================
+export async function deleteReward(id: string) {
+  try {
+    // 🔥 DELTA SYNC: HARAM .delete(). Pakai Soft Delete agar HP Customer sadar.
+    await adminDb.collection("rewards_catalog").doc(id).update({
+      isAvailable: false,
+      updatedAt: FieldValue.serverTimestamp()
+    });
+    return { success: true };
+  } catch (error: any) {
+    throw new Error(error.message || "Failed to delete reward");
+  }
 }

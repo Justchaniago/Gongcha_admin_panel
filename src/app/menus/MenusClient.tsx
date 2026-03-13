@@ -36,7 +36,6 @@ const C = {
 } as const;
 const font = "Inter, system-ui, sans-serif";
 
-// ── Image Compression Utility (WebP) ───────────────────────────────────────────
 const compressImageToWebP = (file: File, maxWidth = 800, maxHeight = 800, quality = 0.8): Promise<Blob> => {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -81,7 +80,6 @@ const compressImageToWebP = (file: File, maxWidth = 800, maxHeight = 800, qualit
   });
 };
 
-// ── Primitives ─────────────────────────────────────────────────────────────────
 function LiveBadge({ status }: { status: SyncStatus }) {
   const cfg = { connecting: { color: C.orange, label: "Connecting…" }, live: { color: C.green, label: "Live" }, error: { color: C.red, label: "Error" } }[status];
   return (
@@ -97,7 +95,7 @@ function StatusPill({ active }: { active: boolean }) {
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 11px', borderRadius: 99, background: active ? C.greenBg : C.border2, color: active ? '#027A48' : C.tx3, fontSize: 11, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase' }}>
       <span style={{ width: 5, height: 5, borderRadius: '50%', background: active ? C.green : C.tx4 }}/>
-      {active ? 'Available' : 'Out of Stock'}
+      {active ? 'Available' : 'Archived / Out'}
     </span>
   );
 }
@@ -119,7 +117,7 @@ function formatRp(num: number) {
   return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(num);
 }
 
-// ── Delete Modal ───────────────────────────────────────────────────────────────
+// ── Delete Modal (Refactored to Soft Delete Wording) ───────────────
 function DeleteModal({ menu, onClose, onDeleted }: { menu: ProductWithId; onClose: () => void; onDeleted: (msg: string) => void }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -128,7 +126,7 @@ function DeleteModal({ menu, onClose, onDeleted }: { menu: ProductWithId; onClos
     setLoading(true); setError('');
     try {
       await deleteMenu(menu.id);
-      onDeleted(`"${menu.name}" successfully deleted.`);
+      onDeleted(`"${menu.name}" successfully archived.`);
       onClose();
     } catch (e: any) { setError(e.message); setLoading(false); }
   }
@@ -136,14 +134,14 @@ function DeleteModal({ menu, onClose, onDeleted }: { menu: ProductWithId; onClos
   return (
     <GcModalShell
       onClose={onClose}
-      title="Delete Product?"
-      eyebrow="Destructive Action"
-      description={<>Product <strong>"{menu.name}"</strong> will be permanently deleted from Firestore.</>}
+      title="Archive Product?"
+      eyebrow="Soft Delete"
+      description={<>Product <strong>"{menu.name}"</strong> will be marked as Unavailable and hidden from Customer App (Delta Sync).</>}
       maxWidth={440}
       footer={
         <>
           <GcButton variant="ghost" size="lg" onClick={onClose}>Cancel</GcButton>
-          <GcButton variant="danger" size="lg" onClick={confirm} loading={loading}>Yes, Delete</GcButton>
+          <GcButton variant="danger" size="lg" onClick={confirm} loading={loading}>Archive Item</GcButton>
         </>
       }
     >
@@ -201,12 +199,10 @@ function MenuModal({ menu, onClose, onSaved }: {
   const set = (k: keyof MenuForm) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
     setForm(p => ({ ...p, [k]: e.target.value }));
 
-  // Logic Upload & Compress ke Firebase Storage
   const handleImageFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Original file size limit before compression changed to 15MB
     if (file.size > 15 * 1024 * 1024) {
       setError("Ukuran gambar asli maksimal 15MB.");
       return;
@@ -216,10 +212,7 @@ function MenuModal({ menu, onClose, onSaved }: {
     setProcessingImage(true);
 
     try {
-      // 1. Compress and convert to WebP (Max 800px, 80% quality)
       const compressedBlob = await compressImageToWebP(file, 800, 800, 0.8);
-      
-      // 2. Upload blob WebP ke Firebase Storage
       const productId = generateProductId(form.name || menu?.name || "product");
       const fileName = `products/${productId || Date.now().toString()}.webp`;
       const storageRef = ref(storage, fileName);
@@ -315,6 +308,7 @@ function MenuModal({ menu, onClose, onSaved }: {
         basePrice: Number(form.basePrice),
         category: form.category,
         imageUrl: form.imageUrl.trim(),
+        description: form.description.trim(),
         isAvailable: form.isAvailable,
         isHotAvailable: form.isHotAvailable,
         isLargeAvailable: form.isLargeAvailable,
@@ -417,13 +411,7 @@ function MenuModal({ menu, onClose, onSaved }: {
                   <img
                     src={form.imageUrl}
                     alt={form.name}
-                    style={{
-                      width: '100%',
-                      height: '100%',
-                      objectFit: 'contain', // change from 'cover' to 'contain'
-                      maxWidth: 44,         // add this
-                      maxHeight: 44         // add this
-                    }}
+                    style={{ width: '100%', height: '100%', objectFit: 'contain', maxWidth: 44, maxHeight: 44 }}
                   />
                 )}
                 <div style={{ flex: 1 }}>
@@ -448,13 +436,7 @@ function MenuModal({ menu, onClose, onSaved }: {
                 </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
-                <GcButton
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={toggleStorageLibrary}
-                  disabled={processingImage || uploadProgress !== null}
-                >
+                <GcButton type="button" variant="ghost" size="sm" onClick={toggleStorageLibrary} disabled={processingImage || uploadProgress !== null}>
                   {showLibrary ? 'Hide Storage Gallery' : 'Choose from Storage'}
                 </GcButton>
                 {showLibrary && (
@@ -475,42 +457,14 @@ function MenuModal({ menu, onClose, onSaved }: {
                   ) : libraryError ? (
                     <div style={{ padding: '12px', fontSize: 12, color: C.red, background: C.redBg }}>{libraryError}</div>
                   ) : (
-                    <div style={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(auto-fill, minmax(92px, 1fr))',
-                      gap: 8,
-                      padding: 10,
-                      maxHeight: 220,
-                      overflowY: 'auto',
-                    }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(92px, 1fr))', gap: 8, padding: 10, maxHeight: 220, overflowY: 'auto' }}>
                       {libraryImages.map((img) => {
                         const selected = form.imageUrl === img.url;
                         return (
-                          <button
-                            key={img.path}
-                            type="button"
-                            onClick={() => setForm(p => ({ ...p, imageUrl: img.url }))}
-                            title={img.name}
-                            style={{
-                              border: selected ? `2px solid ${C.blue}` : `1px solid ${C.border}`,
-                              borderRadius: 9,
-                              background: selected ? C.blueL : C.bg,
-                              cursor: 'pointer',
-                              padding: 4,
-                              display: 'flex',
-                              flexDirection: 'column',
-                              gap: 4,
-                              alignItems: 'stretch',
-                            }}
-                          >
-                            <img
-                              src={img.url}
-                              alt={img.name}
-                              style={{ width: '100%', height: 56, objectFit: 'cover', borderRadius: 6, background: C.white }}
-                            />
-                            <span style={{ fontSize: 10, color: C.tx3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'left' }}>
-                              {img.name}
-                            </span>
+                          <button key={img.path} type="button" onClick={() => setForm(p => ({ ...p, imageUrl: img.url }))} title={img.name}
+                            style={{ border: selected ? `2px solid ${C.blue}` : `1px solid ${C.border}`, borderRadius: 9, background: selected ? C.blueL : C.bg, cursor: 'pointer', padding: 4, display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'stretch' }}>
+                            <img src={img.url} alt={img.name} style={{ width: '100%', height: 56, objectFit: 'cover', borderRadius: 6, background: C.white }}/>
+                            <span style={{ fontSize: 10, color: C.tx3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'left' }}>{img.name}</span>
                           </button>
                         );
                       })}
@@ -644,23 +598,13 @@ function MenuRow({ menu, isLast, onEdit, onDelete, canManage }: { menu: ProductW
         <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
           <div style={{ width: 48, height: 48, borderRadius: 12, background: C.bg, overflow: 'hidden', border: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
             {menu.imageUrl ? (
-              <img
-                src={menu.imageUrl}
-                alt={menu.name}
-                style={{
-                  width: '100%',
-                  height: '100%',
-                  objectFit: 'contain', // change from 'cover' to 'contain'
-                  maxWidth: 44,         // add this
-                  maxHeight: 44         // add this
-                }}
-              />
+              <img src={menu.imageUrl} alt={menu.name} style={{ width: '100%', height: '100%', objectFit: 'contain', maxWidth: 44, maxHeight: 44 }} />
             ) : (
               <span style={{ color: C.tx4, fontSize: 10, fontWeight: 600 }}>No Img</span>
             )}
           </div>
           <div>
-            <p style={{ fontSize: 13.5, fontWeight: 800, color: C.tx1, marginBottom: 2 }}>{menu.name}</p>
+            <p style={{ fontSize: 13.5, fontWeight: 800, color: C.tx1, marginBottom: 2, opacity: menu.isAvailable === false ? 0.6 : 1 }}>{menu.name}</p>
             {(menu as any).description && <p style={{ fontSize: 11.5, color: C.tx3, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{(menu as any).description}</p>}
           </div>
         </div>
@@ -672,7 +616,7 @@ function MenuRow({ menu, isLast, onEdit, onDelete, canManage }: { menu: ProductW
           {menu.isLargeAvailable && <span title="Large size available" style={{ padding: '4px 8px', borderRadius: 8, background: '#EFF6FF', color: '#2563EB', fontSize: 10.5, fontWeight: 800 }}>LARGE</span>}
         </div>
       </td>
-      <td style={{ padding: '14px 18px', fontSize: 13.5, fontWeight: 800, color: C.tx1 }}>{formatRp(menu.basePrice)}</td>
+      <td style={{ padding: '14px 18px', fontSize: 13.5, fontWeight: 800, color: C.tx1, opacity: menu.isAvailable === false ? 0.6 : 1 }}>{formatRp(menu.basePrice)}</td>
       <td style={{ padding: '14px 18px' }}><StatusPill active={menu.isAvailable !== false}/></td>
       <td style={{ padding: '14px 18px' }}>
         {canManage && (
@@ -685,7 +629,7 @@ function MenuRow({ menu, isLast, onEdit, onDelete, canManage }: { menu: ProductW
             <button onClick={onDelete} onMouseOver={() => setDH(true)} onMouseOut={() => setDH(false)}
               style={{ height: 32, padding: '0 12px', borderRadius: 7, fontFamily: font, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: `1.5px solid ${dh ? C.red : C.border}`, background: dh ? C.redBg : C.white, color: dh ? C.red : C.tx2, display: 'inline-flex', alignItems: 'center', gap: 5, transition: 'all .13s' }}>
               <svg width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M9 6V4h6v2"/></svg>
-              Delete
+              Archive
             </button>
           </div>
         )}
@@ -699,7 +643,7 @@ export default function MenusClient({ initialMenus = [], showAddTrigger }: { ini
   const [menus, setMenus] = useState<ProductWithId[]>(initialMenus);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>("connecting");
   const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState<'all'|'available'|'unavailable'>('all');
+  const [filter, setFilter] = useState<'all'|'available'|'unavailable'>('available'); // Default langsung "available" aja biar bersih
   const [editTarget, setEditTarget] = useState<ProductWithId | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ProductWithId | null>(null);
   const [showAdd, setShowAdd] = useState(false);
@@ -806,7 +750,6 @@ export default function MenusClient({ initialMenus = [], showAddTrigger }: { ini
         }
       />
 
-      {/* Toolbar */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, gap: 12, flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, height: 40, padding: '0 13px', minWidth: 240, background: C.white, border: `1.5px solid ${searchFocus ? C.blue : C.border}`, borderRadius: 10, boxShadow: searchFocus ? '0 0 0 3px rgba(67,97,238,.1)' : 'none', transition: 'all .14s' }}>
@@ -817,7 +760,7 @@ export default function MenusClient({ initialMenus = [], showAddTrigger }: { ini
           <div style={{ display: 'flex', background: C.bg, border: `1.5px solid ${C.border}`, borderRadius: 10, padding: 3 }}>
             {(['all', 'available', 'unavailable'] as const).map(f => (
               <button key={f} onClick={() => setFilter(f)} style={{ padding: '5px 14px', borderRadius: 7, border: 'none', fontFamily: font, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', transition: 'all .13s', background: filter === f ? C.white : 'transparent', color: filter === f ? C.tx1 : C.tx3, boxShadow: filter === f ? C.shadow : 'none' }}>
-                {f === 'all' ? 'All' : f === 'available' ? 'Available' : 'Out of Stock'}
+                {f === 'all' ? 'All' : f === 'available' ? 'Available' : 'Archived'}
               </button>
             ))}
           </div>
@@ -827,7 +770,6 @@ export default function MenusClient({ initialMenus = [], showAddTrigger }: { ini
         </div>
       </div>
 
-      {/* Table */}
       <GcPanel style={{ borderRadius: 18, overflow: 'hidden' }}>
         {filtered.length === 0 ? (
           <GcEmptyState
