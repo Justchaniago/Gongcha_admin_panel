@@ -125,12 +125,15 @@ export function GcPageHeader({
 export function GcPanel({
   children,
   style,
+  className,
 }: {
   children: React.ReactNode;
   style?: React.CSSProperties;
+  className?: string;
 }) {
   return (
     <div
+      className={className}
       style={{
         background: "#FFFFFF",
         borderRadius: 18,

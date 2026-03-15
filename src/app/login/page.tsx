@@ -56,7 +56,6 @@ export default function LoginPage() {
     }, 4800);
   }
 
-  // Mencegah user yang sudah punya sesi mengakses halaman login
   useEffect(() => {
     if (authLoading || !user || sessionSyncRef.current || window.location.pathname === "/dashboard") return;
 
@@ -166,39 +165,23 @@ export default function LoginPage() {
       WebkitFontSmoothing: "antialiased", 
       position: "relative", 
       overflow: "hidden",
-      // Gambar background diletakkan full screen di sini
       backgroundImage: "url('/assets/images/background.webp')",
       backgroundSize: "cover",
       backgroundPosition: "center",
-      backgroundRepeat: "no-repeat"
+      backgroundRepeat: "no-repeat",
+      padding: "20px" // Memberikan ruang bernafas di mobile agar tidak menempel pinggir
     }}>
       
-      {/* ── Optional: Overlay tipis agar background tidak terlalu mencolok ── */}
       <div style={{ position: "absolute", inset: 0, backgroundColor: "rgba(0, 0, 0, 0.15)", zIndex: 0 }}/>
 
-      {/* ── CARD LOGIN (THE PERFECT GLASSMORPHISM) ── */}
-      <GcPanel style={{ 
-        position: "relative",
-        zIndex: 10,
-        width: "100%", 
-        maxWidth: "420px", 
-        margin: "24px",
-        // Efek "Kaca Putih" (Frosted Glass)
-        background: "rgba(255, 255, 255, 0.65)", 
-        backdropFilter: "blur(24px)",
-        WebkitBackdropFilter: "blur(24px)",
-        border: "1px solid rgba(255, 255, 255, 0.8)", 
-        borderRadius: "32px", 
-        padding: "48px 40px", 
-        boxShadow: "0 24px 48px rgba(0, 0, 0, 0.1), inset 0 1px 1px rgba(255, 255, 255, 1)" 
-      }}>
+      {/* ── CARD LOGIN MENGGUNAKAN CLASS UNTUK RESPONSIVITAS ── */}
+      <GcPanel className="login-glass-card">
         
-        {/* Logo & Header */}
-        <div style={{ textAlign: "center", marginBottom: "36px" }}>
+        <div style={{ textAlign: "center", marginBottom: "32px" }}>
           <div style={{ display: "inline-flex", padding: "8px", borderRadius: "18px", background: "rgba(255,255,255,0.8)", boxShadow: "0 4px 12px rgba(0,0,0,0.05)", marginBottom: "20px" }}>
             <img src="/assets/images/logo1.webp" alt="Gong Cha Logo" style={{ width: 48, height: 48, borderRadius: "12px", objectFit: "cover" }} />
           </div>
-          <h1 style={{ fontSize: "26px", fontWeight: 800, color: "#0F1117", letterSpacing: "-.03em", margin: 0, marginBottom: "8px" }}>
+          <h1 style={{ fontSize: "24px", fontWeight: 800, color: "#0F1117", letterSpacing: "-.03em", margin: 0, marginBottom: "8px" }}>
             {success ? "Login successful! ✓" : "Welcome"}
           </h1>
           <p style={{ fontSize: "14px", color: "#4A5065", margin: 0, fontWeight: 500 }}>
@@ -227,11 +210,13 @@ export default function LoginPage() {
                   onFocus={() => setFocusE(true)} 
                   onBlur={() => setFocusE(false)} 
                   style={{ 
-                    width: "100%", height: "50px", borderRadius: "14px", outline: "none", boxSizing: "border-box", 
+                    width: "100%", height: "52px", borderRadius: "14px", outline: "none", boxSizing: "border-box", 
                     border: `1.5px solid ${focusE ? "#3B82F6" : "rgba(255,255,255,0.7)"}`, 
                     background: focusE ? "#ffffff" : "rgba(255, 255, 255, 0.5)", 
                     boxShadow: focusE ? `0 0 0 4px rgba(59,130,246,.1)` : "inset 0 2px 4px rgba(0,0,0,0.02)", 
-                    padding: "0 16px 0 46px", fontFamily: font, fontSize: "14px", color: "#0F1117", transition: "all .2s ease",
+                    padding: "0 16px 0 46px", fontFamily: font, 
+                    fontSize: "16px", /* 🔥 Apple Fix: Mencegah iOS Safari Auto-Zoom */
+                    color: "#0F1117", transition: "all .2s ease",
                     fontWeight: 500
                   }} 
                 />
@@ -256,23 +241,23 @@ export default function LoginPage() {
                   onFocus={() => setFocusP(true)} 
                   onBlur={() => setFocusP(false)} 
                   style={{ 
-                    width: "100%", height: "50px", borderRadius: "14px", outline: "none", boxSizing: "border-box", 
+                    width: "100%", height: "52px", borderRadius: "14px", outline: "none", boxSizing: "border-box", 
                     border: `1.5px solid ${focusP ? "#3B82F6" : "rgba(255,255,255,0.7)"}`, 
                     background: focusP ? "#ffffff" : "rgba(255, 255, 255, 0.5)", 
                     boxShadow: focusP ? `0 0 0 4px rgba(59,130,246,.1)` : "inset 0 2px 4px rgba(0,0,0,0.02)", 
-                    padding: "0 46px 0 46px", fontFamily: font, fontSize: "14px", color: "#0F1117", transition: "all .2s ease",
+                    padding: "0 46px 0 46px", fontFamily: font, 
+                    fontSize: "16px", /* 🔥 Apple Fix: Mencegah iOS Safari Auto-Zoom */
+                    color: "#0F1117", transition: "all .2s ease",
                     fontWeight: 500
                   }} 
                 />
-                <button type="button" onClick={() => setShowPw(!showPw)} style={{ position: "absolute", right: "16px", top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "#9299B0", padding: "4px" }}>
+                <button type="button" onClick={() => setShowPw(!showPw)} style={{ position: "absolute", right: "12px", top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "#9299B0", padding: "8px" }}>
                   {showPw ? <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24M1 1l22 22"/></svg> : <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>}
                 </button>
               </div>
 
               {showAccessHelp && (
-                <div
-                  className={`login-help-bubble${accessHelpVisible ? " visible" : ""}`}
-                >
+                <div className={`login-help-bubble${accessHelpVisible ? " visible" : ""}`}>
                   <div className="login-help-bubble-inner">
                     <div style={{ fontFamily: 'Georgia, "Times New Roman", serif', fontSize: "28px", lineHeight: 1, color: "rgba(5,150,105,.38)", marginTop: "-2px", flexShrink: 0 }}>
                       "
@@ -290,23 +275,19 @@ export default function LoginPage() {
               )}
             </div>
 
-            {/* Error Message */}
             {error && (
               <div style={{ display: "flex", alignItems: "flex-start", gap: "10px", padding: "14px 16px", background: "rgba(255, 255, 255, 0.8)", border: "1px solid rgba(200,16,46,.3)", borderRadius: "12px", fontSize: "13px", color: "#C8102E", lineHeight: 1.5, fontWeight: 600 }}>
                 <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} style={{ flexShrink: 0, marginTop: "1px" }}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>{error}
               </div>
             )}
 
-            {/* Submit Button */}
             <GcButton type="submit" variant="primary" size="lg" loading={loading} style={{ width: "100%", height: "52px", borderRadius: "14px", marginTop: "8px", boxShadow: loading ? "none" : "0 8px 20px rgba(5,150,105,.25)" }}>
               Sign In
             </GcButton>
 
-            {/* Help Note */}
           </form>
         )}
 
-        {/* Success State */}
         {success && (
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "16px", padding: "24px 0" }}>
             <div style={{ width: "64px", height: "64px", borderRadius: "50%", background: "#12B76A", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 8px 24px rgba(18,183,106,.3)" }}>
@@ -317,8 +298,7 @@ export default function LoginPage() {
         )}
       </GcPanel>
 
-      {/* ── Footer ── */}
-      <div style={{ position: "absolute", bottom: "32px", textAlign: "center", zIndex: 10, width: "100%" }}>
+      <div style={{ position: "absolute", bottom: "24px", textAlign: "center", zIndex: 10, width: "100%", padding: "0 20px" }}>
         <p style={{ fontSize: "13px", color: "rgba(255, 255, 255, 0.8)", fontWeight: 500, textShadow: "0 1px 2px rgba(0,0,0,0.5)" }}>
           © 2026 Gong Cha Indonesia. All rights reserved.
         </p>
@@ -327,6 +307,31 @@ export default function LoginPage() {
       <style>{`
         @keyframes spin { to { transform: rotate(360deg); } } 
         input::placeholder { color: #9299B0; }
+        
+        /* 🔥 PENGATURAN KARTU RESPONSIVE */
+        .login-glass-card {
+          position: relative;
+          z-index: 10;
+          width: 100%;
+          max-width: 420px;
+          background: rgba(255, 255, 255, 0.65);
+          backdrop-filter: blur(24px);
+          -webkit-backdrop-filter: blur(24px);
+          border: 1px solid rgba(255, 255, 255, 0.8);
+          border-radius: 32px;
+          padding: 48px 40px;
+          box-shadow: 0 24px 48px rgba(0, 0, 0, 0.1), inset 0 1px 1px rgba(255, 255, 255, 1);
+          animation: cardFadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+
+        /* Penyesuaian khusus layar HP */
+        @media (max-width: 480px) {
+          .login-glass-card {
+            padding: 32px 24px;
+            border-radius: 28px;
+          }
+        }
+
         .login-password-field {
           position: relative;
           transition: padding-bottom .22s ease;
@@ -398,8 +403,6 @@ export default function LoginPage() {
             transform: translateY(-50%) rotate(-45deg);
           }
         }
-        /* Animasi masuk perlahan untuk kartu */
-        div[style*="backdrop-filter"] { animation: cardFadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
         @keyframes cardFadeIn { from { opacity: 0; transform: translateY(20px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
       `}</style>
     </div>
