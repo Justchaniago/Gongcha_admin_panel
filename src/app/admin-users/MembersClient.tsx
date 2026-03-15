@@ -1076,14 +1076,20 @@ function StoreAccessPicker({ storeIds, selected, accessAll, onChangeSelected, si
 }
 
 // ── Main Page Component ───────────────────────────────────────────────────────
-export default function MembersClient({ storeIds = [] }: { storeIds?: string[] }) {
+interface MembersClientProps {
+  initialUsers?: UserWithUid[];
+  initialStaff?: StaffWithUid[];
+  storeIds?: string[];
+}
+
+export default function MembersClient({ initialUsers = [], initialStaff = [], storeIds = [] }: MembersClientProps) {
   const { user: authUser } = useAuth();
   const router = useRouter();
   const canManageStaff = authUser?.role === "SUPER_ADMIN";
 
   // --- States ---
-  const [users,      setUsers]      = useState<UserWithUid[]>([]);
-  const [staff,      setStaff]      = useState<StaffWithUid[]>([]);
+  const [users,      setUsers]      = useState<UserWithUid[]>(initialUsers);
+  const [staff,      setStaff]      = useState<StaffWithUid[]>(initialStaff);
   const [usersSync,  setUsersSync]  = useState<SyncStatus>("connecting");
   const [staffSync,  setStaffSync]  = useState<SyncStatus>("connecting");
 
