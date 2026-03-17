@@ -47,7 +47,7 @@ const T = {
   red:       "#DC2626",
 };
 
-const MobileDrawer = ({ open, onClose, userName, role, router }: any) => {
+const MobileDrawer = ({ open, onClose, userName, role, router, logout }: any) => {
   const pathname = usePathname();
   const [now, setNow] = useState(new Date());
   useEffect(() => {
@@ -57,14 +57,7 @@ const MobileDrawer = ({ open, onClose, userName, role, router }: any) => {
   const dateStr = now.toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
   const timeStr = now.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
-  const handleLogout = async () => {
-    try {
-      await signOut(auth);
-      router.push("/login");
-    } catch (e) {
-      console.error("Logout error", e);
-    }
-  };
+  // handleLogout removed, using logout from AuthContext
 
   const isSuperAdmin = role === "SUPER_ADMIN";
   const visibleNavItems = NAV.filter((item) => !item.superAdminOnly || isSuperAdmin);
@@ -162,7 +155,7 @@ const MobileDrawer = ({ open, onClose, userName, role, router }: any) => {
 
             {/* Logout */}
             <div style={{ padding: "12px 10px 32px", borderTop: `1px solid ${T.border}` }}>
-              <button onClick={handleLogout} style={{
+              <button onClick={logout} style={{
                 width: "100%", display: "flex", alignItems: "center", gap: 10,
                 padding: "12px 14px", borderRadius: 10, border: "none", cursor: "pointer",
                 background: "transparent", color: T.red, transition: "all 0.2s ease"
@@ -181,7 +174,7 @@ const MobileDrawer = ({ open, onClose, userName, role, router }: any) => {
 export default function AdminShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const isMobile = useIsMobile(); 
   
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -207,6 +200,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
             userName={userName} 
             role={role} 
             router={router} 
+            logout={logout}
           />
           <main style={{ height: "100%", overflowY: "auto", overflowX: "hidden" }}>
             {children}
