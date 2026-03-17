@@ -14,6 +14,7 @@ import {
   ChevronRight, Edit3, Trash2, CheckCircle2, XCircle, AlertCircle,
   List,
 } from "lucide-react";
+import BentoRow, { BentoCard } from "@/components/ui/BentoRow";
 
 // ── DYNAMIC MAP PICKER ──
 const StoreMapPicker = dynamic(() => import("./StoreMapPicker"), { ssr: false });
@@ -306,29 +307,11 @@ export default function StoresMobile({
         <div style={{ padding: "14px 14px 0" }}>
 
           {/* STATS BENTO */}
-          <div style={{ display: "flex", overflowX: "auto", gap: 10, paddingBottom: 14 }} className="scrollbar-hide">
-            {[
-              { l: "Total Stores", v: stores.length,                c: T.blue,  b: T.blueL,  I: StoreIcon     },
-              { l: "Active",       v: activeCount,                   c: T.green, b: T.greenL, I: CheckCircle2  },
-              { l: "Inactive",     v: stores.length - activeCount,   c: T.red,   b: T.redL,   I: XCircle       },
-            ].map(s => (
-              <motion.div
-                key={s.l}
-                initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-                style={{
-                  minWidth: 130, background: T.surface, padding: "14px",
-                  borderRadius: T.r16, border: `1px solid ${T.border}`,
-                  display: "flex", flexDirection: "column", flexShrink: 0,
-                }}
-              >
-                <div style={{ width: 30, height: 30, borderRadius: 9, background: s.b, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 12 }}>
-                  <s.I size={14} color={s.c} strokeWidth={2.5} />
-                </div>
-                <p style={{ fontSize: 22, fontWeight: 900, color: T.tx1, letterSpacing: "-.025em", lineHeight: 1 }}>{s.v}</p>
-                <p style={{ fontSize: 9, fontWeight: 700, color: T.tx4, textTransform: "uppercase", letterSpacing: ".14em", marginTop: 5 }}>{s.l}</p>
-              </motion.div>
-            ))}
-          </div>
+          <BentoRow>
+            <BentoCard label="Total Stores" value={stores.length}              color={T.blue}  bg={T.blueL}  icon={StoreIcon}    delay={0}    />
+            <BentoCard label="Active"        value={activeCount}                color={T.green} bg={T.greenL} icon={CheckCircle2} delay={0.05} />
+            <BentoCard label="Inactive"      value={stores.length - activeCount} color={T.red}   bg={T.redL}   icon={XCircle}      delay={0.1}  />
+          </BentoRow>
 
 
         </div>
