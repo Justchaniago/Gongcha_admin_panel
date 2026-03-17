@@ -75,7 +75,7 @@ function TypeBadge({ type }: { type: string }) {
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
-export default function NotificationsClient({ initialRole = "", initialLogs = [], members = [] }: Props) {
+export default function NotificationsDesktop({ initialRole = "", initialLogs = [], members = [] }: Props) {
   const { user } = useAuth();
   const router = useRouter();
   const canMutate = user?.role === "SUPER_ADMIN";

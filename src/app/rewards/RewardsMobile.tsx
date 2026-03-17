@@ -387,7 +387,7 @@ export default function RewardsMobile({ initialRewards = [] }: { initialRewards?
     try {
       const res = await fetch(`/api/rewards/${deleteR.id}`, { method: "DELETE" });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message);
-      showToast(`"${deleteR.name}" deleted.`, "success");
+      showToast(`"${deleteR.title}" deleted.`, "success");
       setDeleteR(null); setSelectedR(null);
     } catch (e: any) { showToast(e.message, "error"); }
     finally { setDeleteLoading(false); }
