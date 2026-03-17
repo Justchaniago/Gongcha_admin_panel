@@ -257,7 +257,7 @@ const TABS: { id: TabId; icon: React.ElementType; label: string }[] = [
 // ── SHARED HEADER ──────────────────────────────────────────────────────────
 // Reusable symmetric header used by both pages
 const PageHeader = ({ left, title, subtitle, right }: { left: React.ReactNode; title: string; subtitle?: React.ReactNode; right: React.ReactNode }) => (
-  <div style={{ flexShrink: 0, background: T.surface, borderBottom: `1px solid ${T.border}`, padding: "48px 16px 12px", display: "flex", alignItems: "center", justifyContent: "space-between", zIndex: 30 }}>
+  <div style={{ flexShrink: 0, background: T.surface, borderBottom: `1px solid ${T.border}`, padding: `calc(env(safe-area-inset-top, 16px) + 16px) 16px 12px`, display: "flex", alignItems: "center", justifyContent: "space-between", zIndex: 30 }}>
     {/* Left slot — fixed 36px */}
     <div style={{ width: 36, flexShrink: 0 }}>{left}</div>
     {/* Center — flexible */}

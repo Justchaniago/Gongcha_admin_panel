@@ -68,7 +68,7 @@ const compressToWebP = (file: File): Promise<Blob> => new Promise((resolve, reje
 
 // ── HEADER ──
 const PageHeader = ({ left, title, right }: { left: React.ReactNode; title: string; right: React.ReactNode }) => (
-  <div style={{ flexShrink: 0, background: T.surface, borderBottom: `1px solid ${T.border}`, padding: "48px 16px 12px", display: "flex", alignItems: "center", justifyContent: "space-between", zIndex: 30 }}>
+  <div style={{ flexShrink: 0, background: T.surface, borderBottom: `1px solid ${T.border}`, padding: `calc(env(safe-area-inset-top, 16px) + 16px) 16px 12px`, display: "flex", alignItems: "center", justifyContent: "space-between", zIndex: 30 }}>
     <div style={{ width: 36, flexShrink: 0 }}>{left}</div>
     <p style={{ fontSize: 14, fontWeight: 800, color: T.tx1, letterSpacing: "-.01em" }}>Rewards</p>
     <div style={{ flexShrink: 0, display: "flex", justifyContent: "flex-end" }}>{right}</div>
