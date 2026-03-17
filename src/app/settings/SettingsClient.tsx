@@ -2,10 +2,10 @@
 
 import React, { useState, useEffect } from "react";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import AssetsDesktop from "./AssetsDesktop";
-import AssetsMobile from "./AssetsMobile";
+import SettingsDesktop from "./SettingsDesktop";
+import SettingsMobile from "./SettingsMobile";
 
-export default function AssetsClient(props: any) {
+export default function SettingsClient(props: any) {
   const [mounted, setMounted] = useState(false);
   const isMobile = useIsMobile();
 
@@ -16,8 +16,8 @@ export default function AssetsClient(props: any) {
   if (!mounted) return null;
 
   if (isMobile) {
-    return <AssetsMobile {...props} />;
+    return <SettingsMobile {...props} />;
   }
 
-  return <AssetsDesktop {...props} />;
+  return <SettingsDesktop {...props} />;
 }

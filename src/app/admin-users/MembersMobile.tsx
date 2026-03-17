@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo, useEffect, useCallback } from "react";
+import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import {
   collection, onSnapshot, query, orderBy, where,
   getDocs, limit, startAfter, getCountFromServer,
@@ -20,6 +20,7 @@ import {
   Users, Shield, Edit3, Trash2, AlertCircle,
   CheckCircle2, XCircle, Star, Zap, Award,
   MoreHorizontal, RefreshCw, Activity,
+  ArrowUpDown,
 } from "lucide-react";
 import BentoRow, { BentoCard } from "@/components/ui/BentoRow";
 import InjectVoucherModalForMember from "./InjectVoucherModalForMember";
@@ -29,6 +30,8 @@ type UserWithUid  = any;
 type StaffWithUid = any;
 type TabId        = "member" | "staff";
 type TierFilter   = "All" | "Silver" | "Gold" | "Platinum";
+type SortField    = "name" | "largestPoints" | "tier";
+type SortOrder    = "asc" | "desc";
 
 // ── DESIGN TOKENS — identical across all mobile pages ──
 const T = {
@@ -64,6 +67,13 @@ const TIER_CFG: Record<string, { bg: string; color: string; border: string }> = 
   Gold:     { bg: "#FFFBEB", color: "#92400E", border: "#FDE68A" },
   Silver:   { bg: "#F8FAFC", color: "#475569", border: "#E2E8F0" },
 };
+
+// ── Sort config ──
+const SORT_OPTIONS: { field: SortField; label: string; supportsOrder: boolean }[] = [
+  { field: "name",          label: "Nama (A-Z)",    supportsOrder: true  },
+  { field: "largestPoints", label: "Poin Terbesar", supportsOrder: true  },
+  { field: "tier",          label: "Tier",          supportsOrder: true  },
+];
 
 const PAGE_SIZE = 20;
 
@@ -119,6 +129,83 @@ const BottomSheet = ({ isOpen, onClose, children, title, fullHeight }: { isOpen:
     )}
   </AnimatePresence>
 );
+
+// ── SORT SHEET ──
+function SortSheet({ sortBy, sortOrder, onApply, onClose }: {
+  sortBy: SortField;
+  sortOrder: SortOrder;
+  onApply: (field: SortField, order: SortOrder) => void;
+  onClose: () => void;
+}) {
+  const [localField, setLocalField] = useState<SortField>(sortBy);
+  const [localOrder, setLocalOrder] = useState<SortOrder>(sortOrder);
+  const selected = SORT_OPTIONS.find(o => o.field === localField);
+  const showOrder = selected?.supportsOrder ?? false;
+
+  return (
+    <div>
+      <p style={{ fontSize: 9, fontWeight: 800, color: T.tx4, textTransform: "uppercase" as const, letterSpacing: ".14em", marginBottom: 10 }}>
+        Urutkan berdasarkan
+      </p>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 20 }}>
+        {SORT_OPTIONS.map(opt => {
+          const active = localField === opt.field;
+          return (
+            <button key={opt.field} onClick={() => setLocalField(opt.field)}
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+                padding: "13px 14px", borderRadius: 12,
+                border: `1.5px solid ${active ? T.blue : T.border2}`,
+                background: active ? T.blueL : T.surface, cursor: "pointer", textAlign: "left" as const,
+              }}
+            >
+              <span style={{ fontSize: 13, fontWeight: 700, color: active ? T.blueD : T.tx1 }}>{opt.label}</span>
+              {active && (
+                <div style={{ width: 18, height: 18, borderRadius: "50%", background: T.blue, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
+                    <path d="M1 4l3 3 5-6" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </div>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {showOrder && (
+        <>
+          <p style={{ fontSize: 9, fontWeight: 800, color: T.tx4, textTransform: "uppercase" as const, letterSpacing: ".14em", marginBottom: 10 }}>
+            Arah urutan
+          </p>
+          <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+            {([["asc", "Naik ↑"], ["desc", "Turun ↓"]] as [SortOrder, string][]).map(([val, label]) => {
+              const active = localOrder === val;
+              return (
+                <button key={val} onClick={() => setLocalOrder(val)}
+                  style={{
+                    flex: 1, padding: "11px 0", borderRadius: 12,
+                    border: `1.5px solid ${active ? T.blue : T.border2}`,
+                    background: active ? T.blueL : T.surface,
+                    fontSize: 13, fontWeight: 700, color: active ? T.blueD : T.tx2, cursor: "pointer",
+                  }}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      <button
+        onClick={() => { onApply(localField, localOrder); onClose(); }}
+        style={{ width: "100%", padding: 15, background: T.navy2, color: "#fff", border: "none", borderRadius: 14, fontWeight: 800, fontSize: 14, cursor: "pointer" }}
+      >
+        Terapkan
+      </button>
+    </div>
+  );
+}
 
 // ── FIELD ──
 const Field = ({ label, required, ...props }: { label: string; required?: boolean; [k: string]: any }) => (
@@ -629,6 +716,7 @@ function EditStaffSheet({ staff, onClose, onSaved, showToast }: { staff: StaffWi
     </div>
   );
 }
+
 // ── MAIN ──
 export default function MembersMobile({ initialUsers = [], initialStaff = [] }: { initialUsers?: UserWithUid[]; initialStaff?: StaffWithUid[] }) {
   const { user: authUser } = useAuth();
@@ -641,6 +729,12 @@ export default function MembersMobile({ initialUsers = [], initialStaff = [] }: 
   const [search,      setSearch]      = useState("");
   const [searchOpen,  setSearchOpen]  = useState(false);
   const [tierFilter,  setTierFilter]  = useState<TierFilter>("All");
+
+  // ── Sort state (baru) ──
+  const [sortBy,      setSortBy]      = useState<SortField>("tier");
+  const [sortOrder,   setSortOrder]   = useState<SortOrder>("desc");
+  const [showSort,    setShowSort]    = useState(false);
+
   const [loading,     setLoading]     = useState(false);
   const [hasMore,     setHasMore]     = useState(true);
   const [lastDoc,     setLastDoc]     = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
@@ -655,19 +749,27 @@ export default function MembersMobile({ initialUsers = [], initialStaff = [] }: 
 
   const showToast = useCallback((msg: string, type: "success" | "error" = "success") => setToast({ msg, type }), []);
 
+  // ── Resolve sort → Firestore field ──
+  function resolveSort(field: SortField, order: SortOrder): { firestoreField: string; dir: SortOrder } {
+    if (field === "largestPoints") return { firestoreField: "currentPoints", dir: order };
+    if (field === "tier")          return { firestoreField: "tier",          dir: order };
+    return { firestoreField: "name", dir: order };
+  }
+
   // Load users (paginated)
   const loadUsers = useCallback(async (reset = false) => {
     if (!reset && (loading || !hasMore)) return;
     setLoading(true);
     try {
+      const { firestoreField, dir } = resolveSort(sortBy, sortOrder);
+
       const constraints: any[] = [];
       if (tierFilter !== "All") constraints.push(where("tier", "==", tierFilter));
       if (search.trim()) {
         const s = search.trim();
-        constraints.push(where("name", ">=", s), where("name", "<=", s + "\uf8ff"), orderBy("name"));
-      } else {
-        constraints.push(orderBy("name"));
+        constraints.push(where("name", ">=", s), where("name", "<=", s + "\uf8ff"));
       }
+      constraints.push(orderBy(firestoreField, dir));
       constraints.push(limit(PAGE_SIZE));
       if (!reset && lastDoc) constraints.push(startAfter(lastDoc));
 
@@ -679,7 +781,7 @@ export default function MembersMobile({ initialUsers = [], initialStaff = [] }: 
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, tierFilter]);
+  }, [search, tierFilter, sortBy, sortOrder]);
 
   // Stats
   const fetchStats = useCallback(async () => {
@@ -708,20 +810,44 @@ export default function MembersMobile({ initialUsers = [], initialStaff = [] }: 
     return () => unsub();
   }, [canManage]);
 
-  // Reload on filter change
+  // FIX: pisah initial load dari filter-change effect,
+  // sama persis dengan fix di MembersClient.tsx
+  const isFirstRender = useRef(true);
+
+  // 1. Initial load saat mount — tanpa guard canManage
   useEffect(() => {
     setLastDoc(null);
     setHasMore(true);
     loadUsers(true);
     fetchStats();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, tierFilter]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 2. Reload saat filter/sort berubah — skip initial render
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    setLastDoc(null);
+    setHasMore(true);
+    loadUsers(true);
+    fetchStats();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, tierFilter, sortBy, sortOrder]);
 
   // Filtered staff (client-side, small collection)
   const filteredStaff = useMemo(() => {
     if (!search.trim()) return staff;
     return staff.filter(s => s.name?.toLowerCase().includes(search.toLowerCase()) || s.email?.toLowerCase().includes(search.toLowerCase()));
   }, [staff, search]);
+
+  // Sort label untuk tombol
+  const sortLabel = useMemo(() => {
+    const opt = SORT_OPTIONS.find(o => o.field === sortBy);
+    if (!opt) return "Urutkan";
+    return `${opt.label} ${sortOrder === "asc" ? "↑" : "↓"}`;
+  }, [sortBy, sortOrder]);
 
   const TABS: { id: TabId; icon: React.ElementType; label: string; count: number }[] = [
     { id: "member", icon: Users,  label: "Members", count: stats.total       },
@@ -788,16 +914,28 @@ export default function MembersMobile({ initialUsers = [], initialStaff = [] }: 
             <BentoCard label="Active Staff"  value={stats.activeStaff} color={T.green}  bg={T.greenL}  icon={Shield} delay={0.2}  />
           </BentoRow>
 
-          {/* TIER FILTER — only for members tab */}
+          {/* TIER FILTER + SORT BUTTON — hanya untuk tab member */}
           {tab === "member" && (
-            <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 14 }} className="scrollbar-hide">
-              {(["All", "Silver", "Gold", "Platinum"] as TierFilter[]).map(f => (
-                <button key={f} onClick={() => setTierFilter(f)}
-                  style={{ flexShrink: 0, padding: "5px 12px", borderRadius: 99, fontSize: 11, fontWeight: 700, border: `1.5px solid ${tierFilter === f ? T.blue : T.border2}`, background: tierFilter === f ? T.blueL : T.surface, color: tierFilter === f ? T.blueD : T.tx3, cursor: "pointer", whiteSpace: "nowrap" as const }}
-                >
-                  {f === "Platinum" ? "💎" : f === "Gold" ? "🥇" : f === "Silver" ? "🥈" : ""}{f !== "All" ? " " : ""}{f}
-                </button>
-              ))}
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 14 }}>
+              {/* Tier pills — scrollable */}
+              <div style={{ display: "flex", gap: 6, overflowX: "auto", flex: 1 }} className="scrollbar-hide">
+                {(["All", "Silver", "Gold", "Platinum"] as TierFilter[]).map(f => (
+                  <button key={f} onClick={() => setTierFilter(f)}
+                    style={{ flexShrink: 0, padding: "5px 12px", borderRadius: 99, fontSize: 11, fontWeight: 700, border: `1.5px solid ${tierFilter === f ? T.blue : T.border2}`, background: tierFilter === f ? T.blueL : T.surface, color: tierFilter === f ? T.blueD : T.tx3, cursor: "pointer", whiteSpace: "nowrap" as const }}
+                  >
+                    {f === "Platinum" ? "💎" : f === "Gold" ? "🥇" : f === "Silver" ? "🥈" : ""}{f !== "All" ? " " : ""}{f}
+                  </button>
+                ))}
+              </div>
+
+              {/* Sort button */}
+              <button
+                onClick={() => setShowSort(true)}
+                style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 5, padding: "5px 11px", borderRadius: 99, fontSize: 11, fontWeight: 700, border: `1.5px solid ${T.blue}`, background: T.blueL, color: T.blueD, cursor: "pointer", whiteSpace: "nowrap" as const }}
+              >
+                <ArrowUpDown size={11} strokeWidth={2.5} />
+                {sortLabel}
+              </button>
             </div>
           )}
         </div>
@@ -941,6 +1079,16 @@ export default function MembersMobile({ initialUsers = [], initialStaff = [] }: 
           onClose={() => setShowCreate(false)}
           onCreated={() => { loadUsers(true); fetchStats(); }}
           showToast={showToast}
+        />
+      </BottomSheet>
+
+      {/* ── BOTTOM SHEET: SORT ── */}
+      <BottomSheet isOpen={showSort} onClose={() => setShowSort(false)} title="Urutkan Member">
+        <SortSheet
+          sortBy={sortBy}
+          sortOrder={sortOrder}
+          onApply={(field, order) => { setSortBy(field); setSortOrder(order); }}
+          onClose={() => setShowSort(false)}
         />
       </BottomSheet>
 

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { User, UserTier, UserRole, userConverter, AdminUser, AdminRole, adminUserConverter } from "@/types/firestore";
 import {
@@ -1082,9 +1082,11 @@ interface MembersClientProps {
   storeIds?: string[];
 }
 
-export default function MembersClient({ initialUsers = [], initialStaff = [], storeIds = [] }: MembersClientProps) {
+export default function MembersDesktop({ initialUsers = [], initialStaff = [], storeIds = [] }: MembersClientProps) {
   const { user: authUser } = useAuth();
   const router = useRouter();
+  // canManageStaff: true hanya setelah hydrate selesai dan role = SUPER_ADMIN
+  // Saat optimistic user (role: STAFF), ini false — jangan pakai untuk redirect
   const canManageStaff = authUser?.role === "SUPER_ADMIN";
 
   // --- States ---
@@ -1104,7 +1106,7 @@ export default function MembersClient({ initialUsers = [], initialStaff = [], st
   // Filters & Sorting
   const [tab,       setTab]       = useState<TabType>("member");
   const [search,    setSearch]    = useState("");
-  const [sortBy,    setSortBy]    = useState("newest");
+  const [sortBy,    setSortBy]    = useState("tier");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [tierF,     setTierF]     = useState<"All" | "Silver" | "Gold" | "Platinum">("All");
 
@@ -1121,17 +1123,7 @@ export default function MembersClient({ initialUsers = [], initialStaff = [], st
   const { confirm, dialog: confirmDialog } = useConfirm();
 
   // ── Helpers ──────────────────────────────────────────────────────────────
-  // "newest" pakai createdAt desc — tapi TIDAK boleh dikombinasikan dengan
-  // where() lain (butuh composite index Firestore).
-  // Kalau ada filter aktif (tier/search), otomatis fallback ke "name asc"
-  // supaya tidak error, dan UI menampilkan peringatan ringan.
-  function resolveSort(sort: string, order: "asc" | "desc", hasFilter: boolean): { field: string; dir: "asc" | "desc" } {
-    if (sort === "newest") {
-      // Jika ada filter aktif, Firestore tidak bisa combine orderBy(createdAt) + where(tier/name)
-      // tanpa composite index — fallback ke name
-      if (hasFilter) return { field: "name", dir: "asc" };
-      return { field: "createdAt", dir: "desc" };
-    }
+  function resolveSort(sort: string, order: "asc" | "desc"): { field: string; dir: "asc" | "desc" } {
     if (sort === "largestPoints") return { field: "currentPoints", dir: order };
     if (sort === "tier")          return { field: "tier",          dir: order };
     return { field: "name", dir: order };
@@ -1158,20 +1150,13 @@ export default function MembersClient({ initialUsers = [], initialStaff = [], st
   }, []);
 
   // ── Load Users (paginated, manual fetch) ─────────────────────────────────
-  // Aturan Firestore query ordering:
-  //  1. equality where() dulu (tier == x)
-  //  2. range where() (name >= s, name <= s+) — HARUS diikuti orderBy("name")
-  //  3. Kalau sort "newest" (orderBy createdAt) + ada filter aktif → butuh
-  //     composite index. Daripada paksa user buat index, kita fallback ke
-  //     orderBy("name") otomatis saat ada filter, dan tampilkan hint di UI.
   const loadUsers = useCallback(async (reset = false) => {
     if (!reset && (loading || !hasMore)) return;
     setLoading(true);
     setUsersSync("connecting");
 
     try {
-      const hasFilter = search.trim() !== "" || tierF !== "All";
-      const { field: orderField, dir: orderDir } = resolveSort(sortBy, sortOrder, hasFilter);
+      const { field: orderField, dir: orderDir } = resolveSort(sortBy, sortOrder);
 
       const constraints: Parameters<typeof query>[1][] = [];
 
@@ -1184,7 +1169,6 @@ export default function MembersClient({ initialUsers = [], initialStaff = [], st
       if (search.trim()) {
         const s = search.trim();
         constraints.push(where("name", ">=", s), where("name", "<=", s + "\uf8ff"));
-        // orderField sudah "name" karena hasFilter=true di resolveSort
       }
 
       constraints.push(orderBy(orderField, orderDir));
@@ -1210,23 +1194,45 @@ export default function MembersClient({ initialUsers = [], initialStaff = [], st
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, tierF, sortBy, sortOrder]);
-  // lastVisible sengaja tidak masuk deps — hanya dipakai saat "load more" (reset=false).
 
   // ── Effects ───────────────────────────────────────────────────────────────
-  // Auth guard
-  useEffect(() => {
-    if (!canManageStaff) router.replace("/dashboard");
-  }, [canManageStaff, router]);
 
-  // Re-fetch members when filters / sort change
+  // FIX: Root cause — canManageStaff berasal dari useAuth() yang async.
+  // Saat mount pertama, user masih null → canManageStaff = false →
+  // useEffect filter-change tidak memanggil loadUsers sama sekali.
+  // Data baru muncul setelah user menyentuh filter (re-render triggered).
+  //
+  // Solusi: pisah menjadi dua useEffect:
+  //   1. Initial load saat mount — tanpa guard canManageStaff
+  //   2. Re-fetch saat filter berubah — skip render pertama via useRef
+  const isFirstRender = useRef(true);
+
+  // 1. Initial load — jalankan sekali saat mount, tanpa guard auth
   useEffect(() => {
-    if (!canManageStaff) return;
     setLastVisible(null);
     setHasMore(true);
     loadUsers(true);
     fetchStats();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 2. Re-fetch saat filter/sort berubah — skip initial render
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    setLastVisible(null);
+    setHasMore(true);
+    loadUsers(true);
+    fetchStats();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, tierF, sortBy, sortOrder]);
+
+  // Auth guard — TIDAK redirect dari sini.
+  // AuthContext memakai optimistic user (role: STAFF) dulu sebelum hydrate selesai.
+  // Kalau kita cek canManageStaff di sini, user akan di-redirect sebelum role
+  // SUPER_ADMIN ter-set. Biarkan middleware/server yang proteksi route ini.
 
   // Staff realtime listener (small collection — onSnapshot is fine)
   useEffect(() => {
