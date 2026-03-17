@@ -8,14 +8,11 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   X, LayoutDashboard, Receipt, Users, Store,
-  Star, Bell, Settings, LogOut, ChevronRight
+  Bell, Settings, LogOut, ChevronRight, Coffee, FolderOpen, Ticket
 } from "lucide-react";
 import { auth } from "@/lib/firebaseClient";
 import { signOut } from "firebase/auth";
 
-// ─────────────────────────────────────────────────────────────────
-// CONTEXT (Agar halaman mobile bisa membuka drawer dari tombol menu mereka sendiri)
-// ─────────────────────────────────────────────────────────────────
 interface MobileSidebarContextType {
   openDrawer: () => void;
 }
@@ -24,19 +21,18 @@ export const MobileSidebarContext = createContext<MobileSidebarContextType>({
 });
 export const useMobileSidebar = () => useContext(MobileSidebarContext);
 
-// ─────────────────────────────────────────────────────────────────
-// CONSTANTS & DESIGN TOKENS
-// ─────────────────────────────────────────────────────────────────
 const NO_SIDEBAR_ROUTES = ["/login", "/register", "/forgot-password", "/unauthorized"];
 
 const NAV = [
-  { icon: LayoutDashboard, label: "Dashboard",  href: "/dashboard"     },
-  { icon: Receipt,  label: "Transactions", href: "/transactions" },
-  { icon: Users,    label: "Members",    href: "/admin-users"   },
-  { icon: Store,    label: "Stores",     href: "/stores"        },
-  { icon: Star,     label: "Points & Claims", href: "/claims"   },
-  { icon: Bell,     label: "Notifications",  href: "/notifications" },
-  { icon: Settings, label: "Settings",   href: "/settings"      },
+  { href: "/dashboard",     label: "Dashboard",  superAdminOnly: false, icon: LayoutDashboard },
+  { href: "/stores",        label: "Outlets",    superAdminOnly: false, icon: Store },
+  { href: "/transactions",  label: "Transaksi",  superAdminOnly: false, icon: Receipt },
+  { href: "/menus",         label: "Menu",       superAdminOnly: false, icon: Coffee },
+  { href: "/assets",        label: "Assets",     superAdminOnly: true,  icon: FolderOpen },
+  { href: "/admin-users",   label: "Member",     superAdminOnly: true,  icon: Users },
+  { href: "/rewards",       label: "Rewards",    superAdminOnly: false, icon: Ticket },
+  { href: "/notifications", label: "Notifikasi", superAdminOnly: true,  icon: Bell },
+  { href: "/settings",      label: "Settings",   superAdminOnly: true,  icon: Settings },
 ];
 
 const T = {
@@ -51,11 +47,15 @@ const T = {
   red:       "#DC2626",
 };
 
-// ─────────────────────────────────────────────────────────────────
-// MOBILE DRAWER COMPONENT (Pindahan dari DashboardMobile)
-// ─────────────────────────────────────────────────────────────────
 const MobileDrawer = ({ open, onClose, userName, role, router }: any) => {
   const pathname = usePathname();
+  const [now, setNow] = useState(new Date());
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const dateStr = now.toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  const timeStr = now.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
   const handleLogout = async () => {
     try {
@@ -66,11 +66,13 @@ const MobileDrawer = ({ open, onClose, userName, role, router }: any) => {
     }
   };
 
+  const isSuperAdmin = role === "SUPER_ADMIN";
+  const visibleNavItems = NAV.filter((item) => !item.superAdminOnly || isSuperAdmin);
+
   return (
     <AnimatePresence>
       {open && (
         <>
-          {/* Backdrop */}
           <motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
@@ -78,7 +80,6 @@ const MobileDrawer = ({ open, onClose, userName, role, router }: any) => {
             onClick={onClose}
           />
           
-          {/* Drawer Panel */}
           <motion.div
             initial={{ x: "-100%" }} animate={{ x: 0 }} exit={{ x: "-100%" }}
             transition={{ type: "spring", stiffness: 360, damping: 36 }}
@@ -89,21 +90,34 @@ const MobileDrawer = ({ open, onClose, userName, role, router }: any) => {
               boxShadow: "4px 0 24px rgba(0,0,0,0.08)"
             }}
           >
-            {/* Header Profil */}
+            {/* Header */}
             <div style={{ padding: "56px 20px 16px", borderBottom: `1px solid ${T.border}` }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 14 }}>
+                {/* Logo + Title */}
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <div style={{ width: 32, height: 32, borderRadius: 10, background: T.blue, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    <span style={{ color: "#fff", fontSize: 10, fontWeight: 900, letterSpacing: ".04em" }}>GC</span>
-                  </div>
+                  <img
+                    src="/assets/images/logo1.webp"
+                    alt="Gong Cha"
+                    style={{ height: 48, width: "auto", objectFit: "contain", flexShrink: 0 }}
+                  />
                   <div>
-                    <p style={{ fontSize: 13, fontWeight: 800, color: T.tx1, lineHeight: 1 }}>Gong Cha</p>
-                    <p style={{ fontSize: 10, color: T.tx4, marginTop: 2 }}>Admin Panel</p>
+                    <p style={{ fontSize: 13, fontWeight: 800, color: T.tx1, lineHeight: 1.3, letterSpacing: "-.01em" }}>
+                      Gong Cha<br />Mobile Admin
+                    </p>
+                    <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 5 }}>
+                      <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#10B981", display: "block", flexShrink: 0 }} />
+                      <p style={{ fontSize: 9.5, color: T.tx4, fontVariantNumeric: "tabular-nums" }}>
+                        {dateStr}
+                      </p>
+                    </div>
+                    <p style={{ fontSize: 12, fontWeight: 700, color: T.tx1, fontVariantNumeric: "tabular-nums", marginTop: 1, letterSpacing: ".02em" }}>
+                      {timeStr}
+                    </p>
                   </div>
                 </div>
                 <button
                   onClick={onClose}
-                  style={{ width: 28, height: 28, borderRadius: "50%", background: T.border, border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}
+                  style={{ width: 28, height: 28, borderRadius: "50%", background: T.border, border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, marginTop: 2 }}
                 >
                   <X size={13} color={T.tx3} />
                 </button>
@@ -125,7 +139,7 @@ const MobileDrawer = ({ open, onClose, userName, role, router }: any) => {
 
             {/* Menu List */}
             <div style={{ flex: 1, padding: "12px 10px", overflowY: "auto" }}>
-              {NAV.map(({ icon: Icon, label, href }) => {
+              {visibleNavItems.map(({ icon: Icon, label, href }) => {
                 const active = pathname === href || pathname.startsWith(href + "/");
                 return (
                   <button key={label}
@@ -146,7 +160,7 @@ const MobileDrawer = ({ open, onClose, userName, role, router }: any) => {
               })}
             </div>
 
-            {/* Logout Button */}
+            {/* Logout */}
             <div style={{ padding: "12px 10px 32px", borderTop: `1px solid ${T.border}` }}>
               <button onClick={handleLogout} style={{
                 width: "100%", display: "flex", alignItems: "center", gap: 10,
@@ -164,9 +178,6 @@ const MobileDrawer = ({ open, onClose, userName, role, router }: any) => {
   );
 };
 
-// ─────────────────────────────────────────────────────────────────
-// MAIN SHELL (Desktop & Mobile)
-// ─────────────────────────────────────────────────────────────────
 export default function AdminShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -180,16 +191,9 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
 
   const showSidebar = !NO_SIDEBAR_ROUTES.some(r => pathname.startsWith(r));
 
-  if (!showSidebar) {
-    return <>{children}</>;
-  }
+  if (!showSidebar) return <>{children}</>;
+  if (!mounted) return null; 
 
-  // Hindari hydration mismatch (wajib untuk Next.js App Router saat memakai window.innerWidth)
-  if (!mounted) {
-    return null; 
-  }
-
-  // --- RENDER UNTUK MOBILE ---
   if (isMobile) {
     const userName = user?.name || user?.email?.split("@")[0] || "Admin";
     const role = user?.role || "STAFF";
@@ -197,7 +201,6 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
     return (
       <MobileSidebarContext.Provider value={{ openDrawer: () => setDrawerOpen(true) }}>
         <div style={{ height: "100dvh", overflow: "hidden" }}>
-          {/* Drawer Tersembunyi */}
           <MobileDrawer 
             open={drawerOpen} 
             onClose={() => setDrawerOpen(false)} 
@@ -205,7 +208,6 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
             role={role} 
             router={router} 
           />
-          {/* Konten Halaman Mobile (Termasuk Top Bar dari halaman masing-masing) */}
           <main style={{ height: "100%", overflowY: "auto", overflowX: "hidden" }}>
             {children}
           </main>
@@ -214,7 +216,6 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
     );
   }
 
-  // --- RENDER UNTUK DESKTOP (Layout lama dijamin utuh 100%) ---
   return (
     <div className="gc-shell">
       <Sidebar />
