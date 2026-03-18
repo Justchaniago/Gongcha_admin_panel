@@ -4,6 +4,8 @@ import { adminDb } from "@/lib/firebaseAdmin";
 import { Reward, rewardConverter } from "@/types/firestore";
 // 🔥 FIX: Import FieldValue untuk Delta Sync
 import { FieldValue } from "firebase-admin/firestore";
+import { getAdminSession } from "@/lib/adminSession";
+import { writeActivityLog } from "@/lib/activityLog";
 
 type RewardMutationInput = {
   title?: string;
@@ -36,6 +38,7 @@ function doc(id: string) {
 // ============================================================================
 export async function createReward(data: RewardMutationInput) {
   try {
+    const actor = await getAdminSession({ allowedRoles: ["SUPER_ADMIN"] });
     const title = String(data.title ?? "").trim();
     if (!title) throw new Error("Reward title is required");
 
@@ -59,6 +62,16 @@ export async function createReward(data: RewardMutationInput) {
     };
 
     await ref.set(payload as any);
+    await writeActivityLog({
+      actor,
+      action: "REWARD_CREATED",
+      targetType: "reward",
+      targetId: rewardId,
+      targetLabel: title,
+      summary: `Created reward ${title}`,
+      source: "action/createReward",
+      metadata: payload,
+    });
     return { success: true, id: rewardId };
   } catch (error: any) {
     throw new Error(error.message || "Failed to add reward");
@@ -70,9 +83,11 @@ export async function createReward(data: RewardMutationInput) {
 // ============================================================================
 export async function updateReward(id: string, data: RewardMutationInput) {
   try {
+    const actor = await getAdminSession({ allowedRoles: ["SUPER_ADMIN"] });
     const ref = doc(id).withConverter(rewardConverter as any);
     const snap = await ref.get();
     if (!snap.exists) throw new Error(`Reward "${id}" not found`);
+    const before = snap.data() ?? null;
 
     const updates: any = { ...data };
     if (updates.pointsCost) updates.pointsCost = Number(updates.pointsCost);
@@ -82,6 +97,16 @@ export async function updateReward(id: string, data: RewardMutationInput) {
     updates.updatedAt = FieldValue.serverTimestamp();
 
     await ref.update(updates);
+    await writeActivityLog({
+      actor,
+      action: "REWARD_UPDATED",
+      targetType: "reward",
+      targetId: id,
+      targetLabel: String((before as any)?.title ?? id),
+      summary: `Updated reward ${id}`,
+      source: "action/updateReward",
+      metadata: { before, changes: updates },
+    });
     return { success: true };
   } catch (error: any) {
     throw new Error(error.message || "Failed to update reward");
@@ -93,10 +118,24 @@ export async function updateReward(id: string, data: RewardMutationInput) {
 // ============================================================================
 export async function deleteReward(id: string) {
   try {
+    const actor = await getAdminSession({ allowedRoles: ["SUPER_ADMIN"] });
+    const ref = adminDb.collection("rewards_catalog").doc(id);
+    const snap = await ref.get();
+    const before = snap.data() ?? null;
     // 🔥 DELTA SYNC: HARAM .delete(). Pakai Soft Delete agar HP Customer sadar.
-    await adminDb.collection("rewards_catalog").doc(id).update({
+    await ref.update({
       isAvailable: false,
       updatedAt: FieldValue.serverTimestamp()
+    });
+    await writeActivityLog({
+      actor,
+      action: "REWARD_DELETED",
+      targetType: "reward",
+      targetId: id,
+      targetLabel: String(before?.title ?? id),
+      summary: `Soft deleted reward ${id}`,
+      source: "action/deleteReward",
+      metadata: { before },
     });
     return { success: true };
   } catch (error: any) {

@@ -7,7 +7,7 @@ import { useMobileSidebar } from "@/components/layout/AdminShell";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Menu as MenuIcon, X, ChevronRight, Settings,
-  Bell, Shield, Zap, AlertTriangle, CheckCircle2, Save,
+  Bell, Shield, Zap, AlertTriangle, CheckCircle2, Save, History,
 } from "lucide-react";
 
 // ── DESIGN TOKENS ──
@@ -136,11 +136,12 @@ export default function SettingsMobile() {
   const router             = useRouter();
 
   const [settings,  setSettings]  = useState<Settings>(DEFAULTS);
+  const [canReadActivityLog, setCanReadActivityLog] = useState(false);
   const [loading,   setLoading]   = useState(true);
   const [saving,    setSaving]    = useState(false);
   const [dirty,     setDirty]     = useState(false);
   const [toast,     setToast]     = useState<{ msg: string; type: "success" | "error" } | null>(null);
-  const [activeSheet, setSheet]   = useState<"points" | "tiers" | "notifications" | "danger" | null>(null);
+  const [activeSheet, setSheet]   = useState<"activity" | "points" | "tiers" | "notifications" | "danger" | null>(null);
   const [dangerConfirm, setDangerConfirm] = useState<string | null>(null);
 
   useEffect(() => {
@@ -158,6 +159,25 @@ export default function SettingsMobile() {
   }, []);
 
   useEffect(() => { loadSettings(); }, [loadSettings]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/activity-logs/access", { cache: "no-store" });
+        const data = await res.json();
+        if (!cancelled) {
+          setCanReadActivityLog(
+            Boolean(data?.canRead || data?.inReadWhitelist || data?.inManageWhitelist),
+          );
+        }
+      } catch {
+        if (!cancelled) setCanReadActivityLog(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const showToast = (msg: string, type: "success" | "error" = "success") => setToast({ msg, type });
 
@@ -200,6 +220,7 @@ export default function SettingsMobile() {
   }
 
   const SECTIONS = [
+    ...(canReadActivityLog ? [{ id: "activity" as const, icon: History, label: "Activity Log", sub: "Developer audit trail", color: T.navy2, bg: "#E5E7EB" }] : []),
     { id: "points" as const, icon: Zap, label: "Points Configuration", sub: `${settings.pointsPerThousand} pts / Rp 1.000`, color: T.blue, bg: T.blueL },
     { id: "tiers"  as const, icon: Shield, label: "Member Tier Config", sub: "Silver · Gold · Platinum", color: T.purple, bg: T.purpleL },
     { id: "notifications" as const, icon: Bell, label: "Admin Notifications", sub: `${Object.values(settings.notifications).filter(Boolean).length} active`, color: T.green, bg: T.greenL },
@@ -266,7 +287,7 @@ export default function SettingsMobile() {
               </div>
             ) : SECTIONS.map((s, i) => (
               <motion.div key={s.id} initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * .05 }}
-                onClick={() => setSheet(s.id)}
+                onClick={() => s.id === "activity" ? router.push("/activity-log") : setSheet(s.id)}
                 style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px", borderBottom: i < SECTIONS.length - 1 ? `1px solid ${T.border}` : "none", cursor: "pointer" }}
               >
                 <div style={{ width: 40, height: 40, borderRadius: 11, background: s.bg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>

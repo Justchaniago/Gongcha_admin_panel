@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 // Pastikan hanya menggunakan firebaseAdmin, jangan campur dengan firebaseServer
-import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
-import { cookies } from "next/headers";
+import { adminDb } from "@/lib/firebaseAdmin";
+import { getAdminSession, isAdminAuthError } from "@/lib/adminSession";
+import { writeActivityLog } from "@/lib/activityLog";
 
 const SETTINGS_DOC = "settings/global";
 
@@ -25,42 +26,10 @@ const DEFAULTS = {
 };
 
 // ── Auth helper ───────────────────────────────────────────────────────────────
-async function validateAdmin() {
-  const cookieStore = await cookies();
-  const sessionCookie = cookieStore.get("session")?.value;
-  
-  if (!sessionCookie) {
-    return { error: "Session not found. Please login again.", status: 401, token: null };
-  }
-  
-  const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
-  const uid = decodedClaims.uid;
-
-  // Fresh Role Fetching (prioritize admin_users for admin panel role source)
-  const userDoc = await adminDb.collection("users").doc(uid).get();
-  const adminUserDoc = await adminDb.collection("admin_users").doc(uid).get();
-  const profile = adminUserDoc.exists ? adminUserDoc.data() : userDoc.exists ? userDoc.data() : null;
-  const role = String(profile?.role ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/[\s-]+/g, "_");
-
-  if (profile?.isActive === false) {
-    return { error: "Access denied. Account is inactive.", status: 403, token: null };
-  }
-
-  const allowedRoles = ["super_admin", "admin", "master"];
-  if (!role || !allowedRoles.includes(role)) {
-    return { error: "Access denied. Your role is not permitted to modify settings.", status: 403, token: null };
-  }
-  return { token: decodedClaims, error: null, status: 200 };
-}
-
 // ── GET — read settings ───────────────────────────────────────────────────────
 export async function GET() {
   try {
-    const auth = await validateAdmin();
-    if (auth.error) return NextResponse.json({ message: auth.error }, { status: auth.status });
+    await getAdminSession({ allowedRoles: ["SUPER_ADMIN"] });
 
     const snap = await adminDb.doc(SETTINGS_DOC).get();
     if (!snap.exists) {
@@ -69,6 +38,9 @@ export async function GET() {
     return NextResponse.json({ ...DEFAULTS, ...snap.data() });
   } catch (e: any) {
     console.error("[GET /api/settings]", e);
+    if (isAdminAuthError(e)) {
+      return NextResponse.json({ message: e.message }, { status: e.status });
+    }
     return NextResponse.json({ message: e.message || "Internal Server Error" }, { status: 500 });
   }
 }
@@ -76,11 +48,9 @@ export async function GET() {
 // ── PATCH — update settings ───────────────────────────────────────────────────
 export async function PATCH(req: NextRequest) {
   try {
-    // 1. Validasi Auth dimasukkan ke dalam try-catch!
-    const auth = await validateAdmin();
-    if (auth.error) {
-      return NextResponse.json({ message: auth.error }, { status: auth.status });
-    }
+    const auth = await getAdminSession({ allowedRoles: ["SUPER_ADMIN"] });
+    const beforeSnap = await adminDb.doc(SETTINGS_DOC).get();
+    const beforeData = beforeSnap.exists ? { ...DEFAULTS, ...beforeSnap.data() } : { ...DEFAULTS };
 
     // 2. Parse Body JSON
     const body = await req.json();
@@ -101,10 +71,25 @@ export async function PATCH(req: NextRequest) {
     }
 
     update.updatedAt = new Date().toISOString();
-    update.updatedBy = auth.token!.uid as string;
+    update.updatedBy = auth.uid;
+    const afterData = { ...beforeData, ...update };
 
     // 4. Simpan ke Firestore
     await adminDb.doc(SETTINGS_DOC).set(update, { merge: true });
+    await writeActivityLog({
+      actor: auth,
+      action: "SETTINGS_UPDATED",
+      targetType: "settings",
+      targetId: SETTINGS_DOC,
+      targetLabel: "Global settings",
+      summary: "Updated global application settings",
+      source: "api/settings:PATCH",
+      metadata: {
+        before: beforeData,
+        after: afterData,
+        changes: update,
+      },
+    });
 
     // 5. Kembalikan data terbaru
     const snap = await adminDb.doc(SETTINGS_DOC).get();
@@ -112,6 +97,9 @@ export async function PATCH(req: NextRequest) {
     
   } catch (e: any) {
     console.error("[PATCH /api/settings] Error:", e);
+    if (isAdminAuthError(e)) {
+      return NextResponse.json({ message: e.message }, { status: e.status });
+    }
     // Sekarang error tidak akan membuat server crash blank (500 tanpa info), melainkan mengembalikan pesan JSON.
     return NextResponse.json({ message: e.message || "Gagal menyimpan ke server" }, { status: 500 });
   }

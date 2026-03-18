@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseServer";
-import { adminAuth } from "@/lib/firebaseAdmin";
-import { cookies } from "next/headers";
 import { v4 as uuidv4 } from "uuid";
 import type { AdminNotificationLog, NotificationType } from "@/types/firestore";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
+import { getAdminSession, isAdminAuthError } from "@/lib/adminSession";
+import { writeActivityLog } from "@/lib/activityLog";
 
 // Map admin-side NotificationType to the type values the customer app expects
 function toCustomerType(t: NotificationType): 'gift' | 'points' | 'promo' | 'order' | 'system' {
@@ -13,26 +13,6 @@ function toCustomerType(t: NotificationType): 'gift' | 'points' | 'promo' | 'ord
   if (t === 'tx_rejected')      return 'system';
   if (t === 'broadcast')        return 'promo';
   return 'system'; // targeted
-}
-
-// Helper: session validation (admin / master only)
-async function validateSession() {
-  const cookieStore = await cookies();
-  const sessionCookie = cookieStore.get("session")?.value;
-  if (!sessionCookie) return { error: "Session not found.", status: 403, token: null };
-  try {
-    const decoded = await adminAuth.verifySessionCookie(sessionCookie, true);
-    const uid = decoded.uid as string;
-    const adminProfileSnap = await adminDb.collection("admin_users").doc(uid).get();
-    const adminProfile = adminProfileSnap.data();
-    const role = adminProfile?.role ?? (decoded.role as string) ?? "";
-    if (adminProfile?.isActive !== true || !["SUPER_ADMIN", "STAFF"].includes(role)) {
-      return { error: "Access denied.", status: 403, token: null };
-    }
-    return { error: null, status: 200, token: { ...decoded, uid } };
-  } catch {
-    return { error: "Invalid session.", status: 401, token: null };
-  }
 }
 
 async function writeNotificationToUser(
@@ -55,11 +35,8 @@ async function writeNotificationToUser(
 
 // ── GET — fetch notification log (most recent 100) ─────────────────────────
 export async function GET(req: NextRequest) {
-  const validation = await validateSession();
-  if (validation.error)
-    return NextResponse.json({ message: validation.error }, { status: validation.status });
-
   try {
+    await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "STAFF"] });
     const snap = await adminDb
       .collection("notifications_log")
       .orderBy("sentAt", "desc")
@@ -70,17 +47,17 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ success: true, logs });
   } catch (err: any) {
     console.error("[GET /api/notifications]", err);
+    if (isAdminAuthError(err)) {
+      return NextResponse.json({ message: err.message }, { status: err.status });
+    }
     return NextResponse.json({ message: err.message ?? "Internal server error" }, { status: 500 });
   }
 }
 
 // ── POST — send manual notification (broadcast or targeted) ───────────────
 export async function POST(req: NextRequest) {
-  const validation = await validateSession();
-  if (validation.error)
-    return NextResponse.json({ message: validation.error }, { status: validation.status });
-
   try {
+    const session = await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "STAFF"] });
     const body = await req.json();
     const { title, message: bodyText, targetType, targetUid, targetName } = body;
 
@@ -92,7 +69,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ message: "targetUid wajib diisi untuk targetType 'user'." }, { status: 400 });
 
     const now      = new Date().toISOString();
-    const sentBy   = validation.token!.uid as string;
+    const sentBy   = session.uid;
     const notifId  = uuidv4();
     const type: NotificationType = targetType === "all" ? "broadcast" : "targeted";
     const customerType = toCustomerType(type);
@@ -145,10 +122,24 @@ export async function POST(req: NextRequest) {
       recipientCount,
     };
     await adminDb.collection("notifications_log").doc(notifId).set(log);
+    await writeActivityLog({
+      actor: session,
+      action: "NOTIFICATION_SENT",
+      targetType: "notification",
+      targetId: notifId,
+      targetLabel: title,
+      summary: `Sent ${targetType === "all" ? "broadcast" : "targeted"} notification`,
+      source: "api/notifications:POST",
+      metadata: { title, body: bodyText, targetType, targetUid, targetName, recipientCount },
+    });
 
     return NextResponse.json({ success: true, id: notifId, recipientCount });
   } catch (err: any) {
     console.error("[POST /api/notifications]", err);
+    if (isAdminAuthError(err)) {
+      return NextResponse.json({ message: err.message }, { status: err.status });
+    }
     return NextResponse.json({ message: err.message ?? "Internal server error" }, { status: 500 });
   }
 }
+

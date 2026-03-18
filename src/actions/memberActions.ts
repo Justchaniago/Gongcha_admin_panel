@@ -1,9 +1,10 @@
 "use server";
 
-import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { FieldValue } from "firebase-admin/firestore";
-import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
+import { adminDb } from "@/lib/firebaseAdmin";
+import { getAdminSession } from "@/lib/adminSession";
+import { writeActivityLog } from "@/lib/activityLog";
 
 type UpdateMemberInput = {
   name?: string;
@@ -15,23 +16,16 @@ type UpdateMemberInput = {
 };
 
 async function verifySuperAdmin() {
-  const cookieStore = await cookies();
-  const session = cookieStore.get("session")?.value;
-  if (!session) throw new Error("Unauthorized");
-
-  const decoded = await adminAuth.verifySessionCookie(session, true);
-  const adminSnap = await adminDb.collection("admin_users").doc(decoded.uid).get();
-  const admin = adminSnap.data();
-  if (!admin || admin.isActive !== true || admin.role !== "SUPER_ADMIN") {
-    throw new Error("Forbidden");
-  }
-
-  return decoded.uid;
+  const session = await getAdminSession({ allowedRoles: ["SUPER_ADMIN"] });
+  return session.uid;
 }
 
 export async function updateMemberAction(uid: string, input: UpdateMemberInput) {
-  await verifySuperAdmin();
+  const actorUid = await verifySuperAdmin();
   if (!uid) throw new Error("uid is required");
+  const actor = await getAdminSession({ allowedRoles: ["SUPER_ADMIN"] });
+  const beforeSnap = await adminDb.collection("users").doc(uid).get();
+  const before = beforeSnap.data() ?? null;
 
   const update: Record<string, unknown> = {
     updatedAt: FieldValue.serverTimestamp(),
@@ -55,6 +49,16 @@ export async function updateMemberAction(uid: string, input: UpdateMemberInput) 
   }
 
   await adminDb.collection("users").doc(uid).set(update, { merge: true });
+  await writeActivityLog({
+    actor,
+    action: "MEMBER_UPDATED",
+    targetType: "member",
+    targetId: uid,
+    targetLabel: String(before?.name ?? uid),
+    summary: `Updated member profile ${uid}`,
+    source: "action/updateMemberAction",
+    metadata: { before, changes: update, requestedBy: actorUid },
+  });
 
   revalidatePath("/admin-users");
   return { success: true };
@@ -62,6 +66,7 @@ export async function updateMemberAction(uid: string, input: UpdateMemberInput) 
 
 export async function sendMemberNotificationAction(uid: string, title: string, body: string) {
   await verifySuperAdmin();
+  const actor = await getAdminSession({ allowedRoles: ["SUPER_ADMIN"] });
   if (!uid) throw new Error("uid is required");
   if (!title.trim() || !body.trim()) throw new Error("title and body are required");
 
@@ -73,6 +78,16 @@ export async function sendMemberNotificationAction(uid: string, title: string, b
     createdAt: FieldValue.serverTimestamp(),
     expireAt: new Date(now + 7 * 24 * 60 * 60 * 1000),
     type: "system",
+  });
+  await writeActivityLog({
+    actor,
+    action: "NOTIFICATION_SENT",
+    targetType: "notification",
+    targetId: uid,
+    targetLabel: title.trim(),
+    summary: `Sent manual member notification to ${uid}`,
+    source: "action/sendMemberNotificationAction",
+    metadata: { title: title.trim(), body: body.trim(), uid },
   });
 
   revalidatePath("/notifications");

@@ -1,63 +1,62 @@
 import { NextRequest, NextResponse } from "next/server";
-import { adminDb } from "@/lib/firebaseServer";
 import { FieldValue } from "firebase-admin/firestore";
-import { cookies } from "next/headers";
-import { adminAuth } from "@/lib/firebaseAdmin";
-
-type RouteContext = { params: Promise<{ id: string }> };
-
-async function validateSession(requireSuperAdmin = true) {
-  const cookieStore = await cookies();
-  const sessionCookie = cookieStore.get("session")?.value;
-  if (!sessionCookie) return { error: "Session not found.", status: 403 };
-  try {
-    const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
-    const profileSnap = await adminDb.collection("admin_users").doc(decodedClaims.uid).get();
-    const profile = profileSnap.data();
-    if (profile?.isActive !== true) return { error: "Access denied. Account inactive.", status: 403 };
-    if (requireSuperAdmin && profile?.role !== "SUPER_ADMIN") return { error: "Access denied. SUPER_ADMIN required.", status: 403 };
-    return { token: decodedClaims, userRole: profile.role, error: null };
-  } catch {
-    return { error: "Invalid session.", status: 401 };
-  }
-}
+import { adminDb } from "@/lib/firebaseAdmin";
+import { getAdminSession, isAdminAuthError } from "@/lib/adminSession";
+import { writeActivityLog } from "@/lib/activityLog";
 
 function guardId(id: unknown): string | null {
-  if (typeof id !== 'string' || !id.trim()) return null;
+  if (typeof id !== "string" || !id.trim()) return null;
   return id.trim();
 }
 
-export async function GET(req: NextRequest, ctx: RouteContext) {
-  const validation = await validateSession(false);
-  if (validation.error) return NextResponse.json({ message: validation.error }, { status: validation.status });
-
-  const { id } = await ctx.params;
-  const safeId = guardId(id);
-  if (!safeId) return NextResponse.json({ message: 'Reward ID tidak valid.' }, { status: 400 });
+export async function GET(
+  _req: NextRequest,
+  context: { params: Promise<unknown> },
+) {
   try {
+    await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "STAFF"] });
+    const params = await context.params as { id?: string };
+    const safeId = guardId(params.id);
+
+    if (!safeId) {
+      return NextResponse.json({ message: "Reward ID tidak valid." }, { status: 400 });
+    }
+
     const doc = await adminDb.collection("rewards_catalog").doc(safeId).get();
-    if (!doc.exists) return NextResponse.json({ message: `Reward "${safeId}" tidak ditemukan.` }, { status: 404 });
+    if (!doc.exists) {
+      return NextResponse.json({ message: `Reward "${safeId}" tidak ditemukan.` }, { status: 404 });
+    }
+
     return NextResponse.json({ id: doc.id, ...doc.data() });
-  } catch (err: any) {
-    return NextResponse.json({ message: err.message }, { status: 500 });
+  } catch (error: any) {
+    if (isAdminAuthError(error)) {
+      return NextResponse.json({ message: error.message }, { status: error.status });
+    }
+    return NextResponse.json({ message: error.message ?? "Internal server error." }, { status: 500 });
   }
 }
 
-export async function PATCH(req: NextRequest, ctx: RouteContext) {
-  const validation = await validateSession(true);
-  if (validation.error) return NextResponse.json({ message: validation.error }, { status: validation.status });
-
-  const { id } = await ctx.params;
-  const safeId = guardId(id);
-  if (!safeId) return NextResponse.json({ message: 'Reward ID tidak valid.' }, { status: 400 });
+export async function PATCH(
+  req: NextRequest,
+  context: { params: Promise<unknown> },
+) {
   try {
+    const actor = await getAdminSession({ allowedRoles: ["SUPER_ADMIN"] });
+    const params = await context.params as { id?: string };
+    const safeId = guardId(params.id);
+
+    if (!safeId) {
+      return NextResponse.json({ message: "Reward ID tidak valid." }, { status: 400 });
+    }
+
     const body = await req.json();
     const docRef = adminDb.collection("rewards_catalog").doc(safeId);
-
     const existing = await docRef.get();
-    if (!existing.exists) return NextResponse.json({ message: `Reward "${safeId}" tidak ditemukan.` }, { status: 404 });
 
-    // 🔥 WHITELIST UPDATE: Tambahkan isRedeemable ke dalam array allowed
+    if (!existing.exists) {
+      return NextResponse.json({ message: `Reward "${safeId}" tidak ditemukan.` }, { status: 404 });
+    }
+
     const allowed = ["title", "description", "isActive", "isRedeemable"] as const;
     const update: Record<string, unknown> = {};
     for (const key of allowed) {
@@ -69,34 +68,74 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
     if (body.pointsrequired !== undefined) update.pointsrequired = Number(body.pointsrequired);
     if (body.imageUrl !== undefined) update.imageUrl = String(body.imageUrl).trim();
 
-    if (Object.keys(update).length === 0) return NextResponse.json({ message: "No fields to update." }, { status: 400 });
+    if (Object.keys(update).length === 0) {
+      return NextResponse.json({ message: "No fields to update." }, { status: 400 });
+    }
 
     update.updatedAt = FieldValue.serverTimestamp();
 
     await docRef.update(update);
+    await writeActivityLog({
+      actor,
+      action: "REWARD_UPDATED",
+      targetType: "reward",
+      targetId: safeId,
+      targetLabel: String(existing.data()?.title ?? safeId),
+      summary: `Updated reward ${safeId}`,
+      source: "api/rewards/[id]:PATCH",
+      metadata: {
+        before: existing.data(),
+        changes: update,
+      },
+    });
+
     const updated = await docRef.get();
     return NextResponse.json({ id: updated.id, ...updated.data() });
-  } catch (err: any) {
-    return NextResponse.json({ message: err.message ?? "Internal server error." }, { status: 500 });
+  } catch (error: any) {
+    if (isAdminAuthError(error)) {
+      return NextResponse.json({ message: error.message }, { status: error.status });
+    }
+    return NextResponse.json({ message: error.message ?? "Internal server error." }, { status: 500 });
   }
 }
 
-export async function DELETE(req: NextRequest, ctx: RouteContext) {
-  const validation = await validateSession(true);
-  if (validation.error) return NextResponse.json({ message: validation.error }, { status: validation.status });
-
-  const { id } = await ctx.params;
-  const safeId = guardId(id);
-  if (!safeId) return NextResponse.json({ message: 'Reward ID tidak valid.' }, { status: 400 });
+export async function DELETE(
+  _req: NextRequest,
+  context: { params: Promise<unknown> },
+) {
   try {
+    const actor = await getAdminSession({ allowedRoles: ["SUPER_ADMIN"] });
+    const params = await context.params as { id?: string };
+    const safeId = guardId(params.id);
+
+    if (!safeId) {
+      return NextResponse.json({ message: "Reward ID tidak valid." }, { status: 400 });
+    }
+
     const docRef = adminDb.collection("rewards_catalog").doc(safeId);
     const existing = await docRef.get();
-    if (!existing.exists) return NextResponse.json({ message: `Reward "${safeId}" tidak ditemukan.` }, { status: 404 });
+    if (!existing.exists) {
+      return NextResponse.json({ message: `Reward "${safeId}" tidak ditemukan.` }, { status: 404 });
+    }
 
-    // Gunakan delete() permanen jika benar-benar ingin menghapus dari Admin Panel
+    const before = existing.data() ?? null;
     await docRef.delete();
+    await writeActivityLog({
+      actor,
+      action: "REWARD_DELETED",
+      targetType: "reward",
+      targetId: safeId,
+      targetLabel: String(before?.title ?? safeId),
+      summary: `Deleted reward ${safeId}`,
+      source: "api/rewards/[id]:DELETE",
+      metadata: { before },
+    });
+
     return NextResponse.json({ success: true, id: safeId });
-  } catch (err: any) {
-    return NextResponse.json({ message: err.message ?? "Internal server error." }, { status: 500 });
+  } catch (error: any) {
+    if (isAdminAuthError(error)) {
+      return NextResponse.json({ message: error.message }, { status: error.status });
+    }
+    return NextResponse.json({ message: error.message ?? "Internal server error." }, { status: 500 });
   }
 }

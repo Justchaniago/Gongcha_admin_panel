@@ -28,5 +28,6 @@ export const adminDb = firestoreDatabaseId
   ? getAdminFirestore(admin.app(), firestoreDatabaseId)
   : getAdminFirestore(admin.app());
 export const FieldValue = admin.firestore.FieldValue;
+export const FieldPath = admin.firestore.FieldPath;
 export const Timestamp = admin.firestore.Timestamp;
 export const adminAuth = admin.auth();

@@ -1,32 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseAdmin";
-import { cookies } from "next/headers";
-import { adminAuth } from "@/lib/firebaseAdmin";
+import { getAdminSession, isAdminAuthError } from "@/lib/adminSession";
+import { writeActivityLog } from "@/lib/activityLog";
 
 export async function PATCH(
   req: NextRequest,
   context: { params: Promise<{ uid: string }> }
 ) {
   try {
-    // Baca cookie session langsung dari next/headers dan decode JWT secara manual.
-    // Pendekatan ini paling kompatibel dengan Next.js 16 karena tidak bergantung
-    // pada internal getServerSession atau getToken.
-    const cookieStore = await cookies();
-    const sessionCookie = cookieStore.get("session")?.value;
-    if (!sessionCookie) {
-      return NextResponse.json(
-        { error: "Session not found. Please login again.", code: "SESSION_NULL" },
-        { status: 403 }
-      );
-    }
-    const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
-    const userRole = decodedClaims.role as string;
-    if (!["admin", "master"].includes(userRole)) {
-      return NextResponse.json(
-        { error: "Access denied. You do not have admin permission.", code: "FORBIDDEN" },
-        { status: 403 }
-      );
-    }
+    const session = await getAdminSession({ allowedRoles: ["SUPER_ADMIN"] });
 
     const { uid } = await context.params;
     if (!uid) return NextResponse.json({ error: "Missing uid" }, { status: 400 });
@@ -45,15 +27,38 @@ export async function PATCH(
       );
     }
 
+    const targetRef = adminDb.collection("users").doc(uid);
+    const beforeSnap = await targetRef.get();
+    const before = beforeSnap.data() ?? null;
+
     await adminDb.collection("users").doc(uid).update({
       currentPoints:        Number(currentPoints),
       lifetimePoints:       Number(lifetimePoints),
-      pointsLastEditedBy:   decodedClaims.uid as string,
+      pointsLastEditedBy:   session.uid,
       pointsLastEditedAt:   new Date().toISOString(),
+    });
+    await writeActivityLog({
+      actor: session,
+      action: "POINTS_UPDATED",
+      targetType: "member",
+      targetId: uid,
+      targetLabel: String(before?.name ?? uid),
+      summary: `Updated member points via API for ${uid}`,
+      source: "api/members/[uid]/points:PATCH",
+      metadata: {
+        before: {
+          currentPoints: before?.currentPoints ?? before?.points ?? 0,
+          lifetimePoints: before?.lifetimePoints ?? before?.xp ?? 0,
+        },
+        after: { currentPoints: Number(currentPoints), lifetimePoints: Number(lifetimePoints) },
+      },
     });
 
     return NextResponse.json({ success: true });
   } catch (e: any) {
+    if (isAdminAuthError(e)) {
+      return NextResponse.json({ error: e.message, code: e.code }, { status: e.status });
+    }
     console.error("Error updating points:", e);
     return NextResponse.json({ error: e.message || "Failed to update points" }, { status: 500 });
   }

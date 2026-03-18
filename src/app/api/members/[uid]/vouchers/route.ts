@@ -1,28 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { adminDb } from "@/lib/firebaseServer";
+import { adminDb } from "@/lib/firebaseAdmin";
 import * as admin from "firebase-admin";
-import { cookies } from "next/headers";
-import { adminAuth } from "@/lib/firebaseAdmin";
 import { UserVoucher, AdminNotificationLog } from "@/types/firestore";
 import { v4 as uuidv4 } from "uuid";
-
-// Helper validasi session admin/master
-async function validateSession() {
-  const cookieStore = await cookies();
-  const sessionCookie = cookieStore.get("session")?.value;
-  if (!sessionCookie) {
-    return { error: "Session not found. Please login again.", status: 403 };
-  }
-  const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
-  const adminProfileSnap = await adminDb.collection("admin_users").doc(decodedClaims.uid).get();
-  const adminProfile = adminProfileSnap.data();
-  const userRole = adminProfile?.role as string;
-
-  if (adminProfile?.isActive !== true || !["SUPER_ADMIN", "STAFF"].includes(userRole)) {
-    return { error: "Access denied. You do not have permission.", status: 403 };
-  }
-  return { token: decodedClaims, userRole, error: null };
-}
+import { getAdminSession, isAdminAuthError } from "@/lib/adminSession";
+import { writeActivityLog } from "@/lib/activityLog";
 
 // POST /api/members/[uid]/vouchers — Suntik voucher ke user
 export async function POST(req: NextRequest, { params }: { params: Promise<{ uid: string }> }) {
@@ -32,12 +14,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ uid
     return NextResponse.json({ message: "UID diperlukan." }, { status: 400 });
   }
 
-  const validation = await validateSession();
-  if (validation.error) {
-    return NextResponse.json({ message: validation.error }, { status: validation.status });
-  }
-
   try {
+    const session = await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "STAFF"] });
     const body = await req.json();
     const { rewardId } = body;
     if (!rewardId) {
@@ -69,7 +47,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ uid
     // ── Auto-notification: voucher injected ──────────────────────────────────
     const now         = new Date().toISOString();
     const notifId     = uuidv4();
-    const adminUid    = validation.token!.uid as string;
+    const adminUid    = session.uid;
 
     // Fetch user display name for log
     let targetName = uid;
@@ -106,10 +84,29 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ uid
       }),
       adminDb.collection("notifications_log").doc(notifId).set(adminLog),
     ]);
+    await writeActivityLog({
+      actor: session,
+      action: "VOUCHER_INJECTED",
+      targetType: "member",
+      targetId: uid,
+      targetLabel: targetName,
+      summary: `Injected voucher ${rewardData.title} to ${targetName}`,
+      source: "api/members/[uid]/vouchers:POST",
+      metadata: {
+        rewardId,
+        rewardTitle: rewardData.title,
+        voucherCode: code,
+        voucherId: voucher.id,
+        expiresAt,
+      },
+    });
 
     return NextResponse.json({ success: true, voucher });
   } catch (err: any) {
     console.error("[POST /api/members/[uid]/vouchers]", err);
+    if (isAdminAuthError(err)) {
+      return NextResponse.json({ message: err.message }, { status: err.status });
+    }
     return NextResponse.json({ message: err.message ?? "Internal server error." }, { status: 500 });
   }
 }

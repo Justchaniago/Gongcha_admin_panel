@@ -1,11 +1,11 @@
 // src/app/api/transactions/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseServer";
-import { cookies } from "next/headers";
-import { adminAuth } from "@/lib/firebaseAdmin";
 import * as admin from "firebase-admin";
 import { v4 as uuidv4 } from "uuid";
 import type { AdminNotificationLog, UserNotification } from "@/types/firestore";
+import { getAdminSession, isAdminAuthError } from "@/lib/adminSession";
+import { writeActivityLog } from "@/lib/activityLog";
 
 type TransactionStatus = "PENDING" | "COMPLETED" | "CANCELLED" | "REFUNDED";
 
@@ -111,14 +111,15 @@ async function createTxNotification(
 
 // ── Auth helper ───────────────────────────────────────────────────────────────
 async function validateSession(req: NextRequest) {
-  const cookieStore = await cookies();
-  const sessionCookie = cookieStore.get("session")?.value;
-  if (!sessionCookie) {
-    return { error: "Session not found. Please login again.", status: 403, token: null };
+  try {
+    const session = await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "STAFF"] });
+    return { token: session.claims, userRole: session.role, error: null, status: 200 };
+  } catch (error) {
+    if (isAdminAuthError(error)) {
+      return { token: null, userRole: null, error: error.message, status: error.status };
+    }
+    throw error;
   }
-  const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
-  const userRole = decodedClaims.role as string;
-  return { token: decodedClaims, userRole, error: null, status: 200 };
 }
 
 // ── Points disbursement helper ────────────────────────────────────────────────
@@ -244,6 +245,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(txs);
   } catch (e: any) {
     console.error("[GET /api/transactions]", e);
+    if (isAdminAuthError(e)) {
+      return NextResponse.json({ message: e.message }, { status: e.status });
+    }
     return NextResponse.json({ message: e.message }, { status: 500 });
   }
 }
@@ -299,6 +303,23 @@ export async function PATCH(req: NextRequest) {
 
       // 3. Auto-notification to member
       await createTxNotification(getUserId(txData), "verified", txData, verifiedBy);
+      await writeActivityLog({
+        actor: validation.token ? {
+          uid: validation.token.uid,
+          email: validation.token.email ?? null,
+          role: validation.userRole,
+          assignedStoreId: null,
+          profile: { name: validation.token.name ?? validation.token.email ?? validation.token.uid },
+          claims: validation.token,
+        } : null,
+        action: "TRANSACTION_APPROVED",
+        targetType: "transaction",
+        targetId: txSnap.id,
+        targetLabel: getReceiptNumber(txData, txSnap.id),
+        summary: `Approved transaction ${getReceiptNumber(txData, txSnap.id)}`,
+        source: "api/transactions:PATCH",
+        metadata: { docPath, statusBefore: txData.status, statusAfter: "COMPLETED", potentialPoints: txData.potentialPoints ?? 0 },
+      });
 
       return NextResponse.json({
         success: true,
@@ -311,11 +332,31 @@ export async function PATCH(req: NextRequest) {
 
       // Auto-notification to member
       await createTxNotification(getUserId(txData), "rejected", txData, verifiedBy);
+      await writeActivityLog({
+        actor: validation.token ? {
+          uid: validation.token.uid,
+          email: validation.token.email ?? null,
+          role: validation.userRole,
+          assignedStoreId: null,
+          profile: { name: validation.token.name ?? validation.token.email ?? validation.token.uid },
+          claims: validation.token,
+        } : null,
+        action: "TRANSACTION_REJECTED",
+        targetType: "transaction",
+        targetId: txSnap.id,
+        targetLabel: getReceiptNumber(txData, txSnap.id),
+        summary: `Rejected transaction ${getReceiptNumber(txData, txSnap.id)}`,
+        source: "api/transactions:PATCH",
+        metadata: { docPath, statusBefore: txData.status, statusAfter: "CANCELLED" },
+      });
 
       return NextResponse.json({ success: true, action: "rejected" });
     }
   } catch (e: any) {
     console.error("[PATCH /api/transactions]", e);
+    if (isAdminAuthError(e)) {
+      return NextResponse.json({ message: e.message }, { status: e.status });
+    }
     return NextResponse.json({ message: e.message ?? "Internal server error" }, { status: 500 });
   }
 }
@@ -367,9 +408,43 @@ export async function POST(req: NextRequest) {
             verifiedBy
           );
           await createTxNotification(getUserId(txData), "verified", txData, verifiedBy);
+          await writeActivityLog({
+            actor: validation.token ? {
+              uid: validation.token.uid,
+              email: validation.token.email ?? null,
+              role: validation.userRole,
+              assignedStoreId: null,
+              profile: { name: validation.token.name ?? validation.token.email ?? validation.token.uid },
+              claims: validation.token,
+            } : null,
+            action: "TRANSACTION_APPROVED",
+            targetType: "transaction",
+            targetId: txSnap.id,
+            targetLabel: getReceiptNumber(txData, txSnap.id),
+            summary: `Approved transaction ${getReceiptNumber(txData, txSnap.id)}`,
+            source: "api/transactions:POST",
+            metadata: { docPath, statusBefore: txData.status, statusAfter: "COMPLETED", potentialPoints: txData.potentialPoints ?? 0 },
+          });
         } else {
           await txRef.update({ status: "CANCELLED", verifiedAt: now, verifiedBy });
           await createTxNotification(getUserId(txData), "rejected", txData, verifiedBy);
+          await writeActivityLog({
+            actor: validation.token ? {
+              uid: validation.token.uid,
+              email: validation.token.email ?? null,
+              role: validation.userRole,
+              assignedStoreId: null,
+              profile: { name: validation.token.name ?? validation.token.email ?? validation.token.uid },
+              claims: validation.token,
+            } : null,
+            action: "TRANSACTION_REJECTED",
+            targetType: "transaction",
+            targetId: txSnap.id,
+            targetLabel: getReceiptNumber(txData, txSnap.id),
+            summary: `Rejected transaction ${getReceiptNumber(txData, txSnap.id)}`,
+            source: "api/transactions:POST",
+            metadata: { docPath, statusBefore: txData.status, statusAfter: "CANCELLED" },
+          });
         }
 
         successCount++;
@@ -387,6 +462,9 @@ export async function POST(req: NextRequest) {
     });
   } catch (e: any) {
     console.error("[POST /api/transactions]", e);
+    if (isAdminAuthError(e)) {
+      return NextResponse.json({ message: e.message }, { status: e.status });
+    }
     return NextResponse.json({ message: e.message ?? "Internal server error" }, { status: 500 });
   }
 }
@@ -398,7 +476,7 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ message: validation.error }, { status: validation.status });
   }
 
-  if (!["admin", "SUPER_ADMIN"].includes(validation.userRole ?? "")) {
+  if (validation.userRole !== "SUPER_ADMIN") {
     return NextResponse.json(
       { message: "Only admin is allowed to delete transactions." },
       { status: 403 }
@@ -434,6 +512,23 @@ export async function DELETE(req: NextRequest) {
         }
 
         await txRef.delete();
+        await writeActivityLog({
+          actor: validation.token ? {
+            uid: validation.token.uid,
+            email: validation.token.email ?? null,
+            role: validation.userRole,
+            assignedStoreId: null,
+            profile: { name: validation.token.name ?? validation.token.email ?? validation.token.uid },
+            claims: validation.token,
+          } : null,
+          action: "TRANSACTION_DELETED",
+          targetType: "transaction",
+          targetId: txSnap.id,
+          targetLabel: getReceiptNumber(txSnap.data()!, txSnap.id),
+          summary: `Deleted transaction ${getReceiptNumber(txSnap.data()!, txSnap.id)}`,
+          source: "api/transactions:DELETE",
+          metadata: { docPath, before: txSnap.data() },
+        });
         successCount++;
       } catch (e: any) {
         errors.push(`${docPath}: ${e.message}`);
@@ -449,6 +544,9 @@ export async function DELETE(req: NextRequest) {
     });
   } catch (e: any) {
     console.error("[DELETE /api/transactions]", e);
+    if (isAdminAuthError(e)) {
+      return NextResponse.json({ message: e.message }, { status: e.status });
+    }
     return NextResponse.json({ message: e.message ?? "Internal server error" }, { status: 500 });
   }
 }

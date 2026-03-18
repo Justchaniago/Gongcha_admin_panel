@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { adminDb, adminAuth } from "@/lib/firebaseAdmin";
+import { adminDb } from "@/lib/firebaseAdmin";
 import { Timestamp } from "firebase-admin/firestore";
-import { cookies } from "next/headers";
+import { getAdminSession, isAdminAuthError } from "@/lib/adminSession";
+import { writeActivityLog } from "@/lib/activityLog";
 
 interface VerifyRequest {
   receiptNumber?: string;    // Transaction number from POS (must match)
@@ -22,31 +23,9 @@ function isFirestoreNotFoundError(err: any): boolean {
   return err?.code === 5 || msg.includes("5 NOT_FOUND") || msg.includes("NOT_FOUND");
 }
 
-async function validateSession() {
-  const cookieStore = await cookies();
-  const sessionCookie = cookieStore.get("session")?.value;
-  if (!sessionCookie) {
-    return { error: "Session not found. Please login again.", status: 401, token: null as any };
-  }
-
-  try {
-    const token = await adminAuth.verifySessionCookie(sessionCookie, true);
-    return { error: null, status: 200, token };
-  } catch {
-    return { error: "Invalid session.", status: 401, token: null as any };
-  }
-}
-
 export async function POST(req: NextRequest): Promise<NextResponse<VerifyResponse>> {
   try {
-    // ── Auth check ──
-    const auth = await validateSession();
-    if (auth.error) {
-      return NextResponse.json(
-        { success: false, message: auth.error },
-        { status: auth.status }
-      );
-    }
+    const auth = await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "STAFF"] });
 
     // ── Parse request ──
     const body: VerifyRequest = await req.json();
@@ -175,7 +154,7 @@ export async function POST(req: NextRequest): Promise<NextResponse<VerifyRespons
     const updateData: any = {
       status: newStatus,
       verifiedAt: Timestamp.now(),
-      verifiedBy: auth.token.uid,
+      verifiedBy: auth.uid,
     };
 
     if (reason) {
@@ -212,6 +191,26 @@ export async function POST(req: NextRequest): Promise<NextResponse<VerifyRespons
       }
     }
 
+    await writeActivityLog({
+      actor: auth,
+      action: newStatus === "COMPLETED" ? "TRANSACTION_APPROVED" : "TRANSACTION_REJECTED",
+      targetType: "transaction",
+      targetId: String(txSnapshot.id),
+      targetLabel: String(txData.receiptNumber ?? receiptNumber),
+      summary: `${newStatus === "COMPLETED" ? "Approved" : "Rejected"} transaction ${receiptNumber}`,
+      source: "api/transactions/verify:POST",
+      metadata: {
+        receiptNumber,
+        posAmount,
+        posDate,
+        previousStatus: currentStatus || "PENDING",
+        nextStatus: newStatus,
+        reason,
+        userId,
+        potentialPoints: txData.potentialPoints ?? 0,
+      },
+    });
+
     return NextResponse.json(
       {
         success: true,
@@ -225,6 +224,12 @@ export async function POST(req: NextRequest): Promise<NextResponse<VerifyRespons
     );
   } catch (error) {
     console.error("[/api/transactions/verify] Error:", error);
+    if (isAdminAuthError(error)) {
+      return NextResponse.json(
+        { success: false, message: error.message },
+        { status: error.status }
+      );
+    }
     return NextResponse.json(
       { success: false, message: error instanceof Error ? error.message : "Server error" },
       { status: 500 }
