@@ -1,24 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { adminDb } from "@/lib/firebaseServer";
 import { FieldValue } from "firebase-admin/firestore";
-import { cookies } from "next/headers";
-import { adminAuth } from "@/lib/firebaseAdmin";
-
-async function validateSession(requireSuperAdmin = true) {
-  const cookieStore = await cookies();
-  const sessionCookie = cookieStore.get("session")?.value;
-  if (!sessionCookie) return { error: "Session not found.", status: 403 };
-  try {
-    const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
-    const profileSnap = await adminDb.collection("admin_users").doc(decodedClaims.uid).get();
-    const profile = profileSnap.data();
-    if (profile?.isActive !== true) return { error: "Access denied.", status: 403 };
-    if (requireSuperAdmin && profile?.role !== "SUPER_ADMIN") return { error: "Admin only.", status: 403 };
-    return { token: decodedClaims, userRole: profile.role, error: null };
-  } catch {
-    return { error: "Invalid session.", status: 401 };
-  }
-}
+import { adminDb } from "@/lib/firebaseAdmin";
+import { getAdminSession, isAdminAuthError } from "@/lib/adminSession";
+import { writeActivityLog } from "@/lib/activityLog";
 
 function parseRewardBody(body: any) {
   const title = String(body.title ?? "").trim();
@@ -26,49 +10,84 @@ function parseRewardBody(body: any) {
   const pointsrequired = Number(body.pointsrequired ?? 0);
   const imageUrl = String(body.imageUrl ?? "").trim();
   const isActive = body.isActive !== false;
-  // 🔥 AMBIL DATA isRedeemable DARI UI (Default true jika tidak ada)
-  const isRedeemable = body.isRedeemable !== false; 
+  const isRedeemable = body.isRedeemable !== false;
 
   if (!title) throw new Error("title wajib diisi.");
-  return { title, description, pointsrequired, imageUrl, isActive, isRedeemable };
+
+  return {
+    title,
+    description,
+    pointsrequired,
+    imageUrl,
+    isActive,
+    isRedeemable,
+  };
 }
 
-export async function GET(req: NextRequest) {
-  const validation = await validateSession(false);
-  if (validation.error) return NextResponse.json({ message: validation.error }, { status: validation.status });
+export async function GET(_req: NextRequest) {
   try {
+    await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "STAFF"] });
     const snap = await adminDb.collection("rewards_catalog").get();
-    const rewards = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const rewards = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
     return NextResponse.json({ rewards });
-  } catch (err: any) {
-    return NextResponse.json({ message: err.message }, { status: 500 });
+  } catch (error: any) {
+    if (isAdminAuthError(error)) {
+      return NextResponse.json({ message: error.message }, { status: error.status });
+    }
+    return NextResponse.json({ message: error.message ?? "Internal server error." }, { status: 500 });
   }
 }
 
 export async function POST(req: NextRequest) {
-  const validation = await validateSession(true);
-  if (validation.error) return NextResponse.json({ message: validation.error }, { status: validation.status });
   try {
+    const actor = await getAdminSession({ allowedRoles: ["SUPER_ADMIN"] });
     const body = await req.json();
-    const { rewardId } = body;
-    if (!rewardId?.trim()) return NextResponse.json({ message: "rewardId wajib diisi." }, { status: 400 });
+    const rewardId = String(body.rewardId ?? "").trim();
 
-    const docId = rewardId.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
+    if (!rewardId) {
+      return NextResponse.json({ message: "rewardId wajib diisi." }, { status: 400 });
+    }
+
+    const docId = rewardId.toLowerCase().replace(/[^a-z0-9_-]/g, "");
+    if (!docId) {
+      return NextResponse.json({ message: "rewardId tidak valid." }, { status: 400 });
+    }
+
     const docRef = adminDb.collection("rewards_catalog").doc(docId);
-    
     const existing = await docRef.get();
-    if (existing.exists) return NextResponse.json({ message: "ID sudah digunakan" }, { status: 409 });
+    if (existing.exists) {
+      return NextResponse.json({ message: "ID sudah digunakan" }, { status: 409 });
+    }
 
     const parsed = parseRewardBody(body);
-    const payload = { 
-      ...parsed, 
-      createdAt: FieldValue.serverTimestamp(), 
-      updatedAt: FieldValue.serverTimestamp() 
+    const payload = {
+      ...parsed,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
     };
 
     await docRef.set(payload);
+    await writeActivityLog({
+      actor,
+      action: "REWARD_CREATED",
+      targetType: "reward",
+      targetId: docId,
+      targetLabel: parsed.title,
+      summary: `Created reward ${parsed.title}`,
+      source: "api/rewards:POST",
+      metadata: {
+        title: parsed.title,
+        pointsrequired: parsed.pointsrequired,
+        isActive: parsed.isActive,
+        isRedeemable: parsed.isRedeemable,
+      },
+    });
+
     return NextResponse.json({ id: docId, ...payload }, { status: 201 });
-  } catch (err: any) {
-    return NextResponse.json({ message: err.message }, { status: 500 });
+  } catch (error: any) {
+    if (isAdminAuthError(error)) {
+      return NextResponse.json({ message: error.message }, { status: error.status });
+    }
+    return NextResponse.json({ message: error.message ?? "Internal server error." }, { status: 500 });
   }
 }

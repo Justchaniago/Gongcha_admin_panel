@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { adminDb, adminAuth } from "@/lib/firebaseAdmin";
-import { cookies } from "next/headers";
+import { adminDb } from "@/lib/firebaseAdmin";
 import { GeoPoint } from "firebase-admin/firestore";
 import { Store, storeConverter } from "@/types/firestore";
+import { getAdminSession, isAdminAuthError } from "@/lib/adminSession";
+import { writeActivityLog } from "@/lib/activityLog";
 
 type StoreResponse = Omit<Store, "location"> & {
   id: string;
@@ -29,24 +30,7 @@ function serializeStore(id: string, data: Store): StoreResponse {
 }
 
 async function verifyAdminAccess() {
-  const cookieStore = await cookies();
-  const sessionCookie = cookieStore.get("session")?.value;
-
-  if (!sessionCookie) {
-    throw new Error("Invalid Session");
-  }
-
-  const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
-  const uid = decodedClaims.uid;
-
-  const adminSnap = await adminDb.collection("admin_users").doc(uid).get();
-  const profile = adminSnap.data();
-
-  if (!adminSnap.exists || profile?.isActive !== true) {
-    throw new Error("Unauthorized");
-  }
-
-  return profile;
+  return getAdminSession({ allowedRoles: ["SUPER_ADMIN", "STAFF"] });
 }
 
 function parseStoreBody(body: any): Omit<Store, "id"> {
@@ -96,12 +80,8 @@ export async function GET() {
     const stores = snap.docs.map((d) => serializeStore(d.id, d.data() as Store));
     return NextResponse.json({ data: stores }, { status: 200 });
   } catch (error: any) {
-    const message = error?.message;
-    if (message === "Invalid Session") {
-      return NextResponse.json({ message }, { status: 401 });
-    }
-    if (message === "Unauthorized") {
-      return NextResponse.json({ message }, { status: 403 });
+    if (isAdminAuthError(error)) {
+      return NextResponse.json({ message: error.message }, { status: error.status });
     }
     return NextResponse.json({ message: "Internal Server Error" }, { status: 500 });
   }
@@ -109,10 +89,7 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
-    const profile = await verifyAdminAccess();
-    if (profile?.role !== "SUPER_ADMIN") {
-      return NextResponse.json({ message: "Akses Ditolak" }, { status: 403 });
-    }
+    const actor = await getAdminSession({ allowedRoles: ["SUPER_ADMIN"] });
 
     const body = await req.json();
     const storeId = String(body?.storeId ?? "").trim();
@@ -124,6 +101,16 @@ export async function POST(req: NextRequest) {
     const ref = storeDoc(storeId);
 
     await ref.set(storeConverter.toFirestore(payload as any));
+    await writeActivityLog({
+      actor,
+      action: "STORE_CREATED",
+      targetType: "store",
+      targetId: storeId,
+      targetLabel: payload.name,
+      summary: `Created store ${payload.name}`,
+      source: "api/stores:POST",
+      metadata: payload,
+    });
 
     return NextResponse.json(
       { message: "Store created", data: serializeStore(storeId, payload as Store) },
@@ -131,13 +118,10 @@ export async function POST(req: NextRequest) {
     );
   } catch (error: any) {
     console.error("POST STORE ERROR:", error);
+    if (isAdminAuthError(error)) {
+      return NextResponse.json({ message: error.message }, { status: error.status });
+    }
     const message = error?.message;
-    if (message === "Invalid Session") {
-      return NextResponse.json({ message }, { status: 401 });
-    }
-    if (message === "Unauthorized") {
-      return NextResponse.json({ message }, { status: 403 });
-    }
     if (["Incomplete data", "Invalid location", "Invalid operationalHours"].includes(message)) {
       return NextResponse.json({ message }, { status: 400 });
     }

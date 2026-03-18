@@ -1,10 +1,11 @@
 "use server";
 
-import { cookies } from "next/headers";
 // 🔥 FIX 1: Import FieldValue untuk inject Timestamp dari Server
 import { GeoPoint, FieldValue } from "firebase-admin/firestore"; 
-import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
+import { adminDb } from "@/lib/firebaseAdmin";
 import { Store, storeConverter } from "@/types/firestore";
+import { getAdminSession } from "@/lib/adminSession";
+import { writeActivityLog } from "@/lib/activityLog";
 
 type StoreMutationInput = {
   name?: string;
@@ -109,43 +110,15 @@ async function setDoc(
 }
 
 async function verifyAdmin() {
-  const cookieStore = await cookies();
-  const session = cookieStore.get("session")?.value;
-
-  if (!session) {
-    throw new Error("Unauthorized: No session found");
-  }
-
-  try {
-    const decodedClaims = await adminAuth.verifySessionCookie(session, true);
-    const uid = decodedClaims.uid;
-
-    const adminProfile = await adminDb.collection("admin_users").doc(uid).get();
-    if (!adminProfile.exists) {
-      throw new Error("Forbidden: Admin profile not found");
-    }
-
-    const profile = adminProfile.data();
-    if (profile?.isActive !== true) {
-      throw new Error("Forbidden: Account is inactive");
-    }
-
-    if (profile?.role !== "SUPER_ADMIN") {
-      throw new Error("Forbidden: Insufficient permissions");
-    }
-
-    return uid;
-  } catch (error) {
-    console.error("verifyAdmin Error:", error);
-    throw new Error("Unauthorized: Invalid session");
-  }
+  const session = await getAdminSession({ allowedRoles: ["SUPER_ADMIN"] });
+  return session.uid;
 }
 
 // ============================================================================
 // CREATE STORE
 // ============================================================================
 export async function createStore(data: StoreMutationInput) {
-  await verifyAdmin();
+  const actor = await getAdminSession({ allowedRoles: ["SUPER_ADMIN"] });
   const name = data.name?.trim();
   if (!name) throw new Error("Nama outlet wajib diisi.");
 
@@ -178,6 +151,16 @@ export async function createStore(data: StoreMutationInput) {
   };
 
   await setDoc(storesRef as any, payload as FirebaseFirestore.DocumentData);
+  await writeActivityLog({
+    actor,
+    action: "STORE_CREATED",
+    targetType: "store",
+    targetId: storeId,
+    targetLabel: name,
+    summary: `Created store ${name}`,
+    source: "action/createStore",
+    metadata: { address: storeData.address, isActive: storeData.isActive, operationalHours: storeData.operationalHours },
+  });
 
   return { success: true, id: storeId };
 }
@@ -186,10 +169,11 @@ export async function createStore(data: StoreMutationInput) {
 // UPDATE STORE
 // ============================================================================
 export async function updateStore(id: string, data: StoreMutationInput) {
-  await verifyAdmin();
+  const actor = await getAdminSession({ allowedRoles: ["SUPER_ADMIN"] });
   const ref = doc("stores", id).withConverter(storeConverter as any);
   const snap = await ref.get();
   if (!snap.exists) throw new Error(`Store "${id}" tidak ditemukan.`);
+  const before = snap.data() ?? null;
 
   const updates: any = {};
 
@@ -231,6 +215,16 @@ export async function updateStore(id: string, data: StoreMutationInput) {
   };
 
   await setDoc(ref as any, payload as FirebaseFirestore.DocumentData, { merge: true });
+  await writeActivityLog({
+    actor,
+    action: "STORE_UPDATED",
+    targetType: "store",
+    targetId: id,
+    targetLabel: String(before?.name ?? updates.name ?? id),
+    summary: `Updated store ${id}`,
+    source: "action/updateStore",
+    metadata: { before, changes: updates },
+  });
   return { success: true, id };
 }
 
@@ -238,10 +232,11 @@ export async function updateStore(id: string, data: StoreMutationInput) {
 // DELETE STORE (SOFT DELETE)
 // ============================================================================
 export async function deleteStore(id: string) {
-  await verifyAdmin();
+  const actor = await getAdminSession({ allowedRoles: ["SUPER_ADMIN"] });
   const ref = adminDb.collection("stores").doc(id);
   const snap = await ref.get();
   if (!snap.exists) throw new Error(`Store "${id}" tidak ditemukan.`);
+  const before = snap.data() ?? null;
 
   // 🔥 FIX 4: HARAM pakai .delete() karena HP user tak akan sadar.
   // Gunakan metode Soft Delete.
@@ -251,6 +246,16 @@ export async function deleteStore(id: string) {
     isForceClosed: true,    // Tutup paksa
     statusOverride: 'closed',
     updatedAt: FieldValue.serverTimestamp() // Trigger ke HP user
+  });
+  await writeActivityLog({
+    actor,
+    action: "STORE_DELETED",
+    targetType: "store",
+    targetId: id,
+    targetLabel: String(before?.name ?? id),
+    summary: `Soft deleted store ${id}`,
+    source: "action/deleteStore",
+    metadata: { before },
   });
   
   return { success: true };

@@ -3,6 +3,8 @@ import { adminDb } from "@/lib/firebaseAdmin";
 import { Product, productConverter } from "@/types/firestore";
 // 🔥 FIX: Import FieldValue dari firebase-admin
 import { FieldValue } from "firebase-admin/firestore";
+import { getAdminSession } from "@/lib/adminSession";
+import { writeActivityLog } from "@/lib/activityLog";
 
 type ProductMutationInput = {
   name?: string;
@@ -75,6 +77,7 @@ async function setDoc(
 
 export async function createMenu(data: ProductMutationInput) {
   try {
+    const actor = await getAdminSession({ allowedRoles: ["SUPER_ADMIN"] });
     const rawName = String(data.name ?? "").trim();
     const productId = generateProductId(rawName);
     if (!productId) throw new Error("Failed to generate product ID from name");
@@ -96,6 +99,16 @@ export async function createMenu(data: ProductMutationInput) {
 
     const converted = productConverter.toFirestore(payload as any);
     await setDoc(ref as any, converted as FirebaseFirestore.DocumentData);
+    await writeActivityLog({
+      actor,
+      action: "MENU_CREATED",
+      targetType: "menu",
+      targetId: productId,
+      targetLabel: normalized.name,
+      summary: `Created menu ${normalized.name}`,
+      source: "action/createMenu",
+      metadata: normalized,
+    });
     return { success: true, id: productId };
   } catch (error: any) {
     throw new Error(error.message || "Failed to add product");
@@ -104,9 +117,11 @@ export async function createMenu(data: ProductMutationInput) {
 
 export async function updateMenu(id: string, data: ProductMutationInput) {
   try {
+    const actor = await getAdminSession({ allowedRoles: ["SUPER_ADMIN"] });
     const ref = doc(id).withConverter(productConverter as any);
     const snap = await ref.get();
     if (!snap.exists) throw new Error(`Product "${id}" not found`);
+    const before = snap.data() as Product;
 
     const normalized = normalizeProductInput(
       {
@@ -124,6 +139,16 @@ export async function updateMenu(id: string, data: ProductMutationInput) {
 
     const converted = productConverter.toFirestore(payload as any);
     await setDoc(ref as any, converted as FirebaseFirestore.DocumentData, { merge: true });
+    await writeActivityLog({
+      actor,
+      action: "MENU_UPDATED",
+      targetType: "menu",
+      targetId: id,
+      targetLabel: normalized.name,
+      summary: `Updated menu ${normalized.name}`,
+      source: "action/updateMenu",
+      metadata: { before, after: normalized },
+    });
     return { success: true };
   } catch (error: any) {
     throw new Error(error.message || "Failed to update product");
@@ -132,11 +157,25 @@ export async function updateMenu(id: string, data: ProductMutationInput) {
 
 export async function deleteMenu(id: string) {
   try {
+    const actor = await getAdminSession({ allowedRoles: ["SUPER_ADMIN"] });
+    const ref = adminDb.collection("products").doc(id);
+    const snap = await ref.get();
+    const before = snap.data() ?? null;
     // 🔥 DELTA SYNC ARCHITECTURE: SOFT DELETE!
     // HARAM menggunakan .delete(). Kita ubah isAvailable jadi false, lalu beri Timestamp.
-    await adminDb.collection("products").doc(id).update({
+    await ref.update({
       isAvailable: false,
       updatedAt: FieldValue.serverTimestamp()
+    });
+    await writeActivityLog({
+      actor,
+      action: "MENU_DELETED",
+      targetType: "menu",
+      targetId: id,
+      targetLabel: String(before?.name ?? id),
+      summary: `Soft deleted menu ${id}`,
+      source: "action/deleteMenu",
+      metadata: { before },
     });
     return { success: true };
   } catch (error: any) {

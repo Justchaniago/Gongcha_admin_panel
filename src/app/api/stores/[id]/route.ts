@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { adminDb, adminAuth } from "@/lib/firebaseAdmin";
-import { cookies } from "next/headers";
+import { adminDb } from "@/lib/firebaseAdmin";
 import { GeoPoint } from "firebase-admin/firestore";
 import { Store, storeConverter } from "@/types/firestore";
+import { getAdminSession, isAdminAuthError } from "@/lib/adminSession";
+import { writeActivityLog } from "@/lib/activityLog";
 
 type StoreResponse = Omit<Store, "location"> & {
   id: string;
@@ -29,20 +30,7 @@ function serializeStore(id: string, data: Store): StoreResponse {
 }
 
 async function verifyAdminAccess() {
-  const cookieStore = await cookies();
-  const sessionCookie = cookieStore.get("session")?.value;
-
-  if (!sessionCookie) {
-    throw new Error("Invalid Session");
-  }
-
-  const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
-  const adminSnap = await adminDb.collection("admin_users").doc(decodedClaims.uid).get();
-  const profile = adminSnap.data();
-
-  if (!adminSnap.exists || profile?.isActive !== true) {
-    throw new Error("Unauthorized");
-  }
+  await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "STAFF"] });
 }
 
 function parsePatchBody(body: any): Partial<Omit<Store, "id">> {
@@ -97,12 +85,8 @@ export async function GET(
 
     return NextResponse.json({ data: serializeStore(id, snap.data() as Store) }, { status: 200 });
   } catch (error: any) {
-    const message = error?.message;
-    if (message === "Invalid Session") {
-      return NextResponse.json({ message }, { status: 401 });
-    }
-    if (message === "Unauthorized") {
-      return NextResponse.json({ message }, { status: 403 });
+    if (isAdminAuthError(error)) {
+      return NextResponse.json({ message: error.message }, { status: error.status });
     }
     return NextResponse.json({ message: "Internal Server Error" }, { status: 500 });
   }
@@ -114,7 +98,7 @@ export async function PATCH(
 ) {
   try {
     const { id } = await params; // Await params
-    await verifyAdminAccess();
+    const actor = await getAdminSession({ allowedRoles: ["SUPER_ADMIN"] });
 
     const body = await req.json();
     const updates = parsePatchBody(body);
@@ -128,8 +112,19 @@ export async function PATCH(
     if (!existing.exists) {
       return NextResponse.json({ message: `Store "${id}" tidak ditemukan.` }, { status: 404 });
     }
+    const before = existing.data();
 
     await ref.set(storeConverter.toFirestore(updates as any), { merge: true });
+    await writeActivityLog({
+      actor,
+      action: "STORE_UPDATED",
+      targetType: "store",
+      targetId: id,
+      targetLabel: String(before?.name ?? updates.name ?? id),
+      summary: `Updated store ${id}`,
+      source: "api/stores/[id]:PATCH",
+      metadata: { before, changes: updates },
+    });
     const updated = await ref.get();
 
     return NextResponse.json({
@@ -138,13 +133,10 @@ export async function PATCH(
     });
   } catch (error: any) {
     console.error("PATCH STORE ERROR:", error);
+    if (isAdminAuthError(error)) {
+      return NextResponse.json({ message: error.message }, { status: error.status });
+    }
     const message = error?.message;
-    if (message === "Invalid Session") {
-      return NextResponse.json({ message }, { status: 401 });
-    }
-    if (message === "Unauthorized") {
-      return NextResponse.json({ message }, { status: 403 });
-    }
     if (message === "Invalid location") {
       return NextResponse.json({ message }, { status: 400 });
     }

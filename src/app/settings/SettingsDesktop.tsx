@@ -115,6 +115,7 @@ const inputStyle: React.CSSProperties = {
 export default function SettingsPage() {
   const { user: authUser } = useAuth();
   const router = useRouter();
+  const [canReadActivityLog, setCanReadActivityLog] = useState(false);
   const [settings,  setSettings]  = useState<Settings>(DEFAULTS);
   const [loading,   setLoading]   = useState(true);
   const [saving,    setSaving]    = useState(false);
@@ -152,6 +153,25 @@ export default function SettingsPage() {
   }, []);
 
   useEffect(() => { loadSettings(); }, [loadSettings]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/activity-logs/access", { cache: "no-store" });
+        const data = await res.json();
+        if (!cancelled) {
+          setCanReadActivityLog(
+            Boolean(data?.canRead || data?.inReadWhitelist || data?.inManageWhitelist),
+          );
+        }
+      } catch {
+        if (!cancelled) setCanReadActivityLog(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // ── Save settings ───────────────────────────────────────────────────────────
   async function handleSave() {
@@ -236,6 +256,11 @@ export default function SettingsPage() {
               {dirty && (
                 <GcButton variant="ghost" size="lg" onClick={loadSettings}>
                   Batalkan
+                </GcButton>
+              )}
+              {canReadActivityLog && (
+                <GcButton variant="secondary" size="lg" onClick={() => router.push("/activity-log")}>
+                  Activity Log
                 </GcButton>
               )}
               <GcButton variant="blue" size="lg" onClick={handleSave} disabled={!dirty || saving}>

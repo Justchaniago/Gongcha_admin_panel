@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { cookies } from "next/headers";
 import { getStorage } from "firebase-admin/storage";
-import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
+import { getAdminSession, isAdminAuthError } from "@/lib/adminSession";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -52,30 +51,7 @@ function getBucket() {
 }
 
 async function validateSuperAdmin() {
-  const cookieStore = await cookies();
-  const sessionCookie = cookieStore.get("session")?.value;
-
-  if (!sessionCookie) {
-    return { error: "Session not found. Please log in again.", status: 401 as const, uid: null };
-  }
-
-  try {
-    const decoded = await adminAuth.verifySessionCookie(sessionCookie, true);
-    const profileSnap = await adminDb.collection("admin_users").doc(decoded.uid).get();
-    const profile = profileSnap.data();
-
-    if (profile?.isActive !== true) {
-      return { error: "Access denied. Your account is inactive.", status: 403 as const, uid: null };
-    }
-
-    if (profile?.role !== "SUPER_ADMIN") {
-      return { error: "Access denied. SUPER_ADMIN privileges are required.", status: 403 as const, uid: null };
-    }
-
-    return { error: null, status: 200 as const, uid: decoded.uid };
-  } catch {
-    return { error: "Invalid session. Please log in again.", status: 401 as const, uid: null };
-  }
+  return getAdminSession({ allowedRoles: ["SUPER_ADMIN"] });
 }
 
 function normalizeInputPath(raw: unknown) {
@@ -430,29 +406,24 @@ async function moveAssets({
 }
 
 export async function GET(req: NextRequest) {
-  const auth = await validateSuperAdmin();
-  if (auth.error) {
-    return NextResponse.json({ message: auth.error }, { status: auth.status });
-  }
-
   try {
+    await validateSuperAdmin();
     const root = resolveRoot(req.nextUrl.searchParams.get("root"));
     const folder = resolveFolderWithinRoot(root, req.nextUrl.searchParams.get("folder"));
     const payload = await listFolder(root, folder);
     return NextResponse.json(payload);
   } catch (error: any) {
     console.error("[GET /api/assets]", error);
+    if (isAdminAuthError(error)) {
+      return NextResponse.json({ message: error.message }, { status: error.status });
+    }
     return NextResponse.json({ message: error.message ?? "Unable to load asset gallery. Please try again later." }, { status: 500 });
   }
 }
 
 export async function POST(req: NextRequest) {
-  const auth = await validateSuperAdmin();
-  if (auth.error) {
-    return NextResponse.json({ message: auth.error }, { status: auth.status });
-  }
-
   try {
+    const auth = await validateSuperAdmin();
     const contentType = req.headers.get("content-type") ?? "";
     const bucket = getBucket();
 
@@ -537,17 +508,16 @@ export async function POST(req: NextRequest) {
     });
   } catch (error: any) {
     console.error("[POST /api/assets]", error);
+    if (isAdminAuthError(error)) {
+      return NextResponse.json({ message: error.message }, { status: error.status });
+    }
     return NextResponse.json({ message: error.message ?? "Unable to create asset. Please try again later." }, { status: 500 });
   }
 }
 
 export async function PATCH(req: NextRequest) {
-  const auth = await validateSuperAdmin();
-  if (auth.error) {
-    return NextResponse.json({ message: auth.error }, { status: auth.status });
-  }
-
   try {
+    const auth = await validateSuperAdmin();
     const bucket = getBucket();
     const contentType = req.headers.get("content-type") ?? "";
 
@@ -680,17 +650,16 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ message: "Unsupported action." }, { status: 400 });
   } catch (error: any) {
     console.error("[PATCH /api/assets]", error);
+    if (isAdminAuthError(error)) {
+      return NextResponse.json({ message: error.message }, { status: error.status });
+    }
     return NextResponse.json({ message: error.message ?? "Unable to update asset. Please try again later." }, { status: 500 });
   }
 }
 
 export async function DELETE(req: NextRequest) {
-  const auth = await validateSuperAdmin();
-  if (auth.error) {
-    return NextResponse.json({ message: auth.error }, { status: auth.status });
-  }
-
   try {
+    await validateSuperAdmin();
     const bucket = getBucket();
     const body = await parseJsonBody(req);
     const target = String(body.target ?? "");
@@ -747,6 +716,9 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ message: "This delete target is not supported. Please check your request." }, { status: 400 });
   } catch (error: any) {
     console.error("[DELETE /api/assets]", error);
+    if (isAdminAuthError(error)) {
+      return NextResponse.json({ message: error.message }, { status: error.status });
+    }
     return NextResponse.json({ message: error.message ?? "Unable to delete asset. Please try again later." }, { status: 500 });
   }
 }
