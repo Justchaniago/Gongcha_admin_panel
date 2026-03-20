@@ -24,9 +24,6 @@ export function middleware(request: NextRequest) {
   const isPublicApi = pathname.startsWith('/api/auth'); 
 
   if (isLoginPage || isUnauthorizedPage || isPublicApi) {
-    if (session && isLoginPage) {
-      return NextResponse.redirect(new URL('/dashboard', request.url));
-    }
     return NextResponse.next();
   }
 

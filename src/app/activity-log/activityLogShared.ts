@@ -199,7 +199,7 @@ export async function createNote(summary: string, note: string): Promise<void> {
   if (!res.ok) throw new Error(data.message ?? "Gagal membuat catatan");
 }
 
-export async function softDeleteLog(id: string, reason: string): Promise<void> {
+export async function deleteLog(id: string, reason: string): Promise<void> {
   const res = await fetch(`/api/activity-logs/${id}`, {
     method: "DELETE", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ reason }),

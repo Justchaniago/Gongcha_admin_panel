@@ -5,29 +5,52 @@ import { cookies } from "next/headers";
 // Memaksa API ini tidak pernah di-cache oleh Next.js (Wajib di Next 15)
 export const dynamic = "force-dynamic";
 
+const SESSION_MAX_AGE_MS = 60 * 60 * 1000;
+
+async function issueSessionCookie(req: NextRequest, idToken: string) {
+  const sessionCookie = await adminAuth.createSessionCookie(idToken, {
+    expiresIn: SESSION_MAX_AGE_MS,
+  });
+
+  const cookieStore = await cookies();
+  cookieStore.set("session", sessionCookie, {
+    maxAge: SESSION_MAX_AGE_MS / 1000,
+    httpOnly: true,
+    secure:
+      process.env.VERCEL === "1" ||
+      (process.env.NODE_ENV === "production" &&
+        req.headers.get("x-forwarded-proto") === "https"),
+    path: "/",
+    sameSite: "lax",
+  });
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { idToken } = await req.json();
     if (!idToken) return NextResponse.json({ error: "Missing token" }, { status: 400 });
 
-    // Buat cookie session berlaku 5 hari
-    const expiresIn = 60 * 60 * 24 * 5 * 1000;
-    const sessionCookie = await adminAuth.createSessionCookie(idToken, { expiresIn });
-    
-    const cookieStore = await cookies();
-    cookieStore.set("session", sessionCookie, {
-      maxAge: expiresIn / 1000, // Harus dalam satuan detik
-      httpOnly: true,
-      // Hanya wajibkan HTTPS jika sedang berjalan di server Vercel (bukan lokal)
-      secure: process.env.VERCEL === "1" || process.env.NODE_ENV === "production" && req.headers.get("x-forwarded-proto") === "https",
-      path: "/",
-      sameSite: "lax",
-    });
+    await issueSessionCookie(req, idToken);
 
     return NextResponse.json({ success: true });
   } catch (error: any) {
     console.error("Session creation error:", error);
     return NextResponse.json({ error: "Internal Error" }, { status: 500 });
+  }
+}
+
+export async function PATCH(req: NextRequest) {
+  try {
+    const { idToken } = await req.json();
+    if (!idToken) {
+      return NextResponse.json({ error: "Missing token" }, { status: 400 });
+    }
+
+    await issueSessionCookie(req, idToken);
+    return NextResponse.json({ success: true, refreshed: true });
+  } catch (error) {
+    console.error("Session refresh error:", error);
+    return NextResponse.json({ error: "Unable to refresh session" }, { status: 401 });
   }
 }
 
@@ -38,8 +61,9 @@ export async function DELETE() {
 }
 
 export async function GET() {
+  const cookieStore = await cookies();
+
   try {
-    const cookieStore = await cookies();
     const sessionCookie = cookieStore.get("session")?.value;
 
     if (!sessionCookie) {
@@ -75,6 +99,7 @@ export async function GET() {
         : null,
     });
   } catch {
+    cookieStore.delete("session");
     return NextResponse.json({ authenticated: false }, { status: 401 });
   }
 }

@@ -320,6 +320,7 @@ export const dailyStatConverter: FirestoreDataConverter<DailyStat> = {
 // ============================================================================
 
 export interface Reward {
+  [x: string]: any;
   id: string;
   title: string;
   description: string;
@@ -359,6 +360,38 @@ export const rewardConverter: FirestoreDataConverter<Reward> = {
   }
 };
 
+// ============================================================================
+// 7. ACTIVITY LOGS - Collection: 'activity_log_days/{dayId}/events'
+// ============================================================================
+
+export type ActivityLogAction = string;
+
+export type ActivityLogStatus = "success" | "warning" | "error";
+
+export type ActivityLogTargetType = string;
+
+export interface ActivityLog {
+  id: string;
+  actorUid: string;
+  actorName: string;
+  actorEmail?: string | null;
+  actorRole: string;
+  action: ActivityLogAction;
+  targetType: ActivityLogTargetType;
+  targetId: string;
+  targetLabel?: string | null;
+  summary: string;
+  status: ActivityLogStatus;
+  source: string;
+  metadata?: Record<string, unknown> | null;
+  createdAt: Timestamp;
+  isManual?: boolean;
+  isDeleted?: boolean;
+  deletedAt?: Timestamp;
+  deletedBy?: string;
+  deleteReason?: string;
+}
+
 export interface GlobalPromo {
   id: string;
   title: string;
@@ -384,78 +417,7 @@ export const globalPromoConverter: FirestoreDataConverter<GlobalPromo> = {
 };
 
 // ============================================================================
-// 7. ACTIVITY LOGS
-// Storage layout:
-//   activity_log_days/{YYYY-MM-DD}
-//   activity_log_days/{YYYY-MM-DD}/events/{eventId}
-// ============================================================================
-export type ActivityActorRole = "SUPER_ADMIN" | "STAFF";
-
-export type ActivityLogAction =
-  | "SETTINGS_UPDATED"
-  | "TRANSACTION_APPROVED"
-  | "TRANSACTION_REJECTED"
-  | "TRANSACTION_DELETED"
-  | "POINTS_UPDATED"
-  | "VOUCHER_INJECTED"
-  | "MEMBER_UPDATED"
-  | "MEMBER_CREATED"
-  | "MEMBER_DELETED"
-  | "STAFF_CREATED"
-  | "STAFF_UPDATED"
-  | "STAFF_DELETED"
-  | "MENU_CREATED"
-  | "MENU_UPDATED"
-  | "MENU_DELETED"
-  | "REWARD_CREATED"
-  | "REWARD_UPDATED"
-  | "REWARD_DELETED"
-  | "STORE_CREATED"
-  | "STORE_UPDATED"
-  | "STORE_DELETED"
-  | "NOTIFICATION_SENT"
-  | "ACTIVITY_LOG_NOTE_CREATED"
-  | "ACTIVITY_LOG_DELETED";
-
-export type ActivityLogTargetType =
-  | "settings"
-  | "transaction"
-  | "member"
-  | "staff"
-  | "menu"
-  | "reward"
-  | "store"
-  | "notification"
-  | "activity_log";
-
-export type ActivityLogStatus = "success" | "failed";
-
-export interface ActivityLog {
-  // Composite client id: `${dayId}__${eventId}`
-  id: string;
-  actorUid: string;
-  actorName: string;
-  actorEmail?: string | null;
-  actorRole: ActivityActorRole;
-  action: ActivityLogAction;
-  targetType: ActivityLogTargetType;
-  targetId: string;
-  targetLabel?: string | null;
-  summary: string;
-  status: ActivityLogStatus;
-  source: string;
-  metadata?: Record<string, unknown>;
-  createdAt: Timestamp;
-  isManual?: boolean;
-  // Soft delete fields for audit preservation
-  isDeleted?: boolean;
-  deletedAt?: Timestamp;
-  deletedBy?: string;
-  deleteReason?: string;
-}
-
-// ============================================================================
-// 8. LEGACY ADMIN ACCOUNTS (compatibility layer)
+// 7. LEGACY ADMIN ACCOUNTS (compatibility layer)
 // ============================================================================
 export type AccountRole = "master" | "admin" | "manager" | "viewer";
 export type AccountStatus = "active" | "suspended" | "pending";

@@ -12,7 +12,7 @@ import {
 import {
   AccessState, LogItem, ACTION_META, getActionMeta,
   extractChangeEntries, formatRelativeTime, formatExactTime,
-  fetchLogs, createNote, softDeleteLog,
+  fetchLogs, createNote, deleteLog,
 } from "./activityLogShared";
 
 // ─── Design system ────────────────────────────────────────────────────────────
@@ -47,6 +47,8 @@ const C = {
   purple:    "#7C3AED",
   purpleL:   "#F5F3FF",
 } as const;
+
+const logFont = "'IBM Plex Sans', 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
 
 // ─── Shared bottom sheet ──────────────────────────────────────────────────────
 function Sheet({ open, onClose, title, children, tall }: {
@@ -255,12 +257,12 @@ function DeleteSheet({ log, onConfirm, onClose }: {
   useEffect(() => { if (!log) setReason(""); }, [log]);
 
   return (
-    <Sheet open={!!log} onClose={onClose} title="Soft Delete Log">
+    <Sheet open={!!log} onClose={onClose} title="Delete Log">
       {log && (
         <div style={{ display: "grid", gap: 14 }}>
           <div style={{ padding: "12px 14px", borderRadius: 10, background: C.redL, border: `1px solid ${C.redLine}` }}>
             <p style={{ margin: 0, fontSize: 12, color: C.red, fontWeight: 600, lineHeight: 1.5 }}>
-              "{log.summary}" akan ditandai dihapus. Aksi ini tetap tercatat.
+              "{log.summary}" akan dihapus permanen dari database dan tidak bisa dikembalikan.
             </p>
           </div>
           <textarea value={reason} onChange={(e) => setReason(e.target.value)}
@@ -294,53 +296,71 @@ function LogCard({ log, canManage, onDelete }: {
   const [open, setOpen] = useState(false);
   const meta    = getActionMeta(log.action);
   const changes = useMemo(() => extractChangeEntries(log), [log]);
-
-  // Status dot color
-  const dotColor = log.isDeleted ? C.ink4
-    : log.status === "failed" ? C.red
-    : C.green;
+  const previewChanges = changes.slice(0, 2);
 
   return (
     <div style={{
       borderRadius: 14,
-      border: `1px solid ${log.isDeleted ? C.line : C.line}`,
-      background: log.isDeleted ? C.elevated : C.surface,
+      border: `1px solid ${C.line}`,
+      background: C.surface,
       overflow: "hidden",
       transition: "box-shadow .15s",
+      boxShadow: open ? "0 12px 24px rgba(15,23,42,.05)" : "0 1px 2px rgba(15,23,42,.03)",
+      fontFamily: logFont,
     }}>
       {/* ── Summary row ── */}
       <button onClick={() => setOpen((v) => !v)}
-        style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", background: "transparent", border: "none", cursor: "pointer", textAlign: "left" }}>
+        style={{ width: "100%", display: "flex", alignItems: "stretch", gap: 12, padding: "14px 16px", background: "transparent", border: "none", cursor: "pointer", textAlign: "left" }}>
 
-        {/* Left: colored action strip + icon */}
-        <div style={{
-          width: 40, height: 40, borderRadius: 10, flexShrink: 0,
-          background: log.isDeleted ? C.line2 : meta.bg,
-          display: "flex", alignItems: "center", justifyContent: "center",
-          fontSize: 18,
-        }}>
-          {log.isDeleted ? <span style={{ fontSize: 16 }}>🚫</span> : meta.emoji}
+        <div style={{ width: 76, flexShrink: 0, display: "grid", gridTemplateColumns: "12px 1fr", gap: 9 }}>
+          <div style={{ display: "flex", justifyContent: "center" }}>
+            <div style={{ display: "grid", gridTemplateRows: "11px 1fr", justifyItems: "center", height: "100%" }}>
+              <span style={{ width: 9, height: 9, borderRadius: "50%", background: meta.color, marginTop: 3 }} />
+              <span style={{ width: 1, height: "100%", background: C.line }} />
+            </div>
+          </div>
+          <div style={{ display: "grid", gap: 7, alignContent: "start" }}>
+            <p style={{ margin: 0, fontSize: 10, fontWeight: 700, color: C.ink4, letterSpacing: ".12em", textTransform: "uppercase" }}>
+              {formatRelativeTime(log.createdAt)}
+            </p>
+            <p style={{ margin: 0, fontSize: 11, lineHeight: 1.45, color: C.ink3 }}>
+              {log.actorName}
+            </p>
+          </div>
         </div>
 
         {/* Center */}
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: log.isDeleted ? C.ink4 : meta.color, letterSpacing: ".01em" }}>{meta.label}</span>
-            {/* Status dot */}
-            <div style={{ width: 5, height: 5, borderRadius: "50%", background: dotColor, flexShrink: 0 }} />
-            {log.isManual && (
-              <span style={{ fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 4, background: C.amberL, color: C.amber, letterSpacing: ".04em" }}>MANUAL</span>
-            )}
+          <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginBottom: 5, flexWrap: "wrap" }}>
+            <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: C.ink1, letterSpacing: "-.02em" }}>
+              {log.targetLabel || log.targetId}
+            </p>
+            <span style={{ fontSize: 10, fontWeight: 800, color: meta.color, letterSpacing: ".08em", textTransform: "uppercase" }}>{meta.label}</span>
           </div>
-          <p style={{ margin: 0, fontSize: 13, color: C.ink1, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1.4 }}>
-            {log.targetLabel
-              ? <><span style={{ fontWeight: 700 }}>{log.targetLabel}</span><span style={{ color: C.ink3 }}>{" — "}</span></>
-              : null}
-            <span style={{ color: C.ink2 }}>{log.summary}</span>
+          <p style={{ margin: 0, fontSize: 12.5, color: C.ink2, lineHeight: 1.5 }}>
+            {log.summary}
           </p>
-          <p style={{ margin: "3px 0 0", fontSize: 10, color: C.ink4, letterSpacing: ".01em" }}>
-            {log.actorName} · {formatRelativeTime(log.createdAt)}
-          </p>
+          {previewChanges.length > 0 && (
+            <div style={{ display: "grid", gap: 6, marginTop: 10 }}>
+              {previewChanges.map((entry) => (
+                <div key={`${log.id}-${entry.label}-preview`} style={{ display: "grid", gridTemplateColumns: "78px minmax(0, 1fr)", gap: 8 }}>
+                  <p style={{ margin: 0, fontSize: 10, fontWeight: 700, color: C.ink4, letterSpacing: ".12em", textTransform: "uppercase" }}>
+                    {entry.label}
+                  </p>
+                  <p style={{ margin: 0, fontSize: 11.5, color: C.ink2, lineHeight: 1.45, wordBreak: "break-word" }}>
+                    <span style={{ color: C.ink4 }}>{entry.before}</span>
+                    {"  →  "}
+                    <span style={{ color: C.ink1, fontWeight: 700 }}>{entry.after}</span>
+                  </p>
+                </div>
+              ))}
+              {changes.length > previewChanges.length ? (
+                <p style={{ margin: 0, fontSize: 11, fontWeight: 700, color: C.ink3 }}>
+                  +{changes.length - previewChanges.length} perubahan lain
+                </p>
+              ) : null}
+            </div>
+          )}
         </div>
 
         <motion.div animate={{ rotate: open ? 180 : 0 }} transition={{ duration: 0.18 }}>
@@ -375,8 +395,8 @@ function LogCard({ log, canManage, onDelete }: {
 
               {/* Diff */}
               {changes.length > 0 && (
-                <div style={{ borderRadius: 10, background: C.elevated, border: `1px solid ${C.line2}`, padding: "10px 12px", marginBottom: 12 }}>
-                  <p style={{ margin: "0 0 10px", fontSize: 9, fontWeight: 700, color: C.ink4, textTransform: "uppercase", letterSpacing: ".1em" }}>Perubahan</p>
+                <div style={{ borderRadius: 12, background: "#FCFCFC", border: `1px solid ${C.line2}`, padding: "10px 12px", marginBottom: 12 }}>
+                  <p style={{ margin: "0 0 10px", fontSize: 9, fontWeight: 700, color: C.ink4, textTransform: "uppercase", letterSpacing: ".14em" }}>Perubahan</p>
                   <div style={{ display: "grid", gap: 8 }}>
                     {changes.map((e) => (
                       <div key={e.label} style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
@@ -387,16 +407,6 @@ function LogCard({ log, canManage, onDelete }: {
                       </div>
                     ))}
                   </div>
-                </div>
-              )}
-
-              {/* Deleted banner */}
-              {log.isDeleted && (
-                <div style={{ borderRadius: 10, background: C.redL, border: `1px solid ${C.redLine}`, padding: "10px 12px", marginBottom: 12 }}>
-                  <p style={{ margin: 0, fontSize: 11, fontWeight: 700, color: C.red }}>
-                    Dihapus · {formatExactTime(log.deletedAt ?? null)}
-                  </p>
-                  {log.deleteReason && <p style={{ margin: "4px 0 0", fontSize: 11, color: C.red, opacity: .8 }}>{log.deleteReason}</p>}
                 </div>
               )}
 
@@ -422,7 +432,7 @@ function LogCard({ log, canManage, onDelete }: {
                     borderRadius: 8, border: `1px solid ${C.redLine}`, background: C.redL,
                     color: C.red, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
                   }}>
-                  <Trash2 size={12} strokeWidth={2.5} /> Soft Delete
+                  <Trash2 size={12} strokeWidth={2.5} /> Delete
                 </button>
               )}
             </div>
@@ -509,7 +519,7 @@ export default function ActivityLogMobile({
   const handleDelete = async (reason: string) => {
     if (!deleteTarget) return;
     try {
-      await softDeleteLog(deleteTarget.id, reason);
+      await deleteLog(deleteTarget.id, reason);
       showToast("Log dihapus");
       setDeleteTarget(null);
       if (access) await loadLogs({ access, cursor: null });

@@ -357,12 +357,17 @@ export async function getActivityLogByCompositeId(compositeId: string) {
   return { dayId, eventId, data: snap.data() ?? {} };
 }
 
-export async function softDeleteActivityLog(compositeId: string, deletedBy: AdminSession, reason: string) {
+export async function hardDeleteActivityLog(compositeId: string) {
   const { dayId, eventId } = parseCompositeActivityLogId(compositeId);
-  await getEventRef(dayId, eventId).update({
-    isDeleted: true,
-    deletedAt: Timestamp.now(),
-    deletedBy: deletedBy.uid,
-    deleteReason: reason,
-  });
+  const eventRef = getEventRef(dayId, eventId);
+  await eventRef.delete();
+
+  const remainingEvents = await getDayRef(dayId)
+    .collection(ACTIVITY_LOG_EVENT_SUBCOLLECTION)
+    .limit(1)
+    .get();
+
+  if (remainingEvents.empty) {
+    await getDayRef(dayId).delete();
+  }
 }

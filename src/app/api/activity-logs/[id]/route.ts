@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuditSession } from "@/lib/auditAccess";
 import { isAdminAuthError } from "@/lib/adminSession";
-import { getActivityLogByCompositeId, sanitizeActivityLogValue, softDeleteActivityLog, writeActivityLog } from "@/lib/activityLog";
+import { getActivityLogByCompositeId, hardDeleteActivityLog } from "@/lib/activityLog";
 
 function getErrorStatus(error: unknown) {
   if (isAdminAuthError(error)) return error.status;
@@ -20,7 +20,7 @@ export async function DELETE(
   context: { params: Promise<unknown> },
 ) {
   try {
-    const { session } = await getAuditSession("manage");
+    await getAuditSession("manage");
     const params = await context.params as { id?: string };
     const targetId = String(params.id ?? "").trim();
     const body = await req.json().catch(() => ({}));
@@ -38,30 +38,7 @@ export async function DELETE(
     if (!existing) {
       return NextResponse.json({ message: "Activity log not found." }, { status: 404 });
     }
-    const original = existing.data;
-    await softDeleteActivityLog(targetId, session, reason);
-
-    await writeActivityLog({
-      actor: session,
-      action: "ACTIVITY_LOG_DELETED",
-      targetType: "activity_log",
-      targetId,
-      targetLabel: String(original.summary ?? original.targetLabel ?? targetId),
-      summary: `Deleted activity log ${targetId}`,
-      source: "api/activity-logs/[id]:DELETE",
-      metadata: {
-        reason,
-        deletedLog: sanitizeActivityLogValue({
-          actorUid: original.actorUid,
-          actorName: original.actorName,
-          action: original.action,
-          targetType: original.targetType,
-          targetId: original.targetId,
-          summary: original.summary,
-        }),
-      },
-      isManual: true,
-    });
+    await hardDeleteActivityLog(targetId);
 
     return NextResponse.json({ success: true });
   } catch (error) {
