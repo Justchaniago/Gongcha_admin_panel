@@ -84,6 +84,11 @@ function getTodayString(): string {
   return `${year}-${month}-${day}`;
 }
 
+function asNumber(value: unknown, fallback = 0): number {
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 // ── Design tokens ─────────────────────────────────────────────────────────────
 const C = {
   bg: '#F9FAFB', white: '#FFFFFF', border: '#E5E7EB', border2: '#F3F4F6',
@@ -304,6 +309,32 @@ export default function DashboardClient({ initialRole, initialTransactions, init
     return allTransactions.filter((t) => t.storeId === effectiveStoreFilter);
   }, [allTransactions, effectiveStoreFilter]);
 
+  const fallbackRevenueFromTransactions = useMemo(() => {
+    const today = getTodayString();
+    return transactions.reduce((sum, tx) => {
+      const createdDate = tx.createdAt ? tx.createdAt.slice(0, 10) : null;
+      const inRange = mode === "range"
+        ? Boolean(dateFrom && dateTo && createdDate && createdDate >= dateFrom && createdDate <= dateTo)
+        : createdDate === today;
+      if (!inRange) return sum;
+      if (tx.status === "CANCELLED" || tx.status === "REFUNDED") return sum;
+      return sum + asNumber(tx.amount);
+    }, 0);
+  }, [transactions, mode, dateFrom, dateTo]);
+
+  const fallbackTransactionCount = useMemo(() => {
+    const today = getTodayString();
+    return transactions.reduce((count, tx) => {
+      const createdDate = tx.createdAt ? tx.createdAt.slice(0, 10) : null;
+      const inRange = mode === "range"
+        ? Boolean(dateFrom && dateTo && createdDate && createdDate >= dateFrom && createdDate <= dateTo)
+        : createdDate === today;
+      if (!inRange) return count;
+      if (tx.status === "CANCELLED" || tx.status === "REFUNDED") return count;
+      return count + 1;
+    }, 0);
+  }, [transactions, mode, dateFrom, dateTo]);
+
   useEffect(() => {
     storesRef.current = stores;
   }, [stores]);
@@ -465,8 +496,10 @@ export default function DashboardClient({ initialRole, initialTransactions, init
   const claimsNeedingReview = pendingCount + cancelledCount; // Pending + Cancelled
   
   // DAILY STATS (The God Document):
-  const totalRevenue = dailyStatsDocs.reduce((sum, d) => sum + (d.totalRevenue ?? 0), 0);
-  const totalTransactions = dailyStatsDocs.reduce((sum, d) => sum + (d.totalTransactions ?? 0), 0);
+  const totalRevenueFromStats = dailyStatsDocs.reduce((sum, d) => sum + asNumber(d.totalRevenue), 0);
+  const totalTransactionsFromStats = dailyStatsDocs.reduce((sum, d) => sum + asNumber(d.totalTransactions), 0);
+  const totalRevenue = totalRevenueFromStats > 0 ? totalRevenueFromStats : fallbackRevenueFromTransactions;
+  const totalTransactions = totalTransactionsFromStats > 0 ? totalTransactionsFromStats : fallbackTransactionCount;
   const verifiedCount = totalTransactions;
 
   // Additional visuals still rely on transaction stream:
@@ -536,13 +569,16 @@ export default function DashboardClient({ initialRole, initialTransactions, init
   const storeStats = useMemo(() => {
     if (dailyStatsDocs.length === 0) return [];
 
-    const maxRevenue = Math.max(...dailyStatsDocs.map((d) => d.totalRevenue || 0), 1);
-    return [...dailyStatsDocs]
+    const source = dailyStatsDocs.length > 0
+      ? dailyStatsDocs.map((d) => ({ date: d.date, totalRevenue: asNumber(d.totalRevenue) }))
+      : [];
+    const maxRevenue = Math.max(...source.map((d) => d.totalRevenue), 1);
+    return [...source]
       .sort((a, b) => a.date.localeCompare(b.date))
       .slice(-4)
       .map((d) => ({
         name: d.date,
-        pct: Math.max(0, Math.round(((d.totalRevenue || 0) / maxRevenue) * 100)),
+        pct: Math.max(0, Math.round((d.totalRevenue / maxRevenue) * 100)),
       }));
   }, [dailyStatsDocs]);
 

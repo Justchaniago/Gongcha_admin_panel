@@ -8,35 +8,49 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function normalizeRole(value) {
+      return value == null
+        ? ""
+        : value == "SUPER_ADMIN" || value == "ADMIN" || value == "MASTER" || value == "admin" || value == "master"
+          ? "SUPER_ADMIN"
+          : value == "STAFF" || value == "MANAGER" || value == "manager"
+            ? "STAFF"
+            : value;
+    }
+
+    function isActiveFlag(data) {
+      return !("isActive" in data) || data.isActive == true;
+    }
+
     // Legacy helper (kept for backward compatibility with old /staff collection)
     function staffHasRole(roles) {
       return isSignedIn() &&
         exists(/databases/$(database)/documents/staff/$(request.auth.uid)) &&
-        get(/databases/$(database)/documents/staff/$(request.auth.uid)).data.isActive == true &&
-        get(/databases/$(database)/documents/staff/$(request.auth.uid)).data.role in roles;
+        isActiveFlag(get(/databases/$(database)/documents/staff/$(request.auth.uid)).data) &&
+        normalizeRole(get(/databases/$(database)/documents/staff/$(request.auth.uid)).data.role) in roles;
     }
 
     // Current admin panel role source: /admin_users
     function adminUserHasRole(roles) {
       return isSignedIn() &&
         exists(/databases/$(database)/documents/admin_users/$(request.auth.uid)) &&
-        get(/databases/$(database)/documents/admin_users/$(request.auth.uid)).data.isActive == true &&
-        get(/databases/$(database)/documents/admin_users/$(request.auth.uid)).data.role in roles;
+        isActiveFlag(get(/databases/$(database)/documents/admin_users/$(request.auth.uid)).data) &&
+        normalizeRole(get(/databases/$(database)/documents/admin_users/$(request.auth.uid)).data.role) in roles;
     }
 
     // Legacy helper for old schema in /users
     function userIsAdmin() {
       return isSignedIn() &&
         exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'master'];
+        normalizeRole(get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role) == 'SUPER_ADMIN';
     }
 
     function isPrivilegedAdmin() {
-      return adminUserHasRole(['SUPER_ADMIN']) || userIsAdmin() || staffHasRole(['admin', 'store_manager']);
+      return adminUserHasRole(['SUPER_ADMIN']) || userIsAdmin() || staffHasRole(['SUPER_ADMIN', 'store_manager']);
     }
 
     function isActiveAdminPanelUser() {
-      return adminUserHasRole(['SUPER_ADMIN', 'STAFF']) || staffHasRole(['admin', 'store_manager', 'cashier']);
+      return adminUserHasRole(['SUPER_ADMIN', 'STAFF']) || staffHasRole(['SUPER_ADMIN', 'STAFF', 'cashier', 'store_manager']);
     }
 
     // ── /admin_users ───────────────────────────────────────────────────────
@@ -52,7 +66,7 @@ service cloud.firestore {
     // Actual mutations go through API routes (Admin SDK bypasses these rules),
     // but we restrict direct client-SDK writes as a safety net.
     match /accounts/{accountId} {
-      allow read:   if staffHasRole(['admin', 'store_manager']) || userIsAdmin();
+      allow read:   if staffHasRole(['SUPER_ADMIN', 'store_manager']) || userIsAdmin();
       allow create: if false; // Must use /api/accounts (Admin SDK)
       allow update: if false; // Must use /api/accounts/[id] (Admin SDK)
       allow delete: if false; // Must use /api/accounts/[id] (Admin SDK)
@@ -61,7 +75,7 @@ service cloud.firestore {
     // ── /users ─────────────────────────────────────────────────────────────
     match /users/{userId} {
       // Any authenticated user can read their own document
-      allow read:   if isSignedIn() && (request.auth.uid == userId || staffHasRole(['admin', 'store_manager', 'cashier']) || userIsAdmin());
+      allow read:   if isSignedIn() && (request.auth.uid == userId || isActiveAdminPanelUser() || userIsAdmin());
       // Users can update their own limited fields
       allow update: if isSignedIn() && request.auth.uid == userId &&
                        request.resource.data.diff(resource.data).affectedKeys()
@@ -73,7 +87,7 @@ service cloud.firestore {
     // ── /staff ─────────────────────────────────────────────────────────────
     match /staff/{staffId} {
       // Staff can read their own doc; admins can read all
-      allow read:   if isSignedIn() && (request.auth.uid == staffId || staffHasRole(['admin', 'store_manager']) || userIsAdmin());
+      allow read:   if isSignedIn() && (request.auth.uid == staffId || staffHasRole(['SUPER_ADMIN', 'store_manager']) || userIsAdmin());
       allow create: if false; // Must use /api/staff (Admin SDK)
       allow update: if false; // Must use /api/staff/[uid] (Admin SDK)
       allow delete: if false; // Must use /api/staff/[uid] (Admin SDK)
@@ -93,11 +107,13 @@ service cloud.firestore {
       allow write: if isPrivilegedAdmin();
     }
 
-    // ── /transactions (top-level) ──────────────────────────────────────────
-    // Dashboard + transactions page read this collection directly.
+    // 🔥 God Schema: Top-Level Transactions
     match /transactions/{txId} {
-      allow read: if isActiveAdminPanelUser();
-      // Writes/deletes should be done via server/Admin SDK routes.
+      // Izinkan baca JIKA user adalah Admin/Staff AKTIF, ATAU user adalah MEMBER pemilik transaksi tersebut
+      allow read: if isActiveAdminPanelUser() || (request.auth != null && resource.data.uid == request.auth.uid);
+
+      // Klien (Member App/Admin Panel) tidak boleh menulis langsung ke sini.
+      // Semua penulisan di-handle secara Atomic melalui server/backend service.
       allow create, update, delete: if false;
     }
 
@@ -111,9 +127,9 @@ service cloud.firestore {
     // ── /stores/{storeId}/transactions ─────────────────────────────────────
     match /stores/{storeId}/transactions/{txId} {
       // Cashiers can create; managers/admins can read and update status
-      allow read:   if isSignedIn() && (staffHasRole(['cashier', 'store_manager', 'admin']) || userIsAdmin());
-      allow create: if staffHasRole(['cashier', 'store_manager', 'admin']);
-      allow update: if staffHasRole(['store_manager', 'admin']) || userIsAdmin();
+      allow read:   if isSignedIn() && (staffHasRole(['cashier', 'store_manager', 'SUPER_ADMIN', 'STAFF']) || userIsAdmin());
+      allow create: if staffHasRole(['cashier', 'store_manager', 'SUPER_ADMIN', 'STAFF']);
+      allow update: if staffHasRole(['store_manager', 'SUPER_ADMIN', 'STAFF']) || userIsAdmin();
       allow delete: if false;
     }
 

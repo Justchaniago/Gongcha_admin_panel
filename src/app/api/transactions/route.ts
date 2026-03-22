@@ -1,18 +1,14 @@
 // src/app/api/transactions/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseServer";
-import * as admin from "firebase-admin";
 import { v4 as uuidv4 } from "uuid";
 import type { AdminNotificationLog, UserNotification } from "@/types/firestore";
 import { getAdminSession, isAdminAuthError } from "@/lib/adminSession";
 import { writeActivityLog } from "@/lib/activityLog";
+import { applyTransactionReward, getTransactionMemberReference, MemberPointsError } from "@/lib/memberPoints";
 
 type TransactionStatus = "PENDING" | "COMPLETED" | "CANCELLED" | "REFUNDED";
-
-function isFirestoreNotFoundError(err: any): boolean {
-  const msg = String(err?.message ?? "");
-  return err?.code === 5 || msg.includes("5 NOT_FOUND") || msg.includes("NOT_FOUND");
-}
+const TRANSACTIONS_COLLECTION = "transactions";
 
 function normalizeStatus(status: unknown): TransactionStatus {
   switch (String(status ?? "").toUpperCase()) {
@@ -40,6 +36,42 @@ function getTotalAmount(txData: FirebaseFirestore.DocumentData): number {
 
 function getUserId(txData: FirebaseFirestore.DocumentData): string {
   return String(txData.userId ?? txData.memberId ?? "");
+}
+
+function getTransactionUid(txData: FirebaseFirestore.DocumentData): string | null {
+  const candidates = [txData.uid, txData.userId, txData.memberId];
+  for (const candidate of candidates) {
+    const normalized = String(candidate ?? "").trim();
+    if (normalized) return normalized;
+  }
+  return null;
+}
+
+function getPointsEarned(txData: FirebaseFirestore.DocumentData): number {
+  const raw = txData.pointsEarned ?? txData.potentialPoints ?? 0;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function warnOnInvalidTransactionShape(txData: FirebaseFirestore.DocumentData, ref: { id: string; path: string }) {
+  const uid = String(txData.uid ?? "").trim();
+  const hasValidPointsEarned = Number.isFinite(Number(txData.pointsEarned));
+
+  if (!uid || !hasValidPointsEarned) {
+    console.warn("[transactions] legacy or malformed transaction document", {
+      id: ref.id,
+      path: ref.path,
+      uid: txData.uid ?? null,
+      userId: txData.userId ?? null,
+      memberId: txData.memberId ?? null,
+      pointsEarned: txData.pointsEarned ?? null,
+      potentialPoints: txData.potentialPoints ?? null,
+    });
+  }
+}
+
+function normalizeTransactionType(type: unknown): "earn" | "redeem" {
+  return String(type ?? "earn").toLowerCase() === "redeem" ? "redeem" : "earn";
 }
 
 function getStoreName(txData: FirebaseFirestore.DocumentData): string {
@@ -122,53 +154,6 @@ async function validateSession(req: NextRequest) {
   }
 }
 
-// ── Points disbursement helper ────────────────────────────────────────────────
-async function disbursePoints(
-  memberId: string,
-  points: number,
-  txData: FirebaseFirestore.DocumentData,
-  txId: string,
-  verifiedBy: string
-) {
-  if (!memberId || points <= 0) return;
-
-  const memberRef = adminDb.collection("users").doc(memberId);
-
-  await adminDb.runTransaction(async (t) => {
-    const memberSnap = await t.get(memberRef);
-    if (!memberSnap.exists) return;
-
-    const memberData = memberSnap.data()!;
-    const newCurrentPoints  = (memberData.currentPoints  ?? 0) + points;
-    const newLifetimePoints = (memberData.lifetimePoints ?? 0) + points;
-
-    // Auto-upgrade tier
-    let tier = "Silver";
-    if (newLifetimePoints >= 50000) tier = "Platinum";
-    else if (newLifetimePoints >= 10000) tier = "Gold";
-
-    const xpEntry = {
-      id:            `${txId}_${Date.now()}`,
-      date:          new Date().toISOString(),
-      amount:        points,
-      type:          "earn",
-      status:        "verified",
-      context:       `Transaction ${getReceiptNumber(txData, txId)}`,
-      location:      getStoreName(txData),
-      transactionId: getReceiptNumber(txData, txId),
-    };
-
-    t.update(memberRef, {
-      currentPoints:  newCurrentPoints,
-      lifetimePoints: newLifetimePoints,
-      tier,
-      xpHistory: admin.firestore.FieldValue.arrayUnion(xpEntry),
-      pointsLastUpdatedAt: new Date().toISOString(),
-      pointsLastUpdatedBy: verifiedBy,
-    });
-  });
-}
-
 // ── GET — list all transactions ───────────────────────────────────────────────
 export async function GET(req: NextRequest) {
   const validation = await validateSession(req);
@@ -177,38 +162,19 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    // Prefer collectionGroup, but fall back to root collection when collectionGroup
-    // is unavailable in certain environments/configurations.
-    let snap: FirebaseFirestore.QuerySnapshot<FirebaseFirestore.DocumentData>;
-    try {
-      snap = await adminDb
-        .collectionGroup("transactions")
-        .limit(500)
-        .get();
-    } catch (err: any) {
-      if (!isFirestoreNotFoundError(err)) throw err;
-      console.warn("[GET /api/transactions] collectionGroup unavailable, fallback to root collection", err?.message ?? err);
-      try {
-        snap = await adminDb
-          .collection("transactions")
-          .limit(500)
-          .get();
-      } catch (fallbackErr: any) {
-        if (!isFirestoreNotFoundError(fallbackErr)) throw fallbackErr;
-        console.warn("[GET /api/transactions] root transactions collection not found, returning empty list");
-        return NextResponse.json([]);
-      }
-    }
+    const snap = await adminDb.collection(TRANSACTIONS_COLLECTION).limit(500).get();
 
     const txs = snap.docs
       .map((d) => {
         const data = d.data();
-        const type = data.type ?? "earn"; // Default to earn if not specified
+        warnOnInvalidTransactionShape(data, d.ref);
+        const type = normalizeTransactionType(data.type);
         const receiptNumber = getReceiptNumber(data, d.id);
         const storeId = String(data.storeId ?? data.storeLocation ?? "");
         const storeName = getStoreName(data);
         const totalAmount = getTotalAmount(data);
-        const userId = getUserId(data) || null;
+        const userId = getTransactionUid(data);
+        const pointsEarned = getPointsEarned(data);
         const status = normalizeStatus(data.status);
         return {
           docId: d.id,
@@ -217,14 +183,16 @@ export async function GET(req: NextRequest) {
           transactionId: receiptNumber,
           memberName: data.memberName ?? "-",
           userId,
-          memberId: getUserId(data),
+          uid: userId,
+          memberId: String(data.memberId ?? data.userId ?? data.uid ?? ""),
           staffId: String(data.staffId ?? ""),
           storeId,
           storeName,
           storeLocation: storeName,
           totalAmount,
           amount: totalAmount,
-          potentialPoints: Number(data.potentialPoints ?? 0),
+          pointsEarned,
+          potentialPoints: pointsEarned,
           type,
           status,
           createdAt: toIsoString(data.createdAt),
@@ -289,20 +257,16 @@ export async function PATCH(req: NextRequest) {
     const verifiedBy = validation.token!.uid as string;
 
     if (action === "verify") {
-      // 1. Update transaction status
-      await txRef.update({ status: "COMPLETED", verifiedAt: now, verifiedBy });
-
-      // 2. Disburse points to member
-      await disbursePoints(
-        getUserId(txData),
-        txData.potentialPoints ?? 0,
+      const rewardResult = await applyTransactionReward({
+        txRef,
         txData,
-        getReceiptNumber(txData, txSnap.id),
-        verifiedBy
-      );
+        txId: getReceiptNumber(txData, txSnap.id),
+        verifiedBy,
+        verifiedAt: now,
+        nextStatus: "COMPLETED",
+      });
 
-      // 3. Auto-notification to member
-      await createTxNotification(getUserId(txData), "verified", txData, verifiedBy);
+      await createTxNotification(rewardResult.memberUid ?? getUserId(txData), "verified", txData, verifiedBy);
       await writeActivityLog({
         actor: validation.token ? {
           uid: validation.token.uid,
@@ -318,7 +282,15 @@ export async function PATCH(req: NextRequest) {
         targetLabel: getReceiptNumber(txData, txSnap.id),
         summary: `Approved transaction ${getReceiptNumber(txData, txSnap.id)}`,
         source: "api/transactions:PATCH",
-        metadata: { docPath, statusBefore: txData.status, statusAfter: "COMPLETED", potentialPoints: txData.potentialPoints ?? 0 },
+        metadata: {
+          docPath,
+          statusBefore: txData.status,
+          statusAfter: "COMPLETED",
+          potentialPoints: txData.potentialPoints ?? 0,
+          resolvedMemberUid: rewardResult.memberUid,
+          memberResolution: rewardResult.memberResolution,
+          memberReference: getTransactionMemberReference(txData),
+        },
       });
 
       return NextResponse.json({
@@ -354,6 +326,12 @@ export async function PATCH(req: NextRequest) {
     }
   } catch (e: any) {
     console.error("[PATCH /api/transactions]", e);
+    if (e instanceof MemberPointsError) {
+      return NextResponse.json(
+        { message: e.message, code: e.code, details: e.details },
+        { status: 409 }
+      );
+    }
     if (isAdminAuthError(e)) {
       return NextResponse.json({ message: e.message }, { status: e.status });
     }
@@ -399,15 +377,15 @@ export async function POST(req: NextRequest) {
         const txData = txSnap.data()!;
 
         if (actionType === "verify") {
-          await txRef.update({ status: "COMPLETED", verifiedAt: now, verifiedBy });
-          await disbursePoints(
-            getUserId(txData),
-            txData.potentialPoints ?? 0,
+          const rewardResult = await applyTransactionReward({
+            txRef,
             txData,
-            getReceiptNumber(txData, txSnap.id),
-            verifiedBy
-          );
-          await createTxNotification(getUserId(txData), "verified", txData, verifiedBy);
+            txId: getReceiptNumber(txData, txSnap.id),
+            verifiedBy,
+            verifiedAt: now,
+            nextStatus: "COMPLETED",
+          });
+          await createTxNotification(rewardResult.memberUid ?? getUserId(txData), "verified", txData, verifiedBy);
           await writeActivityLog({
             actor: validation.token ? {
               uid: validation.token.uid,
@@ -423,7 +401,15 @@ export async function POST(req: NextRequest) {
             targetLabel: getReceiptNumber(txData, txSnap.id),
             summary: `Approved transaction ${getReceiptNumber(txData, txSnap.id)}`,
             source: "api/transactions:POST",
-            metadata: { docPath, statusBefore: txData.status, statusAfter: "COMPLETED", potentialPoints: txData.potentialPoints ?? 0 },
+            metadata: {
+              docPath,
+              statusBefore: txData.status,
+              statusAfter: "COMPLETED",
+              potentialPoints: txData.potentialPoints ?? 0,
+              resolvedMemberUid: rewardResult.memberUid,
+              memberResolution: rewardResult.memberResolution,
+              memberReference: getTransactionMemberReference(txData),
+            },
           });
         } else {
           await txRef.update({ status: "CANCELLED", verifiedAt: now, verifiedBy });
@@ -449,7 +435,10 @@ export async function POST(req: NextRequest) {
 
         successCount++;
       } catch (e: any) {
-        errors.push(`${docPath}: ${e.message}`);
+        const errorMessage = e instanceof MemberPointsError
+          ? `${e.message} (${JSON.stringify(e.details ?? {})})`
+          : e.message;
+        errors.push(`${docPath}: ${errorMessage}`);
       }
     }
 

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useMobileSidebar } from "@/components/layout/AdminShell";
 import {
   collection, query, orderBy, onSnapshot, doc,
-  updateDoc, writeBatch, increment, where, limit,
+  where, limit,
 } from "firebase/firestore";
 import { db } from "@/lib/firebaseClient";
 import { useAuth } from "@/context/AuthContext";
@@ -27,9 +27,20 @@ interface DashboardProps {
 }
 type TxStatus = "PENDING" | "COMPLETED" | "CANCELLED" | "REFUNDED";
 interface Transaction {
-  docId?: string; receiptNumber: string; memberName: string;
-  amount: number; potentialPoints?: number; type?: string;
-  status: TxStatus; createdAt: string | null; storeId?: string; storeName?: string;
+  docId?: string;
+  docPath?: string;
+  receiptNumber: string;
+  memberName: string;
+  amount: number;
+  totalAmount?: number;
+  potentialPoints?: number;
+  type?: string;
+  status: TxStatus;
+  createdAt: string | null;
+  storeId?: string;
+  storeName?: string;
+  userId?: string | null;
+  memberId?: string | null;
 }
 interface Member    { uid: string; tier: string; currentPoints: number; lifetimePoints: number; }
 interface StoreItem { uid?: string; id?: string; name: string; isActive: boolean; }
@@ -51,22 +62,31 @@ function resolveStore(stores: StoreItem[], id?: string, fb?: string | null): str
   return stores.find(s => s.uid === id || s.id === id)?.name ?? id;
 }
 function normTx(raw: any, stores: StoreItem[]): Transaction {
+  const docId = raw.docId ?? raw.id;
   return {
-    docId:           raw.docId ?? raw.id,
+    docId,
+    docPath:         raw.docPath ?? (docId ? `transactions/${docId}` : undefined),
     receiptNumber:   String(raw.receiptNumber ?? raw.posTransactionId ?? raw.transactionId ?? ""),
     memberName:      raw.memberName ?? raw.userName ?? "—",
     amount:          Number(raw.totalAmount ?? raw.amount ?? 0),
+    totalAmount:     Number(raw.totalAmount ?? raw.amount ?? 0),
     potentialPoints: Number(raw.potentialPoints ?? 0),
     type:            raw.type ?? "earn",
     status:          normalizeStatus(raw.status),
     createdAt:       raw.createdAt?.toDate?.()?.toISOString?.() ?? raw.createdAt ?? null,
     storeId:         String(raw.storeId ?? ""),
     storeName:       resolveStore(stores, String(raw.storeId ?? ""), raw.storeName ?? null),
+    userId:          raw.userId ?? null,
+    memberId:        raw.memberId ?? raw.userId ?? null,
   };
 }
 function todayStr() {
   const n = new Date();
   return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}-${String(n.getDate()).padStart(2,"0")}`;
+}
+function asNumber(value: unknown, fallback = 0) {
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
 }
 function useCounter(target: number) {
   const [v, set] = useState(0);
@@ -173,15 +193,15 @@ const FilterSheet = ({ open, onClose, mode, setMode, dateFrom, setDateFrom, date
 );
 
 // ── QUEUE CARD ─────────────────────────────────────────────────────────────
-const QueueCard = ({ tx, onApprove, onReject, idx }: { tx: any; onApprove: (id: string, mid: string, pts: number) => void; onReject: (id: string) => void; idx: number }) => {
+const QueueCard = ({ tx, onApprove, onReject, idx }: { tx: any; onApprove: (tx: any) => Promise<void>; onReject: (tx: any) => Promise<void>; idx: number }) => {
   const [busy, setBusy] = useState(false);
   const x     = useMotionValue(0);
   const bg    = useTransform(x, [-120, 0, 120], ["#FFF1F2", T.surface, "#F0FDF4"]);
   const appOp = useTransform(x, [0, 60], [0, 1]);
   const rejOp = useTransform(x, [-60, 0], [1, 0]);
   const tilt  = useTransform(x, [-120, 120], [-1.5, 1.5]);
-  const approve = async () => { setBusy(true); await onApprove(tx.id, tx.memberId, tx.potentialPoints); };
-  const reject  = async () => { setBusy(true); await onReject(tx.id); };
+  const approve = async () => { setBusy(true); await onApprove(tx); };
+  const reject  = async () => { setBusy(true); await onReject(tx); };
   const time = tx.createdAt?.toDate ? new Date(tx.createdAt.toDate()).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "—";
 
   return (
@@ -338,14 +358,47 @@ export default function DashboardMobile({ initialRole, initialTransactions, init
       .map(t => ({ ...t, potentialPoints: t.pointsEarned ?? t.potentialPoints ?? 0 }))
       .sort((a, b) => (a.createdAt?.toMillis?.() ?? 0) - (b.createdAt?.toMillis?.() ?? 0)), [rawPending]);
 
-  const revenue     = dailyStats.reduce((s, d) => s + (d.totalRevenue ?? 0), 0);
-  const totalTrx    = dailyStats.reduce((s, d) => s + (d.totalTransactions ?? 0), 0);
+  const fallbackRevenue = useMemo(() => {
+    const today = todayStr();
+    return filteredTx.reduce((sum, tx) => {
+      const createdDate = tx.createdAt ? tx.createdAt.slice(0, 10) : null;
+      const inRange = mode === "range"
+        ? Boolean(dfrom && dto && createdDate && createdDate >= dfrom && createdDate <= dto)
+        : createdDate === today;
+      if (!inRange) return sum;
+      if (tx.status === "CANCELLED" || tx.status === "REFUNDED") return sum;
+      return sum + asNumber(tx.amount ?? tx.totalAmount);
+    }, 0);
+  }, [filteredTx, mode, dfrom, dto]);
+
+  const fallbackTransactionCount = useMemo(() => {
+    const today = todayStr();
+    return filteredTx.reduce((count, tx) => {
+      const createdDate = tx.createdAt ? tx.createdAt.slice(0, 10) : null;
+      const inRange = mode === "range"
+        ? Boolean(dfrom && dto && createdDate && createdDate >= dfrom && createdDate <= dto)
+        : createdDate === today;
+      if (!inRange) return count;
+      if (tx.status === "CANCELLED" || tx.status === "REFUNDED") return count;
+      return count + 1;
+    }, 0);
+  }, [filteredTx, mode, dfrom, dto]);
+
+  const revenueFromStats  = dailyStats.reduce((s, d) => s + asNumber(d.totalRevenue), 0);
+  const totalTrxFromStats = dailyStats.reduce((s, d) => s + asNumber(d.totalTransactions), 0);
+  const revenue           = revenueFromStats > 0 ? revenueFromStats : fallbackRevenue;
+  const totalTrx          = totalTrxFromStats > 0 ? totalTrxFromStats : fallbackTransactionCount;
   const claimsCount = filteredTx.filter(t => t.status === "PENDING").length + filteredTx.filter(t => t.status === "CANCELLED").length;
   const totalXP     = filteredTx.filter(t => t.status === "COMPLETED").reduce((s, t) => s + (t.potentialPoints ?? 0), 0);
   const avgTrx      = filteredTx.length ? Math.round(filteredTx.reduce((s, t) => s + t.amount, 0) / filteredTx.length) : 0;
   const recentTrx   = filteredTx.slice(0, 10);
   const tierCounts  = useMemo(() => ({ Platinum: members.filter(m => m.tier === "Platinum").length, Gold: members.filter(m => m.tier === "Gold").length, Silver: members.filter(m => m.tier === "Silver").length }), [members]);
-  const storePerf   = useMemo(() => { if (!dailyStats.length) return []; const max = Math.max(...dailyStats.map(d => d.totalRevenue ?? 0), 1); return [...dailyStats].sort((a, b) => a.date.localeCompare(b.date)).slice(-5).map(d => ({ name: d.date, pct: Math.round(((d.totalRevenue ?? 0) / max) * 100) })); }, [dailyStats]);
+  const storePerf   = useMemo(() => {
+    if (!dailyStats.length) return [];
+    const safeStats = dailyStats.map(d => ({ ...d, totalRevenue: asNumber(d.totalRevenue) }));
+    const max = Math.max(...safeStats.map(d => d.totalRevenue), 1);
+    return [...safeStats].sort((a, b) => a.date.localeCompare(b.date)).slice(-5).map(d => ({ name: d.date, pct: Math.round((d.totalRevenue / max) * 100) }));
+  }, [dailyStats]);
 
   const cRev     = useCounter(revenue);
   const cQueue   = useCounter(pendingQueue.length);
@@ -356,17 +409,35 @@ export default function DashboardMobile({ initialRole, initialTransactions, init
   const cTrx     = useCounter(totalTrx);
   const cAvg     = useCounter(avgTrx);
 
-  const handleApprove = async (txId: string, memberId: string, pts: number) => {
+  const handleApprove = async (tx: Transaction) => {
     try {
-      const batch = writeBatch(db);
-      batch.update(doc(db, "transactions", txId), { status: "COMPLETED", updatedAt: new Date() });
-      if (memberId && pts > 0) batch.update(doc(db, "users", memberId), { currentPoints: increment(pts) });
-      await batch.commit();
-    } catch { alert("Verification failed. Check your connection."); }
+      const docPath = tx.docPath ?? (tx.docId ? `transactions/${tx.docId}` : "");
+      if (!docPath) throw new Error("Missing transaction path.");
+      const res = await fetch("/api/transactions", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ docPath, action: "verify" }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message ?? "Verification failed.");
+    } catch (error: any) {
+      alert(error?.message ?? "Verification failed. Check your connection.");
+    }
   };
-  const handleReject = async (txId: string) => {
-    try { await updateDoc(doc(db, "transactions", txId), { status: "REJECTED", updatedAt: new Date() }); }
-    catch { alert("Could not reject transaction."); }
+  const handleReject = async (tx: Transaction) => {
+    try {
+      const docPath = tx.docPath ?? (tx.docId ? `transactions/${tx.docId}` : "");
+      if (!docPath) throw new Error("Missing transaction path.");
+      const res = await fetch("/api/transactions", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ docPath, action: "reject" }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message ?? "Could not reject transaction.");
+    } catch (error: any) {
+      alert(error?.message ?? "Could not reject transaction.");
+    }
   };
 
   const hr           = new Date().getHours();

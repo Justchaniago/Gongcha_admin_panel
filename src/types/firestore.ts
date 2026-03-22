@@ -8,6 +8,11 @@ import {
   PartialWithFieldValue 
 } from "firebase/firestore";
 
+function safeNumber(value: unknown, fallback = 0): number {
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 // ============================================================================
 // 1. ADMIN USERS (Akses Panel & Kasir) - Collection: 'admin_users'
 // ============================================================================
@@ -84,6 +89,7 @@ export interface User {
   role?: UserRole | string;
   currentPoints?: number;
   lifetimePoints?: number;
+  tierXp?: number;
   joinedDate?: string;
   vouchers?: UserVoucher[];
   xpHistory?: any[];
@@ -96,22 +102,25 @@ export const userConverter: FirestoreDataConverter<User> = {
   },
   fromFirestore(snapshot: QueryDocumentSnapshot, options: SnapshotOptions): User {
     const data = snapshot.data(options)!;
-    // 🔥 PERBAIKAN: Pastikan semua field dipetakan dari database
+    const currentPoints = safeNumber(data.currentPoints, safeNumber(data.points));
+    const lifetimePoints = safeNumber(data.lifetimePoints, safeNumber(data.xp));
+    const tierXp = safeNumber(data.tierXp, lifetimePoints);
+
     return {
       uid: snapshot.id,
       name: data.name || data.fullName || "Member",
       email: data.email || "",
       phoneNumber: data.phoneNumber || data.phone || "",
       photoURL: data.photoURL || "",
-      points: data.currentPoints || data.points || 0,
-      xp: data.lifetimePoints || data.xp || 0,
+      points: currentPoints,
+      xp: lifetimePoints,
       tier: (data.tier || "Silver") as UserTier,
       vouchers: data.vouchers || data.activeVouchers || [],
       joinedDate: data.joinedDate || data.joinDate || "",
-      currentPoints: data.currentPoints || data.points || 0,
-      lifetimePoints: data.lifetimePoints || data.xp || 0,
+      currentPoints,
+      lifetimePoints,
+      tierXp,
       role: data.role || "member",
-      // Field lain tetap diambil dari hasil Firestore
       fcmTokens: data.fcmTokens || [],
       dob: data.dob || "",
       xpHistory: data.xpHistory || [],
@@ -243,6 +252,7 @@ export interface Transaction {
   receiptNumber: string;
   storeId: string;
   storeName: string;
+  uid?: string | null;
   userId: string | null;
   totalAmount: number;
   status: TransactionStatus;
@@ -251,6 +261,7 @@ export interface Transaction {
   memberId?: string;
   memberName?: string;
   staffId?: string;
+  pointsEarned?: number;
   potentialPoints?: number;
   type?: "earn" | "redeem";
   verifiedAt?: Timestamp;
@@ -263,21 +274,27 @@ export const transactionConverter: FirestoreDataConverter<Transaction> = {
   },
   fromFirestore(snapshot: QueryDocumentSnapshot, options: SnapshotOptions): Transaction {
     const data = snapshot.data(options)!;
+    const uid = typeof data.uid === "string" && data.uid.trim() ? data.uid.trim() : null;
+    const userId = typeof data.userId === "string" && data.userId.trim() ? data.userId.trim() : null;
+    const memberId = typeof data.memberId === "string" && data.memberId.trim() ? data.memberId.trim() : undefined;
+    const pointsEarned = safeNumber(data.pointsEarned, safeNumber(data.potentialPoints));
     return {
       id: snapshot.id,
       receiptNumber: data.receiptNumber,
       storeId: data.storeId,
       storeName: data.storeName,
-      userId: data.userId || null,
-      totalAmount: data.totalAmount,
+      uid: uid ?? userId ?? memberId ?? null,
+      userId: userId ?? uid ?? memberId ?? null,
+      totalAmount: safeNumber(data.totalAmount),
       status: data.status as TransactionStatus,
       createdAt: data.createdAt,
       // Additional loyalty fields
-      memberId: data.memberId,
+      memberId,
       memberName: data.memberName,
       staffId: data.staffId,
-      potentialPoints: data.potentialPoints,
-      type: data.type,
+      pointsEarned,
+      potentialPoints: pointsEarned,
+      type: String(data.type ?? "earn").toLowerCase() === "redeem" ? "redeem" : "earn",
       verifiedAt: data.verifiedAt,
       verifiedBy: data.verifiedBy,
     };
@@ -308,8 +325,8 @@ export const dailyStatConverter: FirestoreDataConverter<DailyStat> = {
       date: data.date,
       type: data.type as "GLOBAL" | "STORE",
       storeId: data.storeId,
-      totalRevenue: data.totalRevenue || 0,
-      totalTransactions: data.totalTransactions || 0,
+      totalRevenue: safeNumber(data.totalRevenue),
+      totalTransactions: safeNumber(data.totalTransactions),
       updatedAt: data.updatedAt,
     };
   }
