@@ -393,13 +393,23 @@ export default function StoresClient({ initialStores = [], showAddTrigger }: { i
   const [showAdd,      setShowAdd]      = useState(false);
   const [toast,        setToast]        = useState<{msg:string;type:'success'|'error'}|null>(null);
   const [searchFocus,  setSearchFocus]  = useState(false);
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
   const canManageStores = user?.role !== "STAFF";
 
   const showToast = useCallback((msg: string, type: 'success'|'error' = 'success') => setToast({ msg, type }), []);
 
   // ── Realtime onSnapshot ─────────────────────────────────────────────────────
   useEffect(() => {
+    if (loading) {
+      setSyncStatus("connecting");
+      return;
+    }
+
+    if (!user) {
+      setSyncStatus("error");
+      return;
+    }
+
     const storesRef = collection(db, "stores").withConverter(storeConverter);
     const q = query(storesRef, orderBy("name"));
     const unsub = onSnapshot(q,
@@ -407,7 +417,7 @@ export default function StoresClient({ initialStores = [], showAddTrigger }: { i
       err  => { console.error("[stores onSnapshot]", err); setSyncStatus("error"); }
     );
     return () => unsub();
-  }, []);
+  }, [loading, user]);
 
   const filtered = useMemo(() => stores.filter(s => {
     const q  = search.toLowerCase();

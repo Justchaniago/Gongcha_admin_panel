@@ -649,19 +649,29 @@ export default function MenusClient({ initialMenus = [], showAddTrigger }: { ini
   const [showAdd, setShowAdd] = useState(false);
   const [toast, setToast] = useState<{msg:string;type:'success'|'error'}|null>(null);
   const [searchFocus, setSearchFocus] = useState(false);
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
   const canManageMenus = user?.role !== "STAFF";
 
   const showToast = useCallback((msg: string, type: 'success'|'error' = 'success') => setToast({ msg, type }), []);
 
   useEffect(() => {
+    if (loading) {
+      setSyncStatus("connecting");
+      return;
+    }
+
+    if (!user) {
+      setSyncStatus("error");
+      return;
+    }
+
     const q = query(collection(db, "products").withConverter(productConverter), orderBy("name"));
     const unsub = onSnapshot(q,
       snap => { setMenus(snap.docs.map(d => d.data())); setSyncStatus("live"); },
       err => { console.error("[products onSnapshot]", err); setSyncStatus("error"); }
     );
     return () => unsub();
-  }, []);
+  }, [loading, user]);
 
   const filtered = useMemo(() => menus.filter(m => {
     const q = search.toLowerCase();

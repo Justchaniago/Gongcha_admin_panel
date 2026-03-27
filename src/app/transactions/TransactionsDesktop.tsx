@@ -173,7 +173,7 @@ export default function TransactionsClient({ initialTransactions = [], initialRo
       if (!res.ok) throw new Error(data.message ?? "Failed");
       showToast(
         action === "verify"
-          ? `✓ Verified! +${tx.potentialPoints ?? 0} pts for ${tx.memberName}`
+          ? `✓ Verified! Released ${tx.potentialPoints ?? 0} pending pts for ${tx.memberName}`
           : "Transaction rejected.",
         action === "verify" ? "success" : "error"
       );
@@ -190,7 +190,7 @@ export default function TransactionsClient({ initialTransactions = [], initialRo
     if (pending.length === 0) return;
     setConfirm({
       title:        "Verify All Pending?",
-      message:      `You will verify ${pending.length} transactions and disburse a total of ${totalPendingPts.toLocaleString("id")} points to members. This action cannot be undone.`,
+      message:      `You will verify ${pending.length} transactions and release a total of ${totalPendingPts.toLocaleString("id")} pending points to members. This action cannot be undone.`,
       confirmLabel: `✓ Verify ${pending.length} Transactions`,
       confirmColor: C.green,
       onConfirm: async () => {
@@ -201,7 +201,7 @@ export default function TransactionsClient({ initialTransactions = [], initialRo
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.message ?? "Failed");
-        showToast(`✓ ${data.successCount} transactions successfully verified!`, "success");
+        showToast(`✓ ${data.successCount} transactions verified and pending points released!`, "success");
         await fetchTxs();
       },
     });
@@ -379,9 +379,35 @@ export default function TransactionsClient({ initialTransactions = [], initialRo
 
           {/* Table toolbar */}
           <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"14px 20px", borderBottom:`1px solid ${C.border2}`, background:'rgba(255,255,255,.72)', backdropFilter:'saturate(160%) blur(8px)' }}>
-            <h2 style={{ fontSize:15, fontWeight:800, color:C.tx1, margin:0 }}>
-              Complete History ({filtered.length})
-            </h2>
+            <div style={{ display:"flex", alignItems:"center", gap:12, flexWrap:"wrap" }}>
+              <h2 style={{ fontSize:15, fontWeight:800, color:C.tx1, margin:0 }}>
+                Complete History ({filtered.length})
+              </h2>
+              {isAdmin && filtered.length > 0 && (
+                <label
+                  style={{
+                    display:"inline-flex",
+                    alignItems:"center",
+                    gap:8,
+                    height:32,
+                    background:"#F8FAFC",
+                    border:`1px solid ${C.border}`,
+                    borderRadius:999,
+                    padding:"0 12px",
+                    fontSize:12,
+                    color:C.tx2,
+                    whiteSpace:"nowrap",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={allVisibleSelected}
+                    onChange={(e) => toggleSelectAllVisible(e.target.checked)}
+                  />
+                  Select visible ({selectedVisibleCount}/{filtered.length})
+                </label>
+              )}
+            </div>
             <div style={{ display:"flex", gap:8, alignItems:"center" }}>
               {isAdmin && selectedDocPaths.length > 0 && (
                 <>
@@ -570,32 +596,6 @@ export default function TransactionsClient({ initialTransactions = [], initialRo
           onClose={() => setConfirm(null)}
           loading={confirmLoading}
         />
-      )}
-
-      {isAdmin && filtered.length > 0 && (
-        <div style={{ position:"fixed", left:24, bottom:24, zIndex:20 }}>
-          <label
-            style={{
-              display:"inline-flex",
-              alignItems:"center",
-              gap:8,
-              background:C.white,
-              border:`1px solid ${C.border}`,
-              borderRadius:9,
-              padding:"8px 12px",
-              boxShadow:C.shadow,
-              fontSize:12.5,
-              color:C.tx2,
-            }}
-          >
-            <input
-              type="checkbox"
-              checked={allVisibleSelected}
-              onChange={(e) => toggleSelectAllVisible(e.target.checked)}
-            />
-            Select all visible ({selectedVisibleCount}/{filtered.length})
-          </label>
-        </div>
       )}
     </>
   );

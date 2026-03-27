@@ -170,7 +170,7 @@ export async function POST(req: NextRequest): Promise<NextResponse<VerifyRespons
         resolvedMemberUid: rewardResult.memberUid,
         memberResolution: rewardResult.memberResolution,
         memberReference: getTransactionMemberReference(txData),
-        potentialPoints: txData.potentialPoints ?? 0,
+        pointsEarned: txData.pointsEarned ?? txData.potentialPoints ?? 0,
       },
     });
 
@@ -180,8 +180,8 @@ export async function POST(req: NextRequest): Promise<NextResponse<VerifyRespons
         status: newStatus,
         reason,
         message: newStatus === "COMPLETED"
-          ? "Transaction verified and points have been released to customer" 
-          : "Transaction rejected - requires manual verification to ensure no system errors",
+          ? "Transaction verified and pending points have been released to customer" 
+          : "Transaction rejected and pending points were voided",
       },
       { status: 200 }
     );

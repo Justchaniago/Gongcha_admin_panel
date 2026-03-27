@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useMobileSidebar } from "@/components/layout/AdminShell";
 import {
@@ -33,6 +33,7 @@ interface Transaction {
   memberName: string;
   amount: number;
   totalAmount?: number;
+  pointsEarned?: number;
   potentialPoints?: number;
   type?: string;
   status: TxStatus;
@@ -63,6 +64,7 @@ function resolveStore(stores: StoreItem[], id?: string, fb?: string | null): str
 }
 function normTx(raw: any, stores: StoreItem[]): Transaction {
   const docId = raw.docId ?? raw.id;
+  const pointsEarned = Number(raw.pointsEarned ?? raw.potentialPoints ?? 0);
   return {
     docId,
     docPath:         raw.docPath ?? (docId ? `transactions/${docId}` : undefined),
@@ -70,7 +72,8 @@ function normTx(raw: any, stores: StoreItem[]): Transaction {
     memberName:      raw.memberName ?? raw.userName ?? "—",
     amount:          Number(raw.totalAmount ?? raw.amount ?? 0),
     totalAmount:     Number(raw.totalAmount ?? raw.amount ?? 0),
-    potentialPoints: Number(raw.potentialPoints ?? 0),
+    pointsEarned,
+    potentialPoints: pointsEarned,
     type:            raw.type ?? "earn",
     status:          normalizeStatus(raw.status),
     createdAt:       raw.createdAt?.toDate?.()?.toISOString?.() ?? raw.createdAt ?? null,
@@ -84,10 +87,38 @@ function todayStr() {
   const n = new Date();
   return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}-${String(n.getDate()).padStart(2,"0")}`;
 }
+function getBounds(date: string) {
+  return {
+    start: new Date(`${date}T00:00:00`),
+    end: new Date(`${date}T23:59:59.999`),
+  };
+}
+function matchesWindow(createdAt: string | null, mode: "realtime" | "range", dfrom: string, dto: string) {
+  const createdDate = createdAt ? createdAt.slice(0, 10) : null;
+  if (mode === "range") {
+    return Boolean(dfrom && dto && createdDate && createdDate >= dfrom && createdDate <= dto);
+  }
+  return createdDate === todayStr();
+}
 function asNumber(value: unknown, fallback = 0) {
   const parsed = typeof value === "number" ? value : Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
 }
+
+async function fetchTransactionsFallback(stores: StoreItem[]) {
+  const res = await fetch("/api/transactions", {
+    cache: "no-store",
+    credentials: "include",
+  });
+
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status}`);
+  }
+
+  const data = (await res.json()) as any[];
+  return data.map((item) => normTx(item, stores));
+}
+
 function useCounter(target: number) {
   const [v, set] = useState(0);
   useEffect(() => {
@@ -293,7 +324,7 @@ const PageHeader = ({ left, title, subtitle, right }: { left: React.ReactNode; t
 // ── MAIN ───────────────────────────────────────────────────────────────────
 export default function DashboardMobile({ initialRole, initialTransactions, initialUsers, initialStores }: DashboardProps) {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const { openDrawer } = useMobileSidebar();
 
   const role       = user?.role ?? (initialRole === "admin" ? "SUPER_ADMIN" : "STAFF");
@@ -305,6 +336,7 @@ export default function DashboardMobile({ initialRole, initialTransactions, init
   const [stores,     setStores]     = useState<StoreItem[]>(initialStores);
   const [members,    setMembers]    = useState<Member[]>(initialUsers);
   const [allTx,      setAllTx]      = useState<Transaction[]>(() => initialTransactions.map(t => normTx(t, initialStores)));
+  const storesRef = useRef<StoreItem[]>(initialStores);
   const [rawPending, setRawPending] = useState<any[]>([]);
   const [dailyStats, setDailyStats] = useState<DailyStat[]>([]);
   const [loading,    setLoading]    = useState(true);
@@ -316,24 +348,96 @@ export default function DashboardMobile({ initialRole, initialTransactions, init
 
   const effectiveStore = !isAdmin && assignedId ? assignedId : storeId;
 
+  useEffect(() => {
+    storesRef.current = stores;
+  }, [stores]);
+
   // Firestore
   useEffect(() => {
-    const unTx = onSnapshot(query(collection(db, "transactions"), orderBy("createdAt", "desc"), limit(50)),
-      snap => setAllTx(snap.docs.map(d => normTx({ docId: d.id, ...d.data() }, stores))), () => {});
+    if (authLoading || !user) {
+      setLoading(authLoading);
+      return;
+    }
+
+    const txBase = collection(db, "transactions");
+    const queryStartDate = mode === "range" ? dfrom : todayStr();
+    const queryEndDate = mode === "range" ? dto : todayStr();
+    const hasValidRange = mode !== "range" || (dfrom && dto && dfrom <= dto);
+    const txConstraints: Parameters<typeof query>[1][] = [];
+
+    if (!isAdmin && assignedId) {
+      txConstraints.push(where("storeId", "==", assignedId));
+    }
+
+    if (hasValidRange && queryStartDate && queryEndDate) {
+      const { start } = getBounds(queryStartDate);
+      const { end } = getBounds(queryEndDate);
+      txConstraints.push(where("createdAt", ">=", start));
+      txConstraints.push(where("createdAt", "<=", end));
+    }
+
+    const txQuery = query(txBase, ...txConstraints, orderBy("createdAt", "desc"), limit(200));
+
+    const unTx = onSnapshot(txQuery,
+      snap => setAllTx(snap.docs.map(d => normTx({ docId: d.id, docPath: d.ref.path, ...d.data() }, stores))),
+      async (err: any) => {
+        if (err?.code !== "permission-denied") return;
+        try {
+          const fallbackTx = await fetchTransactionsFallback(storesRef.current);
+          setAllTx(fallbackTx);
+        } catch (fallbackErr) {
+          console.error("[dashboard-mobile] transactions fallback failed:", fallbackErr);
+        }
+      }
+    );
+
     const unStore = onSnapshot(query(collection(db, "stores")),
-      snap => setStores(snap.docs.map(d => ({ uid: d.id, ...d.data() } as StoreItem))), () => {});
+      snap => setStores(snap.docs.map(d => ({ uid: d.id, ...d.data() } as StoreItem))),
+      err => console.error("[dashboard-mobile] stores listener failed:", err)
+    );
+
     let unMem: (() => void) | null = null;
-    if (isAdmin) unMem = onSnapshot(query(collection(db, "users")),
-      snap => setMembers(snap.docs.map(d => ({ uid: d.id, ...d.data() } as Member))), () => {});
+    if (isAdmin) {
+      unMem = onSnapshot(
+        query(collection(db, "users")),
+        snap => setMembers(snap.docs.map(d => ({ uid: d.id, ...d.data() } as Member))),
+        err => {
+          if (err?.code !== "permission-denied") {
+            console.error("[dashboard-mobile] users listener failed:", err);
+          }
+          setMembers([]);
+        }
+      );
+    }
+
     const today = new Date(); today.setHours(0, 0, 0, 0);
     let pq = query(collection(db, "transactions"), where("createdAt", ">=", today), orderBy("createdAt", "desc"));
     if (!isAdmin && assignedId) pq = query(collection(db, "transactions"), where("storeId", "==", assignedId), where("createdAt", ">=", today), orderBy("createdAt", "desc"));
-    const unPending = onSnapshot(pq, snap => { setRawPending(snap.docs.map(d => ({ id: d.id, ...d.data() }))); setLoading(false); }, () => setLoading(false));
+    const unPending = onSnapshot(
+      pq,
+      snap => {
+        setRawPending(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        setLoading(false);
+      },
+      err => {
+        if (err?.code !== "permission-denied") {
+          console.error("[dashboard-mobile] pending listener failed:", err);
+        }
+        setRawPending([]);
+        setLoading(false);
+      }
+    );
+
     return () => { unTx(); unStore(); unMem?.(); unPending(); };
-  }, [isAdmin, assignedId]);
+  }, [assignedId, authLoading, dfrom, dto, isAdmin, mode, user]);
 
   // Daily stats
   useEffect(() => {
+    if (authLoading || !user) {
+      setDailyStats([]);
+      return;
+    }
+
     const today = todayStr();
     if (mode === "range") {
       if (!dfrom || !dto || dfrom > dto) { setDailyStats([]); return; }
@@ -341,57 +445,63 @@ export default function DashboardMobile({ initialRole, initialTransactions, init
       if (isAdmin) cs.push(effectiveStore === "all" ? where("type", "==", "GLOBAL") : where("storeId", "==", effectiveStore));
       else if (assignedId) cs.push(where("storeId", "==", assignedId));
       const u = onSnapshot(query(collection(db, "daily_stats").withConverter(dailyStatConverter), ...cs, orderBy("date", "asc")),
-        snap => setDailyStats(snap.docs.map(d => d.data())), () => setDailyStats([]));
+        snap => setDailyStats(snap.docs.map(d => d.data())),
+        err => {
+          if (err?.code !== "permission-denied") {
+            console.error("[dashboard-mobile] daily_stats range listener failed:", err);
+          }
+          setDailyStats([]);
+        }
+      );
       return () => u();
     }
     const tid = isAdmin ? (effectiveStore === "all" ? `${today}_GLOBAL` : `${today}_${effectiveStore}`) : (assignedId ? `${today}_${assignedId}` : null);
     if (!tid) { setDailyStats([]); return; }
     const u = onSnapshot(doc(db, "daily_stats", tid).withConverter(dailyStatConverter),
-      snap => setDailyStats(snap.exists() ? [snap.data()] : []), () => setDailyStats([]));
+      snap => setDailyStats(snap.exists() ? [snap.data()] : []),
+      err => {
+        if (err?.code !== "permission-denied") {
+          console.error("[dashboard-mobile] daily_stats doc listener failed:", err);
+        }
+        setDailyStats([]);
+      }
+    );
     return () => u();
-  }, [mode, dfrom, dto, isAdmin, effectiveStore, assignedId]);
+  }, [assignedId, authLoading, dfrom, dto, effectiveStore, isAdmin, mode, user]);
 
   // Derived
   const filteredTx = useMemo(() => effectiveStore === "all" ? allTx : allTx.filter(t => t.storeId === effectiveStore), [allTx, effectiveStore]);
+  const windowedTx = useMemo(
+    () => filteredTx.filter((tx) => matchesWindow(tx.createdAt, mode, dfrom, dto)),
+    [filteredTx, mode, dfrom, dto],
+  );
   const pendingQueue = useMemo(() =>
     rawPending.filter(t => (t.type === "EARN" || t.type === "earn") && (t.status === "PENDING" || t.status === "pending"))
       .map(t => ({ ...t, potentialPoints: t.pointsEarned ?? t.potentialPoints ?? 0 }))
       .sort((a, b) => (a.createdAt?.toMillis?.() ?? 0) - (b.createdAt?.toMillis?.() ?? 0)), [rawPending]);
 
   const fallbackRevenue = useMemo(() => {
-    const today = todayStr();
-    return filteredTx.reduce((sum, tx) => {
-      const createdDate = tx.createdAt ? tx.createdAt.slice(0, 10) : null;
-      const inRange = mode === "range"
-        ? Boolean(dfrom && dto && createdDate && createdDate >= dfrom && createdDate <= dto)
-        : createdDate === today;
-      if (!inRange) return sum;
-      if (tx.status === "CANCELLED" || tx.status === "REFUNDED") return sum;
+    return windowedTx.reduce((sum, tx) => {
+      if (tx.status !== "COMPLETED") return sum;
       return sum + asNumber(tx.amount ?? tx.totalAmount);
     }, 0);
-  }, [filteredTx, mode, dfrom, dto]);
+  }, [windowedTx]);
 
   const fallbackTransactionCount = useMemo(() => {
-    const today = todayStr();
-    return filteredTx.reduce((count, tx) => {
-      const createdDate = tx.createdAt ? tx.createdAt.slice(0, 10) : null;
-      const inRange = mode === "range"
-        ? Boolean(dfrom && dto && createdDate && createdDate >= dfrom && createdDate <= dto)
-        : createdDate === today;
-      if (!inRange) return count;
-      if (tx.status === "CANCELLED" || tx.status === "REFUNDED") return count;
+    return windowedTx.reduce((count, tx) => {
+      if (tx.status !== "COMPLETED") return count;
       return count + 1;
     }, 0);
-  }, [filteredTx, mode, dfrom, dto]);
+  }, [windowedTx]);
 
   const revenueFromStats  = dailyStats.reduce((s, d) => s + asNumber(d.totalRevenue), 0);
   const totalTrxFromStats = dailyStats.reduce((s, d) => s + asNumber(d.totalTransactions), 0);
   const revenue           = revenueFromStats > 0 ? revenueFromStats : fallbackRevenue;
   const totalTrx          = totalTrxFromStats > 0 ? totalTrxFromStats : fallbackTransactionCount;
-  const claimsCount = filteredTx.filter(t => t.status === "PENDING").length + filteredTx.filter(t => t.status === "CANCELLED").length;
-  const totalXP     = filteredTx.filter(t => t.status === "COMPLETED").reduce((s, t) => s + (t.potentialPoints ?? 0), 0);
-  const avgTrx      = filteredTx.length ? Math.round(filteredTx.reduce((s, t) => s + t.amount, 0) / filteredTx.length) : 0;
-  const recentTrx   = filteredTx.slice(0, 10);
+  const claimsCount = windowedTx.filter(t => t.status === "PENDING").length + windowedTx.filter(t => t.status === "CANCELLED").length;
+  const totalXP     = windowedTx.filter(t => t.status === "COMPLETED").reduce((s, t) => s + (t.potentialPoints ?? 0), 0);
+  const avgTrx      = windowedTx.length ? Math.round(windowedTx.reduce((s, t) => s + t.amount, 0) / windowedTx.length) : 0;
+  const recentTrx   = windowedTx.slice(0, 10);
   const tierCounts  = useMemo(() => ({ Platinum: members.filter(m => m.tier === "Platinum").length, Gold: members.filter(m => m.tier === "Gold").length, Silver: members.filter(m => m.tier === "Silver").length }), [members]);
   const storePerf   = useMemo(() => {
     if (!dailyStats.length) return [];
@@ -471,6 +581,53 @@ export default function DashboardMobile({ initialRole, initialTransactions, init
           </button>
         }
       />
+
+      {isAdmin && stores.length > 0 && (
+        <div style={{ padding: "0 16px 12px", overflowX: "auto" }}>
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 8, minWidth: "100%" }}>
+            <button
+              onClick={() => setStoreId("all")}
+              style={{
+                flexShrink: 0,
+                border: `1px solid ${storeId === "all" ? T.blue : T.border2}`,
+                background: storeId === "all" ? T.blueL : T.surface,
+                color: storeId === "all" ? T.blueD : T.tx2,
+                borderRadius: 999,
+                padding: "8px 12px",
+                fontSize: 11,
+                fontWeight: 800,
+                cursor: "pointer",
+              }}
+            >
+              All Stores
+            </button>
+            {stores.map((store) => {
+              const value = store.uid ?? store.id ?? "";
+              const active = storeId === value;
+              return (
+                <button
+                  key={value}
+                  onClick={() => setStoreId(value)}
+                  style={{
+                    flexShrink: 0,
+                    border: `1px solid ${active ? T.blue : T.border2}`,
+                    background: active ? T.blueL : T.surface,
+                    color: active ? T.blueD : T.tx2,
+                    borderRadius: 999,
+                    padding: "8px 12px",
+                    fontSize: 11,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {store.name}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* ── REVENUE HERO ── */}
       <button onClick={() => router.push("/transactions")}

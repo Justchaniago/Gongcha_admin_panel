@@ -278,6 +278,7 @@ function MemberDetailSheet({ user, onClose, onEdit, onDeleted, showToast }: { us
   const [localUser, setLocalUser]         = useState(user);
   const [editPoints, setEditPoints]       = useState(false);
   const [newPoints,  setNewPoints]        = useState(String(user.currentPoints ?? 0));
+  const [newPending, setNewPending]       = useState(String(user.pendingPoints ?? 0));
   const [newXP,      setNewXP]            = useState(String(user.lifetimePoints ?? 0));
   const [ptLoading,  setPtLoading]        = useState(false);
 
@@ -294,12 +295,13 @@ function MemberDetailSheet({ user, onClose, onEdit, onDeleted, showToast }: { us
 
   const handleSavePoints = async () => {
     const pts = parseInt(newPoints, 10);
+    const pending = parseInt(newPending, 10);
     const xp  = parseInt(newXP, 10);
-    if (isNaN(pts) || isNaN(xp) || pts < 0 || xp < 0) return;
+    if (isNaN(pts) || isNaN(pending) || isNaN(xp) || pts < 0 || pending < 0 || xp < 0) return;
     setPtLoading(true);
     try {
-      await updatePointsAction(localUser.uid, pts, xp);
-      setLocalUser({ ...localUser, currentPoints: pts, lifetimePoints: xp });
+      await updatePointsAction(localUser.uid, pts, pending, xp);
+      setLocalUser({ ...localUser, currentPoints: pts, pendingPoints: pending, lifetimePoints: xp });
       showToast("Points updated!", "success");
       setEditPoints(false);
     } catch (e: any) { showToast(e.message, "error"); }
@@ -320,9 +322,19 @@ function MemberDetailSheet({ user, onClose, onEdit, onDeleted, showToast }: { us
         </div>
 
         {/* Stats row */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 16 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
           {[
             { l: "Active Pts",  v: (localUser.currentPoints  ?? 0).toLocaleString("id"), c: T.blue,   b: T.blueL   },
+            { l: "Pending Pts", v: (localUser.pendingPoints ?? 0).toLocaleString("id"),   c: T.amber,  b: T.amberL  },
+          ].map(s => (
+            <div key={s.l} style={{ textAlign: "center", padding: "12px 8px", background: s.b, borderRadius: 12 }}>
+              <p style={{ fontSize: 16, fontWeight: 900, color: s.c, lineHeight: 1, marginBottom: 4 }}>{s.v}</p>
+              <p style={{ fontSize: 9, fontWeight: 700, color: s.c, opacity: .6, textTransform: "uppercase" as const, letterSpacing: ".1em" }}>{s.l}</p>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
+          {[
             { l: "Lifetime XP", v: (localUser.lifetimePoints ?? 0).toLocaleString("id"), c: T.purple, b: T.purpleL },
             { l: "Vouchers",    v: localUser.vouchers?.length ?? 0,                       c: T.green,  b: T.greenL  },
           ].map(s => (
@@ -338,15 +350,21 @@ function MemberDetailSheet({ user, onClose, onEdit, onDeleted, showToast }: { us
           <button onClick={() => setEditPoints(true)}
             style={{ width: "100%", padding: "10px", borderRadius: 12, border: `1.5px dashed ${T.blue}`, background: T.blueL, color: T.blueD, fontSize: 12, fontWeight: 700, cursor: "pointer", marginBottom: 14 }}
           >
-            ✏️ Edit Points & XP
+            ✏️ Edit Available, Pending & XP
           </button>
         ) : (
           <div style={{ background: T.bg, borderRadius: 12, padding: "14px", marginBottom: 14, border: `1px solid ${T.border2}` }}>
-            <p style={{ fontSize: 9, fontWeight: 800, color: T.tx4, textTransform: "uppercase" as const, letterSpacing: ".14em", marginBottom: 12 }}>Edit Points & XP</p>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+            <p style={{ fontSize: 9, fontWeight: 800, color: T.tx4, textTransform: "uppercase" as const, letterSpacing: ".14em", marginBottom: 12 }}>Edit Available, Pending & XP</p>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 10, marginBottom: 12 }}>
               <div>
                 <label style={{ display: "block", fontSize: 9, fontWeight: 700, color: T.tx4, marginBottom: 4 }}>Active Points</label>
                 <input type="number" min="0" value={newPoints} onChange={e => setNewPoints(e.target.value)}
+                  style={{ width: "100%", background: T.surface, border: `1px solid ${T.border2}`, borderRadius: 10, padding: "10px 12px", fontSize: 14, color: T.tx1, outline: "none", boxSizing: "border-box" as const }}
+                />
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: 9, fontWeight: 700, color: T.tx4, marginBottom: 4 }}>Pending Points</label>
+                <input type="number" min="0" value={newPending} onChange={e => setNewPending(e.target.value)}
                   style={{ width: "100%", background: T.surface, border: `1px solid ${T.border2}`, borderRadius: 10, padding: "10px 12px", fontSize: 14, color: T.tx1, outline: "none", boxSizing: "border-box" as const }}
                 />
               </div>

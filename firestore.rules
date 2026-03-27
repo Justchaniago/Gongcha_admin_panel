@@ -53,10 +53,19 @@ service cloud.firestore {
       return adminUserHasRole(['SUPER_ADMIN', 'STAFF']) || staffHasRole(['SUPER_ADMIN', 'STAFF', 'cashier', 'store_manager']);
     }
 
+    function canReadAdminDirectory(targetUid) {
+      return isSignedIn() && (
+        request.auth.uid == targetUid ||
+        isActiveAdminPanelUser() ||
+        isPrivilegedAdmin()
+      );
+    }
+
     // ── /admin_users ───────────────────────────────────────────────────────
     match /admin_users/{uid} {
-      // Each admin/staff can read own profile; super admin can read all.
-      allow read: if isSignedIn() && (request.auth.uid == uid || isPrivilegedAdmin());
+      // Active admin-panel users need directory access because the client
+      // subscribes to this collection for staff listings and role hydration.
+      allow read: if canReadAdminDirectory(uid);
       // Mutations should go through Admin SDK routes/actions.
       allow create, update, delete: if false;
     }

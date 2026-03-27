@@ -331,7 +331,7 @@ export default function MenusMobile({
   initialMenus?: any[];
   categories?:   string[];
 }) {
-  const { user }       = useAuth();
+  const { user, loading } = useAuth();
   const { openDrawer } = useMobileSidebar();
   const canManage      = user?.role !== "STAFF";
 
@@ -355,13 +355,15 @@ export default function MenusMobile({
 
   // Firestore real-time
   useEffect(() => {
+    if (loading || !user) return;
+
     const q = query(collection(db, "products"), orderBy("name"));
     const unsub = onSnapshot(q,
       snap => setMenus(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
       err  => console.warn("MenusMobile listener:", err),
     );
     return () => unsub();
-  }, []);
+  }, [loading, user]);
 
   const allCats = useMemo<string[]>(() => {
     if (categories.length > 0) return categories;

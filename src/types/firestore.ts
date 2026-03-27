@@ -88,6 +88,7 @@ export interface User {
   phoneNumber?: string;
   role?: UserRole | string;
   currentPoints?: number;
+  pendingPoints?: number;
   lifetimePoints?: number;
   tierXp?: number;
   joinedDate?: string;
@@ -103,6 +104,7 @@ export const userConverter: FirestoreDataConverter<User> = {
   fromFirestore(snapshot: QueryDocumentSnapshot, options: SnapshotOptions): User {
     const data = snapshot.data(options)!;
     const currentPoints = safeNumber(data.currentPoints, safeNumber(data.points));
+    const pendingPoints = safeNumber(data.pendingPoints);
     const lifetimePoints = safeNumber(data.lifetimePoints, safeNumber(data.xp));
     const tierXp = safeNumber(data.tierXp, lifetimePoints);
 
@@ -118,6 +120,7 @@ export const userConverter: FirestoreDataConverter<User> = {
       vouchers: data.vouchers || data.activeVouchers || [],
       joinedDate: data.joinedDate || data.joinDate || "",
       currentPoints,
+      pendingPoints,
       lifetimePoints,
       tierXp,
       role: data.role || "member",

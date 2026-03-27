@@ -100,8 +100,8 @@ async function createTxNotification(
       ? "✅ Transaksi Kamu Diverifikasi!"
       : "❌ Transaksi Ditolak";
     const body  = action === "verified"
-      ? `Transaksi ${txId} (${amount}) telah diverifikasi. Poin kamu sudah bertambah!`
-      : `Transaksi ${txId} (${amount}) ditolak. Hubungi kasir jika ada pertanyaan.`;
+      ? `Transaksi ${txId} (${amount}) telah diverifikasi. Poin pending kamu sudah dirilis.`
+      : `Transaksi ${txId} (${amount}) ditolak. Poin pending dari transaksi ini dibatalkan.`;
 
     const userNotif: UserNotification = {
       id:        notifId,
@@ -286,7 +286,7 @@ export async function PATCH(req: NextRequest) {
           docPath,
           statusBefore: txData.status,
           statusAfter: "COMPLETED",
-          potentialPoints: txData.potentialPoints ?? 0,
+          pointsEarned: txData.pointsEarned ?? txData.potentialPoints ?? 0,
           resolvedMemberUid: rewardResult.memberUid,
           memberResolution: rewardResult.memberResolution,
           memberReference: getTransactionMemberReference(txData),
@@ -296,7 +296,7 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({
         success: true,
         action:  "verified",
-        points:  txData.potentialPoints ?? 0,
+        points:  txData.pointsEarned ?? txData.potentialPoints ?? 0,
       });
     } else {
       // Reject — just update status, no points
@@ -405,7 +405,7 @@ export async function POST(req: NextRequest) {
               docPath,
               statusBefore: txData.status,
               statusAfter: "COMPLETED",
-              potentialPoints: txData.potentialPoints ?? 0,
+              pointsEarned: txData.pointsEarned ?? txData.potentialPoints ?? 0,
               resolvedMemberUid: rewardResult.memberUid,
               memberResolution: rewardResult.memberResolution,
               memberReference: getTransactionMemberReference(txData),

@@ -140,7 +140,7 @@ function deriveTier(totalTierXp: number, tierRules: Array<{ minPoints: number; l
 }
 
 function getPointsToAdd(txData: FirebaseFirestore.DocumentData) {
-  return Number(txData.potentialPoints ?? txData.pointsEarned ?? 0);
+  return Number(txData.pointsEarned ?? txData.potentialPoints ?? 0);
 }
 
 export async function applyTransactionReward(params: {
@@ -154,36 +154,24 @@ export async function applyTransactionReward(params: {
 }) {
   const { txRef, txData, txId, verifiedBy, verifiedAt, nextStatus, failureReason } = params;
 
-  if (nextStatus !== "COMPLETED") {
-    await txRef.update({
-      status: nextStatus,
-      verifiedAt,
-      verifiedBy,
-      ...(failureReason ? { reason: failureReason, needsManualReview: true } : {}),
-    });
-    return {
-      memberUid: null,
-      memberResolution: null,
-      pointsAdded: 0,
-      tier: null,
-    };
-  }
-
   const pointsToAdd = getPointsToAdd(txData);
   const memberResolution = await resolveMemberDocument(txData);
   const memberCandidates = collectMemberCandidates(txData);
   let resolvedTier: string | null = null;
+  let pointsAdjusted = 0;
 
   if (!memberResolution && pointsToAdd > 0) {
-    throw new MemberPointsError(
-      "Transaction could not be verified because the related member could not be resolved to users/{uid}.",
-      "MEMBER_NOT_RESOLVED",
-      {
-        txId,
-        receiptNumber: txData.receiptNumber ?? txData.posTransactionId ?? txData.transactionId ?? txId,
-        candidates: memberCandidates,
-      },
-    );
+    if (nextStatus === "COMPLETED") {
+      throw new MemberPointsError(
+        "Transaction could not be verified because the related member could not be resolved to users/{uid}.",
+        "MEMBER_NOT_RESOLVED",
+        {
+          txId,
+          receiptNumber: txData.receiptNumber ?? txData.posTransactionId ?? txData.transactionId ?? txId,
+          candidates: memberCandidates,
+        },
+      );
+    }
   }
 
   const tierRules = await loadTierRules();
@@ -208,6 +196,7 @@ export async function applyTransactionReward(params: {
       status: nextStatus,
       verifiedAt,
       verifiedBy,
+      pointsState: nextStatus === "COMPLETED" ? "RELEASED" : "VOID",
       ...(failureReason ? { reason: failureReason, needsManualReview: true } : {}),
     });
 
@@ -226,37 +215,58 @@ export async function applyTransactionReward(params: {
 
     const memberData = memberSnap.data() ?? {};
     const currentPoints = Number(memberData.currentPoints ?? memberData.points ?? 0);
+    const pendingPoints = Number(memberData.pendingPoints ?? 0);
     const lifetimePoints = Number(memberData.lifetimePoints ?? memberData.xp ?? 0);
     const tierXp = Number(memberData.tierXp ?? memberData.lifetimePoints ?? memberData.xp ?? 0);
 
-    const nextCurrentPoints = currentPoints + pointsToAdd;
-    const nextLifetimePoints = lifetimePoints + pointsToAdd;
-    const nextTierXp = tierXp + pointsToAdd;
-    const nextTier = deriveTier(nextTierXp, tierRules);
-    resolvedTier = nextTier;
+    if (nextStatus === "COMPLETED") {
+      const nextCurrentPoints = currentPoints + pointsToAdd;
+      const nextPendingPoints = Math.max(pendingPoints - pointsToAdd, 0);
+      const nextLifetimePoints = lifetimePoints + pointsToAdd;
+      const nextTierXp = tierXp + pointsToAdd;
+      const nextTier = deriveTier(nextTierXp, tierRules);
+      resolvedTier = nextTier;
+      pointsAdjusted = pointsToAdd;
 
-    const xpEntry = {
-      id: `${txId}_${Date.now()}`,
-      date: new Date().toISOString(),
-      amount: pointsToAdd,
-      type: "earn",
-      status: "verified",
-      context: `Transaction ${txData.receiptNumber ?? txData.posTransactionId ?? txData.transactionId ?? txId}`,
-      location: txData.storeName ?? txData.storeLocation ?? txData.storeId ?? "-",
-      transactionId: txData.receiptNumber ?? txData.posTransactionId ?? txData.transactionId ?? txId,
-    };
+      const xpEntry = {
+        id: `${txId}_${Date.now()}`,
+        date: new Date().toISOString(),
+        amount: pointsToAdd,
+        type: "earn",
+        status: "verified",
+        context: `Transaction ${txData.receiptNumber ?? txData.posTransactionId ?? txData.transactionId ?? txId}`,
+        location: txData.storeName ?? txData.storeLocation ?? txData.storeId ?? "-",
+        transactionId: txData.receiptNumber ?? txData.posTransactionId ?? txData.transactionId ?? txId,
+      };
 
+      transaction.set(
+        memberResolution.ref,
+        {
+          currentPoints: nextCurrentPoints,
+          pendingPoints: nextPendingPoints,
+          lifetimePoints: nextLifetimePoints,
+          tierXp: nextTierXp,
+          tier: nextTier,
+          // Legacy mirrors kept in sync for older parts of the app/admin.
+          points: nextCurrentPoints,
+          xp: nextLifetimePoints,
+          xpHistory: FieldValue.arrayUnion(xpEntry),
+          pointsLastUpdatedAt: new Date().toISOString(),
+          pointsLastUpdatedBy: verifiedBy,
+          updatedAt: new Date().toISOString(),
+          lastRewardTransactionId: txId,
+        },
+        { merge: true },
+      );
+      return;
+    }
+
+    const nextPendingPoints = Math.max(pendingPoints - pointsToAdd, 0);
+    pointsAdjusted = Math.min(pointsToAdd, pendingPoints);
     transaction.set(
       memberResolution.ref,
       {
-        currentPoints: nextCurrentPoints,
-        lifetimePoints: nextLifetimePoints,
-        tierXp: nextTierXp,
-        tier: nextTier,
-        // Legacy mirrors kept in sync for older parts of the app/admin.
-        points: nextCurrentPoints,
-        xp: nextLifetimePoints,
-        xpHistory: FieldValue.arrayUnion(xpEntry),
+        pendingPoints: nextPendingPoints,
         pointsLastUpdatedAt: new Date().toISOString(),
         pointsLastUpdatedBy: verifiedBy,
         updatedAt: new Date().toISOString(),
@@ -269,7 +279,7 @@ export async function applyTransactionReward(params: {
   return {
     memberUid: memberResolution?.uid ?? null,
     memberResolution: memberResolution?.via ?? null,
-    pointsAdded: pointsToAdd,
+    pointsAdded: pointsAdjusted,
     tier: resolvedTier,
   };
 }

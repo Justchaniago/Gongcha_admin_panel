@@ -132,7 +132,7 @@ export async function deleteAccountAction(uid: string, collection: "users" | "st
 }
 
 // ── UPDATE POINTS ──
-export async function updatePointsAction(uid: string, points: number, lifetime: number) {
+export async function updatePointsAction(uid: string, points: number, pending: number, lifetime: number) {
   const actor = await getAuthSession();
   const targetRef = adminDb.collection("users").doc(uid);
   const beforeSnap = await targetRef.get();
@@ -142,6 +142,7 @@ export async function updatePointsAction(uid: string, points: number, lifetime: 
     xp: lifetime,
     // legacy mirror for old UI that still reads these fields
     currentPoints: points,
+    pendingPoints: pending,
     lifetimePoints: lifetime,
     updatedAt: new Date().toISOString(),
   });
@@ -156,9 +157,10 @@ export async function updatePointsAction(uid: string, points: number, lifetime: 
     metadata: {
       before: {
         points: before?.points ?? before?.currentPoints ?? 0,
+        pendingPoints: before?.pendingPoints ?? 0,
         xp: before?.xp ?? before?.lifetimePoints ?? 0,
       },
-      after: { points, xp: lifetime },
+      after: { points, pendingPoints: pending, xp: lifetime },
     },
   });
   return { success: true };

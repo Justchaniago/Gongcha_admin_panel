@@ -55,6 +55,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   };
 
+  const tryAutoSetupProfile = async () => {
+    const res = await fetch("/api/setup-user", {
+      method: "POST",
+      credentials: "include",
+      cache: "no-store",
+    });
+
+    if (!res.ok) {
+      throw new Error(`Setup user failed with HTTP ${res.status}`);
+    }
+
+    return res.json().catch(() => null);
+  };
+
   const hydrateAdminUser = async (uid: string, fallbackEmail?: string | null, fallbackName?: string | null) => {
     // Prefer server session profile (Admin SDK) so role is accurate even if
     // client Firestore rules block reads to admin_users.
@@ -68,14 +82,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (sessionResponse.ok && sessionData?.authenticated && sessionData?.uid === uid) {
         const profile = sessionData.profile ?? null;
-        return {
-          uid,
-          email: profile?.email ?? sessionData.email ?? fallbackEmail ?? "",
-          name: profile?.name ?? sessionData.name ?? fallbackName ?? fallbackEmail?.split("@")[0] ?? "Admin",
-          role: normalizeRole(profile?.role ?? sessionData.roleHint),
-          isActive: profile?.isActive !== false,
-          assignedStoreId: profile?.assignedStoreId ?? null,
-        } as AdminUser;
+        if (profile) {
+          return {
+            uid,
+            email: profile.email ?? sessionData.email ?? fallbackEmail ?? "",
+            name: profile.name ?? sessionData.name ?? fallbackName ?? fallbackEmail?.split("@")[0] ?? "Admin",
+            role: normalizeRole(profile.role),
+            isActive: profile.isActive !== false,
+            assignedStoreId: profile.assignedStoreId ?? null,
+          } as AdminUser;
+        }
       }
     } catch (error) {
       console.warn("[AuthContext] Failed to fetch session profile:", error);
@@ -88,34 +104,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!adminSnap.exists()) {
       console.log("[AuthContext] Admin doc not found, attempting auto-setup...", uid);
       try {
-        const res = await fetch("/api/setup-user", { method: "POST" });
-        if (res.ok) {
-          console.log("[AuthContext] Setup API returned ok, retrying doc fetch...");
-          // Retry with short delay to ensure Firestore write completes
-          await new Promise(resolve => setTimeout(resolve, 500));
-          adminSnap = await getDoc(adminRef);
-          if (!adminSnap.exists()) {
-            console.warn("[AuthContext] Doc still missing after setup retry");
+        await tryAutoSetupProfile();
+        console.log("[AuthContext] Setup API returned ok, retrying doc fetch...");
+
+        // Retry after a short delay so Firestore write + session profile are ready.
+        await new Promise((resolve) => setTimeout(resolve, 500));
+
+        const sessionRetry = await fetchSessionProfile();
+        const sessionRetryData = sessionRetry.data;
+        if (sessionRetry.ok && sessionRetryData?.authenticated && sessionRetryData?.uid === uid) {
+          const profile = sessionRetryData.profile ?? null;
+          if (profile) {
+            return {
+              uid,
+              email: profile.email ?? fallbackEmail ?? "",
+              name: profile.name ?? fallbackName ?? fallbackEmail?.split("@")[0] ?? "Admin",
+              role: normalizeRole(profile.role),
+              isActive: profile.isActive !== false,
+              assignedStoreId: profile.assignedStoreId ?? null,
+            } as AdminUser;
           }
-        } else {
-          console.error("[AuthContext] Setup API failed:", res.status, await res.text());
+        }
+
+        adminSnap = await getDoc(adminRef);
+        if (!adminSnap.exists()) {
+          console.warn("[AuthContext] Doc still missing after setup retry");
         }
       } catch (err) {
         console.error("[AuthContext] Setup API error:", err);
       }
     }
 
-    // Fallback: if doc still missing, allow with default STAFF role (Firebase Auth already verified)
+    // Do not silently allow a Firebase-authenticated user into the admin UI
+    // without a persisted admin profile, because Firestore rules will reject
+    // dashboard queries and trigger permission-denied errors.
     if (!adminSnap.exists()) {
-      console.warn("[AuthContext] Using fallback user for authenticated Firebase user:", uid);
-      return {
-        uid,
-        email: fallbackEmail ?? "",
-        name: fallbackName ?? fallbackEmail?.split("@")[0] ?? "Admin",
-        role: "STAFF" as AdminRole,
-        isActive: true,
-        assignedStoreId: null,
-      } as AdminUser;
+      return { profileMissing: true } as const;
     }
 
     const data = adminSnap.data();
@@ -255,6 +279,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
           if ("sessionExpired" in hydratedOrFallback) {
             await forceLogout("Session expired. Please login again.");
+            return;
+          }
+
+          if ("profileMissing" in hydratedOrFallback) {
+            await forceLogout("Admin profile is missing. Please login again after admin access is configured.");
             return;
           }
 

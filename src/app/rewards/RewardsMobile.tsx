@@ -349,7 +349,7 @@ function RewardFormSheet({ reward, onClose, onSaved, showToast }: { reward: Rewa
 
 // ── MAIN ──
 export default function RewardsMobile({ initialRewards = [] }: { initialRewards?: Reward[] }) {
-  const { user }       = useAuth();
+  const { user, loading } = useAuth();
   const { openDrawer } = useMobileSidebar();
   const canMutate      = user?.role === "SUPER_ADMIN";
 
@@ -366,10 +366,16 @@ export default function RewardsMobile({ initialRewards = [] }: { initialRewards?
   const showToast = useCallback((msg: string, type: "success" | "error" = "success") => setToast({ msg, type }), []);
 
   useEffect(() => {
+    if (loading || !user) return;
+
     const q = query(collection(db, "rewards_catalog").withConverter(rewardConverter), orderBy("title"));
-    const unsub = onSnapshot(q, snap => setRewards(snap.docs.map(d => d.data() as Reward)));
+    const unsub = onSnapshot(
+      q,
+      snap => setRewards(snap.docs.map(d => d.data() as Reward)),
+      err => console.warn("RewardsMobile listener:", err),
+    );
     return () => unsub();
-  }, []);
+  }, [loading, user]);
 
   const filtered = useMemo(() => rewards.filter(r => {
     const q  = search.toLowerCase();

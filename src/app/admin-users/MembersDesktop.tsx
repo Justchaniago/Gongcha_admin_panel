@@ -361,26 +361,28 @@ function useConfirm() {
 // ── Modals ────────────────────────────────────────────────────────────────────
 function EditPointsModal({ user, onClose, onSaved, toast, confirm }: any) {
   const [points,   setPoints]   = useState(String(user.currentPoints  ?? 0));
+  const [pending,  setPending]  = useState(String(user.pendingPoints ?? 0));
   const [lifetime, setLifetime] = useState(String(user.lifetimePoints ?? 0));
   const [loading,  setLoading]  = useState(false);
   const [error,    setError]    = useState("");
 
   const pointsNum   = parseInt(points,   10);
+  const pendingNum  = parseInt(pending,  10);
   const lifetimeNum = parseInt(lifetime, 10);
-  const isValid     = !isNaN(pointsNum) && !isNaN(lifetimeNum) && pointsNum >= 0 && lifetimeNum >= 0 && lifetimeNum >= pointsNum;
+  const isValid     = !isNaN(pointsNum) && !isNaN(pendingNum) && !isNaN(lifetimeNum) && pointsNum >= 0 && pendingNum >= 0 && lifetimeNum >= 0 && lifetimeNum >= pointsNum;
 
   function handleSave() {
     if (!isValid) return;
     confirm({
       title: "Confirm Points Edit",
-      description: `Poin aktif ${user.name} akan diubah menjadi ${pointsNum.toLocaleString("id")} dan Lifetime XP menjadi ${lifetimeNum.toLocaleString("id")}.`,
+      description: `Poin aktif ${user.name} akan diubah menjadi ${pointsNum.toLocaleString("id")}, pending menjadi ${pendingNum.toLocaleString("id")}, dan Lifetime XP menjadi ${lifetimeNum.toLocaleString("id")}.`,
       confirmLabel: "Simpan Perubahan",
       onConfirm: async () => {
         setLoading(true); setError("");
         try {
-          await updatePointsAction(user.uid, pointsNum, lifetimeNum);
+          await updatePointsAction(user.uid, pointsNum, pendingNum, lifetimeNum);
           toast(`Poin ${user.name} berhasil diperbarui.`, "success");
-          onSaved({ currentPoints: pointsNum, lifetimePoints: lifetimeNum });
+          onSaved({ currentPoints: pointsNum, pendingPoints: pendingNum, lifetimePoints: lifetimeNum });
           onClose();
         } catch (e: any) {
           setError(e.message ?? "Failed to save points.");
@@ -402,10 +404,14 @@ function EditPointsModal({ user, onClose, onSaved, toast, confirm }: any) {
         </>
       }
     >
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 22 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 22 }}>
         <div style={{ padding: "12px", background: C.bg, borderRadius: 10 }}>
           <p style={{ fontSize: 10, fontWeight: 700, color: C.tx3, textTransform: "uppercase" }}>Poin Sekarang</p>
           <p style={{ fontSize: 20, fontWeight: 800, color: C.blue }}>{(user.currentPoints ?? 0).toLocaleString("id")}</p>
+        </div>
+        <div style={{ padding: "12px", background: C.bg, borderRadius: 10 }}>
+          <p style={{ fontSize: 10, fontWeight: 700, color: C.tx3, textTransform: "uppercase" }}>Pending Sekarang</p>
+          <p style={{ fontSize: 20, fontWeight: 800, color: C.amber }}>{(user.pendingPoints ?? 0).toLocaleString("id")}</p>
         </div>
         <div style={{ padding: "12px", background: C.bg, borderRadius: 10 }}>
           <p style={{ fontSize: 10, fontWeight: 700, color: C.tx3, textTransform: "uppercase" }}>XP Sekarang</p>
@@ -417,6 +423,10 @@ function EditPointsModal({ user, onClose, onSaved, toast, confirm }: any) {
         <div>
           <FL>Poin Aktif</FL>
           <GcInput type="number" min="0" value={points} onChange={(e: any) => setPoints(e.target.value)} hasError={!isNaN(pointsNum) && pointsNum < 0} />
+        </div>
+        <div>
+          <FL>Poin Pending</FL>
+          <GcInput type="number" min="0" value={pending} onChange={(e: any) => setPending(e.target.value)} hasError={!isNaN(pendingNum) && pendingNum < 0} />
         </div>
         <div>
           <FL>Lifetime XP</FL>
@@ -484,6 +494,7 @@ function MemberDetailModal({ user, onClose, onEdit, onDeleted, toast, confirm }:
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10, marginBottom: 20 }}>
           {[
             { l: "Poin Aktif",   v: (localUser.currentPoints  ?? 0).toLocaleString("id"), c: C.blue   },
+            { l: "Poin Pending", v: (localUser.pendingPoints  ?? 0).toLocaleString("id"), c: C.amber  },
             { l: "Lifetime XP",  v: (localUser.lifetimePoints ?? 0).toLocaleString("id"), c: C.purple },
             { l: "Voucher",      v: localUser.vouchers?.length ?? 0,                       c: C.green  },
           ].map(s => (
@@ -895,7 +906,7 @@ function CreateModal({ onClose, toast, onCreated }: any) {
                 {tier === "Silver" ? "🥈" : tier === "Gold" ? "🥇" : "💎"} {tier} Tier
               </span>
               <span style={{ fontSize: 11, color: TIER_CFG[tier]?.color, opacity: .7 }}>
-                · Starting points: 0 · Lifetime XP: 0
+                · Starting available: 0 · Pending: 0 · Lifetime XP: 0
               </span>
             </div>
           </div>

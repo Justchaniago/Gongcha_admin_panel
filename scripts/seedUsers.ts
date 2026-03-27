@@ -23,6 +23,7 @@ const users: Array<{ id: string } & User> = [
     role: "master",
     tier: "Platinum",
     currentPoints: 2500,
+    pendingPoints: 0,
     lifetimePoints: 15500,
     joinedDate: "2025-01-24T10:00:00Z",
     xpHistory: [
@@ -79,6 +80,7 @@ const users: Array<{ id: string } & User> = [
     role: "member",
     tier: "Gold",
     currentPoints: 8920,
+    pendingPoints: 0,
     lifetimePoints: 10500,
     joinedDate: "2025-03-15T08:00:00Z",
     xpHistory: [
@@ -125,6 +127,7 @@ const users: Array<{ id: string } & User> = [
     role: "member",
     tier: "Silver",
     currentPoints: 3210,
+    pendingPoints: 0,
     lifetimePoints: 4800,
     joinedDate: "2025-06-20T09:00:00Z",
     xpHistory: [
@@ -152,6 +155,7 @@ const users: Array<{ id: string } & User> = [
     role: "member",
     tier: "Silver",
     currentPoints: 1850,
+    pendingPoints: 0,
     lifetimePoints: 2300,
     joinedDate: "2025-09-10T14:00:00Z",
     xpHistory: [

@@ -246,15 +246,15 @@ export default function TransactionsMobile({ initialTransactions = [], initialRo
       const res = await fetch("/api/transactions", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ docPath: tx.docPath, action }) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message ?? "Failed");
-      showToast(action === "verify" ? `Verified! +${tx.potentialPoints ?? 0} pts for ${tx.memberName}` : "Transaction rejected.", action === "verify" ? "success" : "error");
+      showToast(action === "verify" ? `Verified! Released ${tx.potentialPoints ?? 0} pending pts for ${tx.memberName}` : "Transaction rejected.", action === "verify" ? "success" : "error");
       await fetchTxs();
     } catch (e: any) { showToast(e.message ?? "Failed", "error"); }
     finally { setLoadingId(null); }
   }
   function askVerifyAll() {
     if (!pending.length) return;
-    setConfirm({ title: "Verify All Pending?", message: `Verify ${pending.length} transactions and disburse ${totalPts.toLocaleString("id")} pts to members. This cannot be undone.`, confirmLabel: `Verify ${pending.length} Transactions`,
-      onConfirm: async () => { const res = await fetch("/api/transactions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ docPaths: pending.map(t => t.docPath), action: "verify" }) }); const data = await res.json(); if (!res.ok) throw new Error(data.message ?? "Failed"); showToast(`${data.successCount} transactions verified!`); await fetchTxs(); } });
+    setConfirm({ title: "Verify All Pending?", message: `Verify ${pending.length} transactions and release ${totalPts.toLocaleString("id")} pending pts to members. This cannot be undone.`, confirmLabel: `Verify ${pending.length} Transactions`,
+      onConfirm: async () => { const res = await fetch("/api/transactions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ docPaths: pending.map(t => t.docPath), action: "verify" }) }); const data = await res.json(); if (!res.ok) throw new Error(data.message ?? "Failed"); showToast(`${data.successCount} transactions verified and pending points released!`); await fetchTxs(); } });
   }
   function askDelete(tx: Tx) {
     setConfirm({ title: "Delete Transaction?", message: `${getReceiptNumber(tx) || tx.docId} will be permanently deleted.`, confirmLabel: "Delete", danger: true,

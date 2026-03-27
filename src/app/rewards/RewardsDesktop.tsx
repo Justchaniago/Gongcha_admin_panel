@@ -411,7 +411,7 @@ function ShowcaseRewardCard({ reward }: { reward: Reward }) {
 
 // ── Main ───────────────────────────────────────────────────────────────────────
 export default function RewardsClient({ initialRewards = [], showAddTrigger }: { initialRewards?: Reward[]; showAddTrigger?: boolean }) {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
   const canMutate = user?.role === "SUPER_ADMIN";
   const [rewards,      setRewards]      = useState<Reward[]>(initialRewards); 
   const [syncStatus,   setSyncStatus]   = useState<SyncStatus>('connecting');
@@ -425,6 +425,16 @@ export default function RewardsClient({ initialRewards = [], showAddTrigger }: {
   const showToast = useCallback((msg:string, type:'success'|'error'='success') => setToast({msg,type}), []);
 
   useEffect(() => {
+    if (loading) {
+      setSyncStatus("connecting");
+      return;
+    }
+
+    if (!user) {
+      setSyncStatus("error");
+      return;
+    }
+
     const q = query(collection(db, "rewards_catalog").withConverter(rewardConverter), orderBy("title"));
     const unsub = onSnapshot(
       q,
@@ -438,7 +448,7 @@ export default function RewardsClient({ initialRewards = [], showAddTrigger }: {
       }
     );
     return () => unsub();
-  }, []);
+  }, [loading, user]);
 
   const filtered = useMemo(() => rewards.filter(r => {
     const q = search.toLowerCase();

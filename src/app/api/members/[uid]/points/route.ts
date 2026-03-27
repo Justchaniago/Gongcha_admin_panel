@@ -13,11 +13,15 @@ export async function PATCH(
     const { uid } = await context.params;
     if (!uid) return NextResponse.json({ error: "Missing uid" }, { status: 400 });
 
-    const { currentPoints, lifetimePoints } = await req.json();
+    const { currentPoints, pendingPoints, lifetimePoints } = await req.json();
 
     // Validasi points
-    if (typeof currentPoints !== "number" || typeof lifetimePoints !== "number") {
+    if (typeof currentPoints !== "number" || typeof pendingPoints !== "number" || typeof lifetimePoints !== "number") {
       return NextResponse.json({ error: "Invalid points format" }, { status: 400 });
+    }
+
+    if (pendingPoints < 0) {
+      return NextResponse.json({ error: "Pending points cannot be negative" }, { status: 400 });
     }
 
     if (lifetimePoints < currentPoints) {
@@ -33,7 +37,10 @@ export async function PATCH(
 
     await adminDb.collection("users").doc(uid).update({
       currentPoints:        Number(currentPoints),
+      pendingPoints:        Number(pendingPoints),
       lifetimePoints:       Number(lifetimePoints),
+      points:               Number(currentPoints),
+      xp:                   Number(lifetimePoints),
       pointsLastEditedBy:   session.uid,
       pointsLastEditedAt:   new Date().toISOString(),
     });
@@ -48,9 +55,10 @@ export async function PATCH(
       metadata: {
         before: {
           currentPoints: before?.currentPoints ?? before?.points ?? 0,
+          pendingPoints: before?.pendingPoints ?? 0,
           lifetimePoints: before?.lifetimePoints ?? before?.xp ?? 0,
         },
-        after: { currentPoints: Number(currentPoints), lifetimePoints: Number(lifetimePoints) },
+        after: { currentPoints: Number(currentPoints), pendingPoints: Number(pendingPoints), lifetimePoints: Number(lifetimePoints) },
       },
     });
 

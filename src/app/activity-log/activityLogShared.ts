@@ -73,7 +73,7 @@ const FIELD_LABELS: Record<string, string> = {
   imageUrl: "Gambar", isAvailable: "Tersedia", isActive: "Aktif",
   isRedeemable: "Bisa ditukar", isForceClosed: "Force closed",
   status: "Status", previousStatus: "Status sebelum", nextStatus: "Status baru",
-  currentPoints: "Poin aktif", lifetimePoints: "Total poin", points: "Poin", xp: "XP",
+  currentPoints: "Poin aktif", pendingPoints: "Poin pending", lifetimePoints: "Total poin", points: "Poin", xp: "XP",
   tier: "Tier", phone: "No. HP", phoneNumber: "No. HP", email: "Email",
   role: "Role", assignedStoreId: "Store assignment", targetUid: "Target UID",
   open: "Jam buka", close: "Jam tutup", operationalHours: "Jam operasional",

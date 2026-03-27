@@ -252,7 +252,7 @@ export function CsvPanel({ pendingTxs, stores, onMatchVerify, onToast }: {
     setLoading(true);
     try {
       await onMatchVerify(matched);
-      onToast(`✓ ${matched.length} transactions verified successfully!`, "success");
+      onToast(`✓ ${matched.length} transactions verified and pending points released!`, "success");
       setCsvRows([]); setMatched([]); setUnmatched([]); setFileName("");
     } catch (e: any) {
       onToast(e.message ?? "Failed", "error");
@@ -411,7 +411,7 @@ export function PendingPanel({ pending, onVerify, onReject, onVerifyAll, loading
   return (
     <div style={{ background:C.white, borderRadius:16, border:`1px solid ${C.border}`, boxShadow:C.shadow, padding:20, display:"flex", flexDirection:"column" }}>
       <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:14 }}>
-        <h2 style={{ fontSize:15, fontWeight:800, color:C.tx1, margin:0 }}>Pending ({pending.length})</h2>
+        <h2 style={{ fontSize:15, fontWeight:800, color:C.tx1, margin:0 }}>Pending Validation ({pending.length})</h2>
         {pending.length > 0 && (
           <button onClick={onVerifyAll} style={{ height:34, padding:"0 14px", borderRadius:7, border:"none", background:C.green, color:"#fff", fontFamily:font, fontSize:12, fontWeight:700, cursor:"pointer" }}>
             ✓ Verify All

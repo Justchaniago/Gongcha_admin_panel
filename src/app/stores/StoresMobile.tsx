@@ -152,7 +152,7 @@ export default function StoresMobile({
   initialStores?: StoreWithId[];
   showAddTrigger?: boolean;
 }) {
-  const { user }       = useAuth();
+  const { user, loading } = useAuth();
   const { openDrawer } = useMobileSidebar();
   const canManage      = user?.role !== "STAFF";
 
@@ -172,10 +172,16 @@ export default function StoresMobile({
 
   // Firestore real-time
   useEffect(() => {
+    if (loading || !user) return;
+
     const q    = query(collection(db, "stores").withConverter(storeConverter), orderBy("name"));
-    const unsub = onSnapshot(q, snap => setStores(snap.docs.map(d => d.data())));
+    const unsub = onSnapshot(
+      q,
+      snap => setStores(snap.docs.map(d => d.data())),
+      err => console.warn("StoresMobile listener:", err),
+    );
     return () => unsub();
-  }, []);
+  }, [loading, user]);
 
   const filtered = useMemo(() => stores.filter(s => {
     const q  = search.toLowerCase();

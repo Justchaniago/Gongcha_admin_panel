@@ -22,6 +22,7 @@ interface Transaction {
   transactionId?: string;
   memberName: string;
   amount: number;
+  pointsEarned?: number;
   potentialPoints?: number;
   type?: "earn" | "redeem"; // earn = purchase, redeem = voucher redemption
   status: TransactionStatus;
@@ -60,6 +61,7 @@ function normalizeTransaction(raw: any, stores: Store[]): Transaction {
   const receiptNumber = String(raw.receiptNumber ?? raw.posTransactionId ?? raw.transactionId ?? "");
   const storeId = String(raw.storeId ?? "");
   const storeName = resolveStoreName(stores, storeId, raw.storeName ?? raw.storeLocation ?? null);
+  const pointsEarned = Number(raw.pointsEarned ?? raw.potentialPoints ?? 0);
   return {
     docId: raw.docId ?? raw.id,
     docPath: raw.docPath ?? (raw.docId ? `transactions/${raw.docId}` : undefined),
@@ -67,7 +69,8 @@ function normalizeTransaction(raw: any, stores: Store[]): Transaction {
     transactionId: receiptNumber,
     memberName: raw.memberName ?? raw.userName ?? "—",
     amount: Number(raw.totalAmount ?? raw.amount ?? 0),
-    potentialPoints: Number(raw.potentialPoints ?? 0),
+    pointsEarned,
+    potentialPoints: pointsEarned,
     type: raw.type ?? "earn",
     status: normalizeTransactionStatus(raw.status),
     createdAt: raw.createdAt?.toDate?.()?.toISOString?.() ?? raw.createdAt ?? null,
@@ -82,6 +85,25 @@ function getTodayString(): string {
   const month = String(now.getMonth() + 1).padStart(2, "0");
   const day = String(now.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function getDateBounds(date: string) {
+  const start = new Date(`${date}T00:00:00`);
+  const end = new Date(`${date}T23:59:59.999`);
+  return { start, end };
+}
+
+function matchesDashboardDateRange(
+  createdAt: string | null,
+  mode: "realtime" | "range",
+  dateFrom: string,
+  dateTo: string,
+): boolean {
+  const createdDate = createdAt ? createdAt.slice(0, 10) : null;
+  if (mode === "range") {
+    return Boolean(dateFrom && dateTo && createdDate && createdDate >= dateFrom && createdDate <= dateTo);
+  }
+  return createdDate === getTodayString();
 }
 
 function asNumber(value: unknown, fallback = 0): number {
@@ -272,7 +294,7 @@ export default function DashboardClient({ initialRole, initialTransactions, init
   const [deleteConfirmPaths, setDeleteConfirmPaths] = useState<string[] | null>(null);
 
   // Greeting
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const now      = new Date();
   const hr       = now.getHours();
   const greeting = hr < 12 ? "Good morning" : hr < 17 ? "Good afternoon" : "Good evening";
@@ -309,31 +331,24 @@ export default function DashboardClient({ initialRole, initialTransactions, init
     return allTransactions.filter((t) => t.storeId === effectiveStoreFilter);
   }, [allTransactions, effectiveStoreFilter]);
 
+  const dashboardTransactions = useMemo(
+    () => transactions.filter((tx) => matchesDashboardDateRange(tx.createdAt, mode, dateFrom, dateTo)),
+    [transactions, mode, dateFrom, dateTo],
+  );
+
   const fallbackRevenueFromTransactions = useMemo(() => {
-    const today = getTodayString();
-    return transactions.reduce((sum, tx) => {
-      const createdDate = tx.createdAt ? tx.createdAt.slice(0, 10) : null;
-      const inRange = mode === "range"
-        ? Boolean(dateFrom && dateTo && createdDate && createdDate >= dateFrom && createdDate <= dateTo)
-        : createdDate === today;
-      if (!inRange) return sum;
-      if (tx.status === "CANCELLED" || tx.status === "REFUNDED") return sum;
+    return dashboardTransactions.reduce((sum, tx) => {
+      if (tx.status !== "COMPLETED") return sum;
       return sum + asNumber(tx.amount);
     }, 0);
-  }, [transactions, mode, dateFrom, dateTo]);
+  }, [dashboardTransactions]);
 
   const fallbackTransactionCount = useMemo(() => {
-    const today = getTodayString();
-    return transactions.reduce((count, tx) => {
-      const createdDate = tx.createdAt ? tx.createdAt.slice(0, 10) : null;
-      const inRange = mode === "range"
-        ? Boolean(dateFrom && dateTo && createdDate && createdDate >= dateFrom && createdDate <= dateTo)
-        : createdDate === today;
-      if (!inRange) return count;
-      if (tx.status === "CANCELLED" || tx.status === "REFUNDED") return count;
+    return dashboardTransactions.reduce((count, tx) => {
+      if (tx.status !== "COMPLETED") return count;
       return count + 1;
     }, 0);
-  }, [transactions, mode, dateFrom, dateTo]);
+  }, [dashboardTransactions]);
 
   useEffect(() => {
     storesRef.current = stores;
@@ -346,6 +361,17 @@ export default function DashboardClient({ initialRole, initialTransactions, init
 
   // ── Daily Stat (The God Document) ─────────────────────────────────────────
   useEffect(() => {
+    if (authLoading) {
+      setDailyStatStatus("connecting");
+      return;
+    }
+
+    if (!user) {
+      setDailyStatsDocs([]);
+      setDailyStatStatus("error");
+      return;
+    }
+
     setDailyStatStatus("connecting");
 
     if (mode === "range") {
@@ -417,10 +443,22 @@ export default function DashboardClient({ initialRole, initialTransactions, init
     );
 
     return () => unsub();
-  }, [mode, dateFrom, dateTo, role, userAssignedStoreId, selectedStoreId]);
+  }, [authLoading, dateFrom, dateTo, mode, role, selectedStoreId, user, userAssignedStoreId]);
 
   // ── Firestore listeners ──────────────────────────────────────────────────
   useEffect(() => {
+    if (authLoading) {
+      setTxStatus("connecting");
+      setMemberStatus("connecting");
+      return;
+    }
+
+    if (!user) {
+      setTxStatus("error");
+      setMemberStatus("error");
+      return;
+    }
+
     const loadTransactionsFallback = async () => {
       try {
         const res = await fetch("/api/transactions", { cache: "no-store" });
@@ -434,7 +472,24 @@ export default function DashboardClient({ initialRole, initialTransactions, init
       }
     };
 
-    const txQ = query(collection(db, "transactions"), orderBy("createdAt", "desc"), limit(50));
+    const txBase = collection(db, "transactions");
+    const queryStartDate = mode === "range" ? dateFrom : getTodayString();
+    const queryEndDate = mode === "range" ? dateTo : getTodayString();
+    const hasValidRange = mode !== "range" || (dateFrom && dateTo && dateFrom <= dateTo);
+    const baseConstraints: Parameters<typeof query>[1][] = [];
+
+    if (isLimitedAccess && userAssignedStoreId) {
+      baseConstraints.push(where("storeId", "==", userAssignedStoreId));
+    }
+
+    if (hasValidRange && queryStartDate && queryEndDate) {
+      const { start } = getDateBounds(queryStartDate);
+      const { end } = getDateBounds(queryEndDate);
+      baseConstraints.push(where("createdAt", ">=", start));
+      baseConstraints.push(where("createdAt", "<=", end));
+    }
+
+    const txQ = query(txBase, ...baseConstraints, orderBy("createdAt", "desc"), limit(200));
     const unsubTx = onSnapshot(txQ,
       (snap) => {
         const txList = snap.docs.map((d) =>
@@ -485,14 +540,14 @@ export default function DashboardClient({ initialRole, initialTransactions, init
       if (unsubMem) unsubMem();
       unsubStore();
     };
-  }, [isLimitedAccess]); // Keep listeners stable to avoid watch-stream churn
+  }, [authLoading, dateFrom, dateTo, isLimitedAccess, mode, user, userAssignedStoreId]);
 
   // ── Derived stats ────────────────────────────────────────────────────────
   // ALL TIME (tidak terpengaruh date picker):
   const totalMembers  = members.length;
   const totalStores   = stores.length;
-  const pendingCount  = allTransactions.filter((t) => t.status === "PENDING").length;
-  const cancelledCount = allTransactions.filter((t) => t.status === "CANCELLED").length;
+  const pendingCount  = dashboardTransactions.filter((t) => t.status === "PENDING").length;
+  const cancelledCount = dashboardTransactions.filter((t) => t.status === "CANCELLED").length;
   const claimsNeedingReview = pendingCount + cancelledCount; // Pending + Cancelled
   
   // DAILY STATS (The God Document):
@@ -503,9 +558,9 @@ export default function DashboardClient({ initialRole, initialTransactions, init
   const verifiedCount = totalTransactions;
 
   // Additional visuals still rely on transaction stream:
-  const avgTrx        = transactions.length > 0 ? Math.round(transactions.reduce((a, t) => a + t.amount, 0) / transactions.length) : 0;
-  const totalXP       = transactions.filter((t) => t.status === "COMPLETED").reduce((a, t) => a + (t.potentialPoints ?? 0), 0); // XP issued in date range
-  const recentTrx     = transactions.slice(0, 10);
+  const avgTrx        = dashboardTransactions.length > 0 ? Math.round(dashboardTransactions.reduce((a, t) => a + t.amount, 0) / dashboardTransactions.length) : 0;
+  const totalXP       = dashboardTransactions.filter((t) => t.status === "COMPLETED").reduce((a, t) => a + (t.potentialPoints ?? 0), 0); // XP issued in active window
+  const recentTrx     = dashboardTransactions.slice(0, 10);
 
   useEffect(() => {
     setSelectedTxDocPaths((prev) => prev.filter((p) => transactions.some((tx) => getTxDocPath(tx) === p)));
@@ -562,7 +617,8 @@ export default function DashboardClient({ initialRole, initialTransactions, init
     Silver:   members.filter(m => m.tier === "Silver").length,
   }), [members]);
 
-  const overallStatus = txStatus === "live" && memberStatus === "live" && dailyStatStatus === "live" ? "live"
+  const overallStatus = authLoading ? "connecting"
+    : txStatus === "live" && memberStatus === "live" && dailyStatStatus === "live" ? "live"
     : txStatus === "error" || memberStatus === "error" || dailyStatStatus === "error" ? "error" : "connecting";
 
   // Store transaction breakdown
@@ -661,6 +717,53 @@ export default function DashboardClient({ initialRole, initialTransactions, init
           </>
         }
       />
+
+      {!isLimitedAccess && stores.length > 0 && (
+        <GcPanel style={{ padding: "12px 16px", marginBottom: 14, borderRadius: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".08em", textTransform: "uppercase", color: C.tx3 }}>
+              Store Scope
+            </span>
+            <button
+              onClick={() => setSelectedStoreId("all")}
+              style={{
+                border: `1px solid ${selectedStoreId === "all" ? "#BFDBFE" : C.border}`,
+                background: selectedStoreId === "all" ? "#EFF6FF" : C.white,
+                color: selectedStoreId === "all" ? C.blueD : C.tx2,
+                borderRadius: 999,
+                padding: "8px 12px",
+                fontSize: 12.5,
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >
+              All Stores
+            </button>
+            {stores.map((store) => {
+              const value = store.uid || store.id || "";
+              const active = selectedStoreId === value;
+              return (
+                <button
+                  key={value}
+                  onClick={() => setSelectedStoreId(value)}
+                  style={{
+                    border: `1px solid ${active ? "#BFDBFE" : C.border}`,
+                    background: active ? "#EFF6FF" : "#F8FAFC",
+                    color: active ? C.blueD : C.tx2,
+                    borderRadius: 999,
+                    padding: "8px 12px",
+                    fontSize: 12.5,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  {store.name}
+                </button>
+              );
+            })}
+          </div>
+        </GcPanel>
+      )}
 
       {/* ── BENTO ROW 1: Conditional based on role ── */}
       {isLimitedAccess ? (
