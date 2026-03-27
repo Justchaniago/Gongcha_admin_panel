@@ -56,6 +56,23 @@ export default function LoginPage() {
     }, 4800);
   }
 
+  async function waitForServerSession(maxAttempts = 8, delayMs = 250) {
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      const sessionStatus = await fetch("/api/auth/session", {
+        cache: "no-store",
+        credentials: "include",
+      });
+
+      if (sessionStatus.ok) {
+        return true;
+      }
+
+      await new Promise((resolve) => window.setTimeout(resolve, delayMs));
+    }
+
+    return false;
+  }
+
   useEffect(() => {
     if (authLoading || !user || sessionSyncRef.current || window.location.pathname === "/dashboard") return;
 
@@ -63,8 +80,8 @@ export default function LoginPage() {
 
     (async () => {
       try {
-        const sessionStatus = await fetch("/api/auth/session", { cache: "no-store" });
-        if (sessionStatus.ok) {
+        const hasSession = await waitForServerSession(2, 150);
+        if (hasSession) {
           router.replace("/dashboard");
           return;
         }
@@ -82,7 +99,7 @@ export default function LoginPage() {
           body: JSON.stringify({ idToken }),
         });
 
-        if (createSession.ok) {
+        if (createSession.ok && await waitForServerSession()) {
           router.replace("/dashboard");
           return;
         }
@@ -113,7 +130,7 @@ export default function LoginPage() {
 
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email.trim(), password);
-      const idToken = await userCredential.user.getIdToken();
+      const idToken = await userCredential.user.getIdToken(true);
 
       const response = await fetch('/api/auth/session', {
         method: 'POST',
@@ -122,6 +139,10 @@ export default function LoginPage() {
       });
 
       if (!response.ok) throw new Error("Failed to create session on server.");
+      const sessionReady = await waitForServerSession();
+      if (!sessionReady) {
+        throw new Error("Session belum siap. Coba login sekali lagi.");
+      }
 
       setSuccess(true);
       dismissAccessHelp();
