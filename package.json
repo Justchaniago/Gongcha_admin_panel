@@ -14,7 +14,9 @@
     "seed:stores": "npx ts-node --project tsconfig.seed.json scripts/seedStores.ts",
     "seed:users": "npx ts-node --project tsconfig.seed.json scripts/seedUsers.ts",
     "seed:staff": "npx ts-node --project tsconfig.seed.json scripts/seedStaff.ts",
-    "seed:rewards": "npx ts-node --project tsconfig.seed.json scripts/seedRewards.ts"
+    "seed:rewards": "npx ts-node --project tsconfig.seed.json scripts/seedRewards.ts",
+    "check:admin": "node check-admin-profile.js",
+    "fix:admin": "node fix-admin-profile.js"
   },
   "dependencies": {
     "clsx": "^2.1.1",
