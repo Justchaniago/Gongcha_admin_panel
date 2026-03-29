@@ -111,8 +111,9 @@ service cloud.firestore {
 
     // ── /products ──────────────────────────────────────────────────────────
     // Admin panel menu management collection.
+    // Member app also needs read access to show menu catalog.
     match /products/{productId} {
-      allow read:  if isActiveAdminPanelUser();
+      allow read:  if isSignedIn();
       allow write: if isPrivilegedAdmin();
     }
 

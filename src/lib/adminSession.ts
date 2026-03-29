@@ -73,7 +73,9 @@ export async function getAdminSession(
   }
 
   const profile = profileSnap.data() ?? {};
-  if (profile.isActive !== true) {
+  // Keep server-side access semantics aligned with client/rules:
+  // legacy docs without isActive should be treated as active.
+  if (profile.isActive === false) {
     throw new AdminAuthError("Access denied. Account is inactive.", 403, "ACCOUNT_INACTIVE");
   }
 

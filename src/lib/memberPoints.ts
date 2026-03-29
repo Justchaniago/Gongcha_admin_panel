@@ -192,15 +192,14 @@ export async function applyTransactionReward(params: {
       );
     }
 
-    transaction.update(txRef, {
-      status: nextStatus,
-      verifiedAt,
-      verifiedBy,
-      pointsState: nextStatus === "COMPLETED" ? "RELEASED" : "VOID",
-      ...(failureReason ? { reason: failureReason, needsManualReview: true } : {}),
-    });
-
     if (!memberResolution || pointsToAdd <= 0) {
+      transaction.update(txRef, {
+        status: nextStatus,
+        verifiedAt,
+        verifiedBy,
+        pointsState: nextStatus === "COMPLETED" ? "RELEASED" : "VOID",
+        ...(failureReason ? { reason: failureReason, needsManualReview: true } : {}),
+      });
       return;
     }
 
@@ -258,6 +257,13 @@ export async function applyTransactionReward(params: {
         },
         { merge: true },
       );
+      transaction.update(txRef, {
+        status: nextStatus,
+        verifiedAt,
+        verifiedBy,
+        pointsState: "RELEASED",
+        ...(failureReason ? { reason: failureReason, needsManualReview: true } : {}),
+      });
       return;
     }
 
@@ -274,6 +280,13 @@ export async function applyTransactionReward(params: {
       },
       { merge: true },
     );
+    transaction.update(txRef, {
+      status: nextStatus,
+      verifiedAt,
+      verifiedBy,
+      pointsState: "VOID",
+      ...(failureReason ? { reason: failureReason, needsManualReview: true } : {}),
+    });
   });
 
   return {

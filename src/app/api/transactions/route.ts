@@ -1,11 +1,10 @@
 // src/app/api/transactions/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseServer";
-import { v4 as uuidv4 } from "uuid";
-import type { AdminNotificationLog, UserNotification } from "@/types/firestore";
 import { getAdminSession, isAdminAuthError } from "@/lib/adminSession";
 import { writeActivityLog } from "@/lib/activityLog";
 import { applyTransactionReward, getTransactionMemberReference, MemberPointsError } from "@/lib/memberPoints";
+import { createTxNotification } from "@/lib/transactionNotifications";
 
 type TransactionStatus = "PENDING" | "COMPLETED" | "CANCELLED" | "REFUNDED";
 const TRANSACTIONS_COLLECTION = "transactions";
@@ -80,65 +79,6 @@ function getStoreName(txData: FirebaseFirestore.DocumentData): string {
 
 function toIsoString(value: any): string | null {
   return value?.toDate?.()?.toISOString?.() ?? value ?? null;
-}
-
-// ── Notification helper ───────────────────────────────────────────────────────
-async function createTxNotification(
-  memberId: string,
-  action: "verified" | "rejected",
-  txData: FirebaseFirestore.DocumentData,
-  adminUid: string,
-) {
-  if (!memberId) return;
-  try {
-    const notifId = uuidv4();
-    const now     = new Date().toISOString();
-    const txId    = getReceiptNumber(txData);
-    const amount  = `Rp ${getTotalAmount(txData).toLocaleString("id-ID")}`;
-
-    const title = action === "verified"
-      ? "✅ Transaksi Kamu Diverifikasi!"
-      : "❌ Transaksi Ditolak";
-    const body  = action === "verified"
-      ? `Transaksi ${txId} (${amount}) telah diverifikasi. Poin pending kamu sudah dirilis.`
-      : `Transaksi ${txId} (${amount}) ditolak. Poin pending dari transaksi ini dibatalkan.`;
-
-    const userNotif: UserNotification = {
-      id:        notifId,
-      type:      action === "verified" ? "tx_verified" : "tx_rejected",
-      title,
-      body,
-      isRead:    false,
-      createdAt: now,
-      data:      { txId, amount: getTotalAmount(txData) },
-    };
-    const adminLog: AdminNotificationLog = {
-      type:           action === "verified" ? "tx_verified" : "tx_rejected",
-      title,
-      body,
-      targetType:     "user",
-      targetUid:      memberId,
-      sentAt:         now,
-      sentBy:         adminUid,
-      recipientCount: 1,
-    };
-    await Promise.all([
-      // Write to flat 'notifications' collection — customer app reads from here
-      adminDb.collection("notifications").doc(notifId).set({
-        userId:    memberId,
-        type:      action === "verified" ? "points" : "system", // customer app types
-        title,
-        body,
-        isRead:    false,
-        createdAt: now,
-        data:      userNotif.data,
-      }),
-      adminDb.collection("notifications_log").doc(notifId).set(adminLog),
-    ]);
-  } catch (err) {
-    console.error("[createTxNotification]", err);
-    // Non-fatal — don't let notif failure break the main action
-  }
 }
 
 // ── Auth helper ───────────────────────────────────────────────────────────────

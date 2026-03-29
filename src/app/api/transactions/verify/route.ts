@@ -4,6 +4,7 @@ import { Timestamp } from "firebase-admin/firestore";
 import { getAdminSession, isAdminAuthError } from "@/lib/adminSession";
 import { writeActivityLog } from "@/lib/activityLog";
 import { applyTransactionReward, getTransactionMemberReference, MemberPointsError } from "@/lib/memberPoints";
+import { createTxNotification } from "@/lib/transactionNotifications";
 
 interface VerifyRequest {
   receiptNumber?: string;    // Transaction number from POS (must match)
@@ -150,6 +151,13 @@ export async function POST(req: NextRequest): Promise<NextResponse<VerifyRespons
       nextStatus: newStatus,
       failureReason: reason,
     });
+
+    await createTxNotification(
+      rewardResult.memberUid ?? txData.uid ?? txData.userId ?? txData.memberId ?? null,
+      newStatus === "COMPLETED" ? "verified" : "rejected",
+      txData,
+      auth.uid,
+    );
 
     await writeActivityLog({
       actor: auth,

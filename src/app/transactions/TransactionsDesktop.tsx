@@ -247,7 +247,12 @@ export default function TransactionsClient({ initialTransactions = [], initialRo
     if (errors.length > 0) {
       showToast(`⚠ ${successCount} verified, ${rejectedCount} rejected, ${errors.length} error`, "error");
     } else {
-      showToast(`✓ ${successCount} verified, ${rejectedCount} flagged for manual review`, "success");
+      showToast(
+        rejectedCount > 0
+          ? `✓ ${successCount} verified, ${rejectedCount} rejected due to POS mismatch`
+          : `✓ ${successCount} verified, all pending points released`,
+        "success",
+      );
     }
     
     await fetchTxs();

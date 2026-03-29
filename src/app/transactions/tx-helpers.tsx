@@ -38,6 +38,15 @@ export interface CsvRow {
   [key: string]: any;
 }
 
+type CsvCandidate = {
+  tx: Tx;
+  posData: { receiptNumber: string; amount: number; date: string };
+};
+
+type CsvMismatch = CsvCandidate & {
+  reasons: string[];
+};
+
 export const C = {
   bg:"#F9FAFB", white:"#FFFFFF", border:"#E5E7EB", border2:"#F3F4F6",
   tx1:"#111827", tx2:"#374151", tx3:"#6B7280",
@@ -56,16 +65,126 @@ export const fmtDate = (iso: string|null) => {
   catch { return iso; }
 };
 
+function toIsoDate(value: string | null | undefined) {
+  if (!value) return "";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 export function parseCSV(text: string): Record<string,string>[] {
-  const lines = text.trim().split(/\r?\n/);
-  if (lines.length < 2) return [];
-  const headers = lines[0].split(",").map(h => h.trim().replace(/^"|"$/g,"").toLowerCase());
-  return lines.slice(1).map(line => {
-    const vals = line.split(",").map(v => v.trim().replace(/^"|"$/g,""));
-    const row: Record<string,string> = {};
-    headers.forEach((h,i) => { row[h] = vals[i] ?? ""; });
+  const input = text.trim();
+  if (!input) return [];
+
+  const rows: string[][] = [];
+  let currentRow: string[] = [];
+  let currentValue = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < input.length; i += 1) {
+    const char = input[i];
+    const next = input[i + 1];
+
+    if (char === '"') {
+      if (inQuotes && next === '"') {
+        currentValue += '"';
+        i += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+
+    if (char === "," && !inQuotes) {
+      currentRow.push(currentValue);
+      currentValue = "";
+      continue;
+    }
+
+    if ((char === "\n" || char === "\r") && !inQuotes) {
+      if (char === "\r" && next === "\n") i += 1;
+      currentRow.push(currentValue);
+      rows.push(currentRow);
+      currentRow = [];
+      currentValue = "";
+      continue;
+    }
+
+    currentValue += char;
+  }
+
+  currentRow.push(currentValue);
+  rows.push(currentRow);
+
+  if (rows.length < 2) return [];
+
+  const headers = rows[0].map((h, index) => {
+    const normalized = h.trim().toLowerCase();
+    return normalized || `__empty_${index}`;
+  });
+
+  return rows.slice(1).map((vals) => {
+    const row: Record<string, string> = {};
+    headers.forEach((h, i) => { row[h] = (vals[i] ?? "").trim(); });
     return row;
   });
+}
+
+function normalizeCsvKey(key: string) {
+  return key
+    .toLowerCase()
+    .replace(/\s+/g, "")
+    .replace(/[^a-z0-9_]/g, "");
+}
+
+function parsePosAmount(raw: string): number {
+  const cleaned = raw.trim().replace(/[^0-9,.-]/g, "");
+  if (!cleaned) return 0;
+
+  // Handle formats like 44,000 and 147,272.71
+  const normalized = cleaned.includes(".")
+    ? cleaned.replace(/,/g, "")
+    : cleaned.replace(/,/g, "");
+
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function findFirstMatchingKey(
+  row: Record<string, string>,
+  candidates: string[],
+) {
+  return candidates.find((candidate) => candidate in row);
+}
+
+function parsePosDate(raw: string): string {
+  const value = raw.trim();
+  if (!value) return "";
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+
+  if (value.includes("/")) {
+    const parts = value.split("/");
+    if (parts.length === 3) {
+      const [a, b, c] = parts;
+      const iso = `${c}-${b.padStart(2, "0")}-${a.padStart(2, "0")}`;
+      const d = new Date(`${iso}T00:00:00`);
+      if (!Number.isNaN(d.getTime())) return iso;
+    }
+  }
+
+  const namedMonthDate = new Date(value);
+  if (!Number.isNaN(namedMonthDate.getTime())) {
+    const year = namedMonthDate.getFullYear();
+    const month = String(namedMonthDate.getMonth() + 1).padStart(2, "0");
+    const day = String(namedMonthDate.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+
+  return "";
 }
 
 export function normalizeTxStatus(status: string | null | undefined): TxStatus {
@@ -94,39 +213,49 @@ export const getAmount = (tx: Tx) => tx.amount ?? tx.totalAmount ?? 0;
 export const getUserRef = (tx: Tx) => tx.userId || tx.memberId || "";
 
 export function extractPosData(row: Record<string,string>): { receiptNumber: string; amount: number; date: string } | null {
+  const normalizedEntries = Object.entries(row).map(([key, value]) => [normalizeCsvKey(key), value] as const);
+  const normalizedRow = Object.fromEntries(normalizedEntries) as Record<string, string>;
+
   // Find receipt / transaction ID column
-  const txIdKey = Object.keys(row).find(k => 
-    ["receiptnumber", "receipt_number", "transactionid", "transaction_id", "id", "txid", "no_transaksi", "nomor_transaksi"].includes(k.toLowerCase())
-  );
-  const txId = txIdKey ? row[txIdKey]?.trim() : "";
+  const txIdKey = findFirstMatchingKey(normalizedRow, [
+    "receiptnumber",
+    "receipt_number",
+    "transactionid",
+    "transaction_id",
+    "id",
+    "txid",
+    "notransaksi",
+    "nomortransaksi",
+    "transaction",
+  ]);
+  const txId = txIdKey ? normalizedRow[txIdKey]?.trim() : "";
   if (!txId) return null;
 
   // Find amount column
-  const amountKey = Object.keys(row).find(k => 
-    ["amount", "total", "quantity_value", "nilai", "harga", "subtotal"].includes(k.toLowerCase())
-  );
-  const amountStr = amountKey ? row[amountKey]?.trim() : "";
-  const amount = amountStr ? parseFloat(amountStr.replace(/[^0-9.-]/g, "")) : 0;
+  const amountKey = findFirstMatchingKey(normalizedRow, [
+    "total",
+    "amount",
+    "netsales",
+    "quantity_value",
+    "nilai",
+    "harga",
+    "subtotal",
+  ]);
+  const amountStr = amountKey ? normalizedRow[amountKey]?.trim() : "";
+  const amount = parsePosAmount(amountStr);
   if (isNaN(amount) || amount <= 0) return null;
 
   // Find date column
-  const dateKey = Object.keys(row).find(k => 
-    ["date", "transaction_date", "tanggal", "tgl", "created_at"].includes(k.toLowerCase())
-  );
-  const dateStr = dateKey ? row[dateKey]?.trim() : "";
-  // Parse date format: could be YYYY-MM-DD, DD/MM/YYYY, or MM/DD/YYYY
-  let date = "";
-  if (dateStr.includes("-")) {
-    date = dateStr;
-  } else if (dateStr.includes("/")) {
-    const parts = dateStr.split("/");
-    if (parts.length === 3) {
-      const d = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
-      if (!isNaN(d.getTime())) {
-        date = d.toISOString().split("T")[0];
-      }
-    }
-  }
+  const dateKey = findFirstMatchingKey(normalizedRow, [
+    "date",
+    "transactiondate",
+    "tanggal",
+    "tgl",
+    "created_at",
+    "createdat",
+  ]);
+  const dateStr = dateKey ? normalizedRow[dateKey]?.trim() : "";
+  const date = parsePosDate(dateStr);
   if (!date) return null;
 
   return { receiptNumber: txId, amount, date };
@@ -205,16 +334,18 @@ export function ConfirmModal({ title, message, confirmLabel, confirmColor, onCon
 export function CsvPanel({ pendingTxs, stores, onMatchVerify, onToast }: {
   pendingTxs: Tx[];
   stores: string[];
-  onMatchVerify: (rows: Array<{ tx: Tx; posData: { receiptNumber: string; amount: number; date: string } }>) => Promise<void>;
+  onMatchVerify: (rows: CsvCandidate[]) => Promise<void>;
   onToast: (msg: string, type: "success"|"error") => void;
 }) {
   const [dragging,  setDragging]  = useState(false);
   const [csvRows,   setCsvRows]   = useState<Record<string,string>[]>([]);
   const [fileName,  setFileName]  = useState("");
-  const [matched,   setMatched]   = useState<Array<{ tx: Tx; posData: { receiptNumber: string; amount: number; date: string } }>>([]);
+  const [matched,   setMatched]   = useState<CsvCandidate[]>([]);
+  const [mismatched, setMismatched] = useState<CsvMismatch[]>([]);
   const [unmatched, setUnmatched] = useState<Record<string,string>[]>([]);
   const [loading,   setLoading]   = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const receiptMatchedCount = matched.length + mismatched.length;
 
   function processFile(file: File) {
     if (!file.name.endsWith(".csv")) { onToast("File harus berformat .csv","error"); return; }
@@ -223,7 +354,8 @@ export function CsvPanel({ pendingTxs, stores, onMatchVerify, onToast }: {
     reader.onload = (e) => {
       const rows = parseCSV(e.target?.result as string);
       setCsvRows(rows);
-      const matchedRows: Array<{ tx: Tx; posData: { receiptNumber: string; amount: number; date: string } }> = [];
+      const matchedRows: CsvCandidate[] = [];
+      const mismatchedRows: CsvMismatch[] = [];
       const unmatchedRows: Record<string,string>[] = [];
       
       rows.forEach(row => {
@@ -235,25 +367,50 @@ export function CsvPanel({ pendingTxs, stores, onMatchVerify, onToast }: {
         );
         
         if (found) {
-          matchedRows.push({ tx: found, posData });
+          const reasons: string[] = [];
+          const txAmount = getAmount(found);
+          const txDate = toIsoDate(found.createdAt);
+
+          if (Math.abs(txAmount - posData.amount) > 0.01) {
+            reasons.push(`Amount mismatch: app ${fmtRp(txAmount)} vs POS ${fmtRp(posData.amount)}`);
+          }
+
+          if (txDate && txDate !== posData.date) {
+            reasons.push(`Date mismatch: app ${txDate} vs POS ${posData.date}`);
+          }
+
+          if (reasons.length > 0) {
+            mismatchedRows.push({ tx: found, posData, reasons });
+          } else {
+            matchedRows.push({ tx: found, posData });
+          }
         } else {
           unmatchedRows.push(row);
         }
       });
       
       setMatched(matchedRows);
+      setMismatched(mismatchedRows);
       setUnmatched(unmatchedRows);
     };
     reader.readAsText(file);
   }
 
   async function handleBulkVerify() {
-    if (matched.length === 0) return;
+    if (receiptMatchedCount === 0) return;
     setLoading(true);
     try {
-      await onMatchVerify(matched);
-      onToast(`✓ ${matched.length} transactions verified and pending points released!`, "success");
-      setCsvRows([]); setMatched([]); setUnmatched([]); setFileName("");
+      await onMatchVerify([
+        ...matched,
+        ...mismatched.map(({ tx, posData }) => ({ tx, posData })),
+      ]);
+      onToast(
+        mismatched.length > 0
+          ? `✓ ${matched.length} matched processed, ${mismatched.length} mismatched rows sent for rejection review`
+          : `✓ ${matched.length} transactions verified and pending points released!`,
+        "success",
+      );
+      setCsvRows([]); setMatched([]); setMismatched([]); setUnmatched([]); setFileName("");
     } catch (e: any) {
       onToast(e.message ?? "Failed", "error");
     } finally {
@@ -261,7 +418,7 @@ export function CsvPanel({ pendingTxs, stores, onMatchVerify, onToast }: {
     }
   }
 
-  const btnDisabled = matched.length === 0 || loading;
+  const btnDisabled = receiptMatchedCount === 0 || loading;
 
   return (
     <div style={{ background:C.white, borderRadius:16, border:`1px solid ${C.border}`, boxShadow:C.shadow, padding:20, display:"flex", flexDirection:"column", gap:14 }}>
@@ -314,10 +471,31 @@ export function CsvPanel({ pendingTxs, stores, onMatchVerify, onToast }: {
           <div style={{ padding:"10px 14px", borderRadius:10, background:matched.length>0?C.greenBg:C.orangeBg, border:`1px solid ${matched.length>0?"#6EE7B7":"#FDE68A"}` }}>
             <p style={{ fontSize:12.5, fontWeight:700, color:matched.length>0?C.green:C.orange, margin:0 }}>
               {matched.length > 0
-                ? `✓ ${matched.length} transactions matched from ${csvRows.length} CSV rows - Ready for POS verification`
-                : `⚠ No matches found from ${csvRows.length} CSV rows`}
+                ? `✓ ${matched.length} transactions fully matched from ${csvRows.length} CSV rows - Ready for final verification`
+                : `⚠ No fully matched transactions found from ${csvRows.length} CSV rows`}
             </p>
           </div>
+          {mismatched.length > 0 && (
+            <div style={{ padding:"10px 14px", borderRadius:10, background:C.orangeBg, border:"1px solid #FDE68A" }}>
+              <p style={{ fontSize:12, fontWeight:700, color:C.orange, margin:"0 0 6px" }}>
+                {mismatched.length} transactions have receipt matches but failed pre-check
+              </p>
+              <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                {mismatched.slice(0, 4).map(({ tx, reasons }) => (
+                  <div key={tx.docId} style={{ fontSize:11, color:C.tx2 }}>
+                    <code style={{ color:C.orange, fontWeight:700 }}>{getReceiptNumber(tx) || "—"}</code>
+                    {" · "}
+                    {reasons.join(" · ")}
+                  </div>
+                ))}
+                {mismatched.length > 4 && (
+                  <div style={{ fontSize:11, color:C.tx3 }}>
+                    +{mismatched.length - 4} more mismatched rows
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
           {unmatched.length > 0 && (
             <p style={{ fontSize:11, color:C.tx3, margin:0 }}>{unmatched.length} rows not matched or incomplete POS data.</p>
           )}
@@ -330,7 +508,11 @@ export function CsvPanel({ pendingTxs, stores, onMatchVerify, onToast }: {
         disabled={btnDisabled}
         style={{ width:"100%", height:42, borderRadius:9, border:"none", background:btnDisabled?"#F3F4F6":C.green, color:btnDisabled?C.tx3:"#fff", fontFamily:font, fontSize:13.5, fontWeight:700, cursor:btnDisabled?"not-allowed":"pointer", transition:"all .15s" }}
       >
-        {loading ? "Verifying with POS data…" : matched.length > 0 ? `✓ Verify ${matched.length} Transactions vs POS` : "Verify & Match POS"}
+        {loading
+          ? "Verifying with POS data…"
+          : receiptMatchedCount > 0
+            ? `✓ Process ${receiptMatchedCount} Receipt-Matched Transactions`
+            : "Verify & Match POS"}
       </button>
 
       {/* Format hint */}
@@ -340,8 +522,8 @@ export function CsvPanel({ pendingTxs, stores, onMatchVerify, onToast }: {
           receiptNumber,amount,date<br/>
           101384,61000,2026-03-01<br/>
           or<br/>
-          no_transaksi,total,tanggal<br/>
-          101385,45000,01/03/2026
+          Transaction #,Total,Date<br/>
+          101385,45000,"Mar 28, 2026"
         </code>
       </div>
     </div>
