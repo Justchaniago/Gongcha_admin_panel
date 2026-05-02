@@ -19,7 +19,7 @@ interface TransactionsClientProps {
 }
 
 export default function TransactionsClient({ initialTransactions = [], initialRole }: TransactionsClientProps) {
-  const { user } = useAuth();
+  const { user, can } = useAuth();
   const [txs,            setTxs]            = useState<Tx[]>(initialTransactions);
   const [syncStatus,     setSyncStatus]     = useState<SyncStatus>("idle");
   const [search,         setSearch]         = useState("");
@@ -34,7 +34,7 @@ export default function TransactionsClient({ initialTransactions = [], initialRo
   const [searchFocus,    setSearchFocus]    = useState(false);
   const [selectedDocPaths, setSelectedDocPaths] = useState<string[]>([]);
 
-  const isAdmin = user?.role === "SUPER_ADMIN" || initialRole === "admin" || initialRole === "SUPER_ADMIN";
+  const isAdmin = can("transaction.delete");
 
   const showToast = useCallback((msg: string, type: "success"|"error" = "success") => {
     setToast({ msg, type });

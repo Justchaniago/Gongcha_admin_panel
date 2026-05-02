@@ -76,16 +76,16 @@ function TypeBadge({ type }: { type: string }) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 export default function NotificationsDesktop({ initialRole = "", initialLogs = [], members = [] }: Props) {
-  const { user } = useAuth();
+  const { user, can } = useAuth();
   const router = useRouter();
-  const canMutate = user?.role === "SUPER_ADMIN";
+  const canMutate = can("notification.send");
 
-  // Redirect staff users to dashboard
+  // Redirect users without notification.send permission
   useEffect(() => {
-    if (user && user.role !== "SUPER_ADMIN") {
+    if (user && !can("notification.send")) {
       router.replace("/dashboard");
     }
-  }, [user, router]);
+  }, [user, can, router]);
   const [tab, setTab] = useState<"send" | "history">("send");
   const [logs, setLogs] = useState<NotifLog[]>(initialLogs);
 
