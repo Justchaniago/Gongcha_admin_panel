@@ -2,12 +2,7 @@
 
 import React, { useState, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { User, UserTier, UserRole, userConverter, AdminUser, AdminRole, adminUserConverter } from "@/types/firestore";
-import {
-  collection, onSnapshot, query, orderBy, limit, startAfter, getDocs, where, getCountFromServer,
-  QueryDocumentSnapshot, DocumentData, doc, getDoc
-} from "firebase/firestore";
-import { db } from "@/lib/firebaseClient";
+import { User, AdminUser, AdminRole } from "@/types/firestore";
 import { useAuth } from "@/context/AuthContext";
 import { GcModalShell, GcPage, GcPageHeader, GcPanel } from "@/components/ui/gc";
 import {
@@ -63,7 +58,9 @@ const TIER_CFG: Record<string, { bg: string; color: string; ring: string }> = {
 
 const STAFF_CFG: Record<AdminRole, { bg: string; color: string; label: string; code: string }> = {
   SUPER_ADMIN: { bg: C.redBg,   color: C.red,    label: "Super Admin", code: "ROOT" },
+  ADMIN:       { bg: C.greenBg, color: "#027A48", label: "Admin",      code: "ADM"  },
   STAFF:       { bg: C.blueL,   color: C.blueD,  label: "Staff",       code: "STF"  },
+  AUDITOR:     { bg: C.bg,      color: C.tx2,    label: "Auditor",     code: "AUD"  },
   admin:       { bg: C.redBg,   color: C.red,    label: "Admin",       code: "ADM"  },
   master:      { bg: C.redBg,   color: C.red,    label: "Master",      code: "MST"  },
   manager:     { bg: C.greenBg, color: "#027A48", label: "Manager",    code: "MGR"  },
@@ -599,6 +596,7 @@ function EditMemberModal({ user, onClose, onSaved, toast }: any) {
       {showInject && (
         <InjectVoucherModalForMember
           uid={user.uid}
+          memberName={user.name}
           onClose={() => setShowInject(false)}
           onSuccess={(m: string) => toast(m, "success")}
         />
@@ -734,7 +732,7 @@ function AccountTypePill({ value, onChange }: { value: "member" | "staff"; onCha
   );
 }
 
-function CreateModal({ onClose, toast, onCreated }: any) {
+function CreateModal({ stores = [], onClose, toast, onCreated }: { stores: { id: string; name: string }[]; onClose: () => void; toast: any; onCreated: () => void }) {
   const [accountType, setAccountType] = useState<"member" | "staff">("member");
 
   // Shared fields
@@ -751,23 +749,6 @@ function CreateModal({ onClose, toast, onCreated }: any) {
   const [role,            setRole]            = useState<"STAFF" | "SUPER_ADMIN">("STAFF");
   const [assignedStoreId, setAssignedStoreId] = useState("");
   const [isActive,        setIsActive]        = useState(true);
-
-  // Realtime store list from Firestore
-  const [stores,       setStores]       = useState<{ id: string; name: string }[]>([]);
-  const [storesLoading, setStoresLoading] = useState(true);
-
-  useEffect(() => {
-    // Listen to "stores" collection in realtime
-    const unsub = onSnapshot(
-      query(collection(db, "stores"), orderBy("name")),
-      snap => {
-        setStores(snap.docs.map(d => ({ id: d.id, name: (d.data().name as string) ?? d.id })));
-        setStoresLoading(false);
-      },
-      err => { console.error("stores listener:", err); setStoresLoading(false); },
-    );
-    return () => unsub();
-  }, []);
 
   // Reset store selection when role changes to SUPER_ADMIN
   useEffect(() => {
@@ -940,20 +921,17 @@ function CreateModal({ onClose, toast, onCreated }: any) {
               <div>
                 <FL>
                   Assigned Store <span style={{ color: C.red }}>*</span>
-                  {storesLoading && <span style={{ color: C.tx4, fontWeight: 400, marginLeft: 6, fontSize: 10 }}>Loading…</span>}
                 </FL>
                 <GcSelect
                   value={assignedStoreId}
                   onChange={(e: any) => setAssignedStoreId(e.target.value)}
-                  disabled={storesLoading}
-                  style={{ opacity: storesLoading ? .6 : 1 }}
                 >
                   <option value="">— Select a Store —</option>
                   {stores.map(s => (
                     <option key={s.id} value={s.id}>{s.name}</option>
                   ))}
                 </GcSelect>
-                {!storesLoading && stores.length === 0 && (
+                {stores.length === 0 && (
                   <p style={{ fontSize: 11, color: C.amber, marginTop: 4 }}>No stores found in the database.</p>
                 )}
                 {staffStoreRequired && assignedStoreId === "" && name !== "" && (
@@ -1090,26 +1068,24 @@ function StoreAccessPicker({ storeIds, selected, accessAll, onChangeSelected, si
 interface MembersClientProps {
   initialUsers?: UserWithUid[];
   initialStaff?: StaffWithUid[];
-  storeIds?: string[];
 }
 
-export default function MembersDesktop({ initialUsers = [], initialStaff = [], storeIds = [] }: MembersClientProps) {
-  const { user: authUser } = useAuth();
+export default function MembersDesktop({ initialUsers = [], initialStaff = [] }: MembersClientProps) {
+  const { user: authUser, can } = useAuth();
   const router = useRouter();
-  // canManageStaff: true hanya setelah hydrate selesai dan role = SUPER_ADMIN
-  // Saat optimistic user (role: STAFF), ini false — jangan pakai untuk redirect
-  const canManageStaff = authUser?.role === "SUPER_ADMIN";
+  const canManageStaff = can("staff.read") || can("staff.create") || can("staff.update") || can("staff.disable");
 
   // --- States ---
   const [users,      setUsers]      = useState<UserWithUid[]>(initialUsers);
   const [staff,      setStaff]      = useState<StaffWithUid[]>(initialStaff);
+  const [stores,     setStores]     = useState<{ id: string; name: string }[]>([]);
   const [usersSync,  setUsersSync]  = useState<SyncStatus>("connecting");
   const [staffSync,  setStaffSync]  = useState<SyncStatus>("connecting");
 
-  // Pagination
-  const [lastVisible, setLastVisible] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
-  const [hasMore,     setHasMore]     = useState(true);
-  const [loading,     setLoading]     = useState(false);
+  // Pagination — cursor stored in ref to avoid stale-closure issues
+  const lastIdRef = useRef<string | null>(null);
+  const [hasMore,  setHasMore]  = useState(true);
+  const [loading,  setLoading]  = useState(false);
 
   // Statistics
   const [stats, setStats] = useState({ total: 0, platinum: 0, gold: 0, silver: 0, activeStaff: 0 });
@@ -1133,69 +1109,31 @@ export default function MembersDesktop({ initialUsers = [], initialStaff = [], s
   const { toasts, show: toast, dismiss } = useToast();
   const { confirm, dialog: confirmDialog } = useConfirm();
 
-  // ── Helpers ──────────────────────────────────────────────────────────────
-  function resolveSort(sort: string, order: "asc" | "desc"): { field: string; dir: "asc" | "desc" } {
-    if (sort === "largestPoints") return { field: "currentPoints", dir: order };
-    if (sort === "tier")          return { field: "tier",          dir: order };
-    return { field: "name", dir: order };
-  }
-
-  // ── Stats (aggregate, cheap) ──────────────────────────────────────────────
-  const fetchStats = useCallback(async () => {
-    try {
-      const coll = collection(db, "users");
-      const [t, p, g, s] = await Promise.all([
-        getCountFromServer(coll),
-        getCountFromServer(query(coll, where("tier", "==", "Platinum"))),
-        getCountFromServer(query(coll, where("tier", "==", "Gold"))),
-        getCountFromServer(query(coll, where("tier", "==", "Silver"))),
-      ]);
-      setStats(prev => ({
-        ...prev,
-        total:    t.data().count,
-        platinum: p.data().count,
-        gold:     g.data().count,
-        silver:   s.data().count,
-      }));
-    } catch (e) { console.error(e); }
-  }, []);
-
-  // ── Load Users (paginated, manual fetch) ─────────────────────────────────
+  // ── Load Users (paginated) via API ────────────────────────────────────────
   const loadUsers = useCallback(async (reset = false) => {
     if (!reset && (loading || !hasMore)) return;
     setLoading(true);
     setUsersSync("connecting");
-
     try {
-      const { field: orderField, dir: orderDir } = resolveSort(sortBy, sortOrder);
-
-      const constraints: Parameters<typeof query>[1][] = [];
-
-      // equality filter dulu (Firestore requirement)
-      if (tierF !== "All") {
-        constraints.push(where("tier", "==", tierF));
+      const params = new URLSearchParams({ sortBy, sortOrder, pageSize: String(PAGE_SIZE) });
+      if (tierF !== "All") params.set("tier", tierF);
+      if (search.trim()) params.set("search", search.trim());
+      if (reset) {
+        lastIdRef.current = null;
+        params.set("includeStats", "true");
+      } else if (lastIdRef.current) {
+        params.set("afterId", lastIdRef.current);
       }
 
-      // range filter — wajib diikuti orderBy field yg sama
-      if (search.trim()) {
-        const s = search.trim();
-        constraints.push(where("name", ">=", s), where("name", "<=", s + "\uf8ff"));
-      }
+      const res = await fetch(`/api/members?${params}`);
+      if (!res.ok) throw new Error("Failed to fetch members");
+      const data = await res.json();
 
-      constraints.push(orderBy(orderField, orderDir));
-      constraints.push(limit(PAGE_SIZE));
-
-      if (!reset && lastVisible) {
-        constraints.push(startAfter(lastVisible));
-      }
-
-      const q    = query(collection(db, "users").withConverter(userConverter), ...constraints);
-      const snap = await getDocs(q);
-      const newUsers = snap.docs.map(d => ({ ...d.data(), uid: d.id } as UserWithUid));
-
-      setLastVisible(snap.docs[snap.docs.length - 1] ?? null);
-      setHasMore(snap.docs.length === PAGE_SIZE);
+      const newUsers: UserWithUid[] = data.users ?? [];
+      lastIdRef.current = newUsers[newUsers.length - 1]?.uid ?? null;
+      setHasMore(data.hasMore ?? false);
       setUsers(prev => reset ? newUsers : [...prev, ...newUsers]);
+      if (data.stats) setStats(prev => ({ ...prev, ...data.stats }));
       setUsersSync("live");
     } catch (e) {
       console.error("loadUsers error:", e);
@@ -1207,57 +1145,39 @@ export default function MembersDesktop({ initialUsers = [], initialStaff = [], s
   }, [search, tierF, sortBy, sortOrder]);
 
   // ── Effects ───────────────────────────────────────────────────────────────
-
-  // FIX: Root cause — canManageStaff berasal dari useAuth() yang async.
-  // Saat mount pertama, user masih null → canManageStaff = false →
-  // useEffect filter-change tidak memanggil loadUsers sama sekali.
-  // Data baru muncul setelah user menyentuh filter (re-render triggered).
-  //
-  // Solusi: pisah menjadi dua useEffect:
-  //   1. Initial load saat mount — tanpa guard canManageStaff
-  //   2. Re-fetch saat filter berubah — skip render pertama via useRef
   const isFirstRender = useRef(true);
 
-  // 1. Initial load — jalankan sekali saat mount, tanpa guard auth
+  // 1. Initial load on mount
   useEffect(() => {
-    setLastVisible(null);
     setHasMore(true);
     loadUsers(true);
-    fetchStats();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 2. Re-fetch saat filter/sort berubah — skip initial render
+  // 2. Re-fetch on filter/sort change — skip initial render
   useEffect(() => {
     if (isFirstRender.current) {
       isFirstRender.current = false;
       return;
     }
-    setLastVisible(null);
     setHasMore(true);
     loadUsers(true);
-    fetchStats();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, tierF, sortBy, sortOrder]);
 
-  // Auth guard — TIDAK redirect dari sini.
-  // AuthContext memakai optimistic user (role: STAFF) dulu sebelum hydrate selesai.
-  // Kalau kita cek canManageStaff di sini, user akan di-redirect sebelum role
-  // SUPER_ADMIN ter-set. Biarkan middleware/server yang proteksi route ini.
-
-  // Staff realtime listener (small collection — onSnapshot is fine)
+  // 3. Fetch staff + stores via API (replaces onSnapshot on admin_users)
   useEffect(() => {
     if (!canManageStaff) return;
-    const unsubStaff = onSnapshot(
-      query(collection(db, "admin_users").withConverter(adminUserConverter), orderBy("name")),
-      snap => {
-        setStaff(snap.docs.map(d => d.data() as StaffWithUid));
-        setStats(p => ({ ...p, activeStaff: snap.docs.filter(d => (d.data() as any).isActive).length }));
+    setStaffSync("connecting");
+    fetch("/api/admin-users")
+      .then(r => r.json())
+      .then(data => {
+        setStaff(data.staff ?? []);
+        setStores(data.stores ?? []);
+        setStats(p => ({ ...p, activeStaff: (data.staff ?? []).filter((s: any) => s.isActive).length }));
         setStaffSync("live");
-      },
-      () => setStaffSync("error"),
-    );
-    return () => unsubStaff();
+      })
+      .catch(() => setStaffSync("error"));
   }, [canManageStaff]);
 
   // ── Selection helpers ─────────────────────────────────────────────────────
@@ -1429,7 +1349,7 @@ export default function MembersDesktop({ initialUsers = [], initialStaff = [], s
       </GcPanel>
 
       {/* Modals */}
-      {showCreate    && <CreateModal    storeIds={storeIds} onClose={() => setShowCreate(false)} toast={toast} onCreated={() => { loadUsers(true); fetchStats(); }} />}
+      {showCreate    && <CreateModal    stores={stores} onClose={() => setShowCreate(false)} toast={toast} onCreated={() => loadUsers(true)} />}
       {showBatchEdit && (
         <BatchEditModal
           type={tab}
@@ -1454,13 +1374,13 @@ export default function MembersDesktop({ initialUsers = [], initialStaff = [], s
           user={detailUser}
           onClose={() => setDetailUser(null)}
           onEdit={() => { setEditUser(detailUser); setDetailUser(null); }}
-          onDeleted={() => { setDetailUser(null); loadUsers(true); fetchStats(); }}
+          onDeleted={() => { setDetailUser(null); loadUsers(true); }}
           toast={toast}
           confirm={confirm}
         />
       )}
       {editUser  && <EditMemberModal user={editUser}  onClose={() => setEditUser(null)}  onSaved={() => loadUsers(true)} toast={toast} />}
-      {editStaff && <EditStaffModal  staff={editStaff} storeIds={storeIds} onClose={() => setEditStaff(null)} onSaved={() => {}} toast={toast} />}
+      {editStaff && <EditStaffModal  staff={editStaff} storeIds={stores.map(s => s.id)} onClose={() => setEditStaff(null)} onSaved={() => {}} toast={toast} />}
 
       {confirmDialog}
       <ToastContainer toasts={toasts} dismiss={dismiss} />

@@ -1,20 +1,21 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { collection, query, where, getDocs, orderBy, doc, getDoc } from "firebase/firestore";
+import { collection, query, where, getDocs, orderBy } from "firebase/firestore";
 import { db } from "@/lib/firebaseClient";
 import { GcModalShell, GcButton, GcSelect, GcFieldLabel, GcInput } from "@/components/ui/gc";
 import { Reward, rewardConverter } from "@/types/firestore";
 
 interface InjectVoucherModalProps {
   uid: string;
+  memberName?: string;
   onClose: () => void;
   onSuccess: (msg: string) => void;
 }
 
-export default function InjectVoucherModalForMember({ uid, onClose, onSuccess }: InjectVoucherModalProps) {
+export default function InjectVoucherModalForMember({ uid, memberName: nameProp = "Member", onClose, onSuccess }: InjectVoucherModalProps) {
   const [availableRewards, setAvailableRewards] = useState<Reward[]>([]);
-  const [memberName, setMemberName] = useState("Member");
+  const [memberName] = useState(nameProp);
   const [selectedRewardId, setSelectedRewardId] = useState("");
   const [voucherTitle, setVoucherTitle] = useState("");
   const [voucherCode, setVoucherCode] = useState("");
@@ -31,13 +32,7 @@ export default function InjectVoucherModalForMember({ uid, onClose, onSuccess }:
     async function initData() {
       try {
         setFetchingData(true);
-        // 1. Fetch data member untuk display name
-        const userSnap = await getDoc(doc(db, "users", uid));
-        if (userSnap.exists()) {
-          setMemberName(userSnap.data().name || "Member");
-        }
-
-        // 2. Fetch katalog voucher aktif
+        // Fetch active reward catalog
         const q = query(
           collection(db, "rewards_catalog").withConverter(rewardConverter),
           where("isActive", "==", true),

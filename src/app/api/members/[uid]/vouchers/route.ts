@@ -4,6 +4,7 @@ import * as admin from "firebase-admin";
 import { UserVoucher, AdminNotificationLog } from "@/types/firestore";
 import { v4 as uuidv4 } from "uuid";
 import { getAdminSession, isAdminAuthError } from "@/lib/adminSession";
+import { authorize, isRbacForbiddenError } from "@/lib/rbac";
 import { writeActivityLog } from "@/lib/activityLog";
 
 // POST /api/members/[uid]/vouchers — Suntik voucher ke user
@@ -15,7 +16,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ uid
   }
 
   try {
-    const session = await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "STAFF"] });
+    const session = await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "ADMIN", "STAFF"] });
+    authorize(session, { permission: "voucher.issue" });
     const body = await req.json();
     const { rewardId } = body;
     if (!rewardId) {
@@ -106,6 +108,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ uid
     console.error("[POST /api/members/[uid]/vouchers]", err);
     if (isAdminAuthError(err)) {
       return NextResponse.json({ message: err.message }, { status: err.status });
+    }
+    if (isRbacForbiddenError(err)) {
+      return NextResponse.json({ message: err.message, code: err.code }, { status: err.status });
     }
     return NextResponse.json({ message: err.message ?? "Internal server error." }, { status: 500 });
   }

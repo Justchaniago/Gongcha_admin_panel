@@ -2,19 +2,19 @@
 
 import React, { createContext, useContext, ReactNode, useEffect, useRef, useState } from "react";
 import { onAuthStateChanged, signOut } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
 import { usePathname, useRouter } from "next/navigation";
-import { auth, db } from "@/lib/firebaseClient";
-import { AdminUser, AdminRole, adminUserConverter } from "@/types/firestore";
+import { auth } from "@/lib/firebaseClient";
+import { AdminUser } from "@/types/firestore";
 
 interface AuthCtx {
   user: AdminUser | null;
   loading: boolean;
   logout: () => Promise<void>;
+  can: (permission: string) => boolean;
 }
 
 // Nilai default
-const Ctx = createContext<AuthCtx>({ user: null, loading: true, logout: async () => {} });
+const Ctx = createContext<AuthCtx>({ user: null, loading: true, logout: async () => {}, can: () => false });
 
 // Hook utama yang dipakai oleh semua komponen UI kamu
 export function useAuth() { return useContext(Ctx); }
@@ -35,7 +35,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const normalizeRole = (rawRole: unknown): AdminUser["role"] => {
     const role = String(rawRole ?? "").toUpperCase();
-    if (["SUPER_ADMIN", "ADMIN", "MASTER"].includes(role)) return "SUPER_ADMIN";
+    if (["SUPER_ADMIN", "MASTER"].includes(role)) return "SUPER_ADMIN";
+    if (role === "ADMIN") return "ADMIN" as AdminUser["role"];
+    if (role === "AUDITOR") return "AUDITOR" as AdminUser["role"];
     if (["STAFF", "MANAGER"].includes(role)) return "STAFF";
     return "STAFF";
   };
@@ -70,16 +72,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const hydrateAdminUser = async (uid: string, fallbackEmail?: string | null, fallbackName?: string | null) => {
-    // Prefer server session profile (Admin SDK) so role is accurate even if
-    // client Firestore rules block reads to admin_users.
     try {
       const sessionResponse = await fetchSessionProfile();
-      const sessionData = sessionResponse.data;
 
       if (sessionResponse.status === 401) {
         return { sessionExpired: true } as const;
       }
 
+      const sessionData = sessionResponse.data;
       if (sessionResponse.ok && sessionData?.authenticated && sessionData?.uid === uid) {
         const profile = sessionData.profile ?? null;
         if (profile) {
@@ -88,71 +88,49 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             email: profile.email ?? sessionData.email ?? fallbackEmail ?? "",
             name: profile.name ?? sessionData.name ?? fallbackName ?? fallbackEmail?.split("@")[0] ?? "Admin",
             role: normalizeRole(profile.role),
+            accessProfile: profile.accessProfile ?? undefined,
+            permissions: Array.isArray(profile.permissions) ? profile.permissions : [],
+            scope: profile.scope ?? undefined,
             isActive: profile.isActive !== false,
             assignedStoreId: profile.assignedStoreId ?? null,
           } as AdminUser;
         }
       }
-    } catch (error) {
-      console.warn("[AuthContext] Failed to fetch session profile:", error);
-    }
 
-    const adminRef = doc(db, "admin_users", uid).withConverter(adminUserConverter);
-    let adminSnap = await getDoc(adminRef);
-
-    // Auto-setup once if admin profile does not exist yet.
-    if (!adminSnap.exists()) {
-      console.log("[AuthContext] Admin doc not found, attempting auto-setup...", uid);
+      // No session profile — try auto-setup
+      console.log("[AuthContext] No session profile, attempting auto-setup...", uid);
       try {
         await tryAutoSetupProfile();
-        console.log("[AuthContext] Setup API returned ok, retrying doc fetch...");
-
-        // Retry after a short delay so Firestore write + session profile are ready.
         await new Promise((resolve) => setTimeout(resolve, 500));
 
-        const sessionRetry = await fetchSessionProfile();
-        const sessionRetryData = sessionRetry.data;
-        if (sessionRetry.ok && sessionRetryData?.authenticated && sessionRetryData?.uid === uid) {
-          const profile = sessionRetryData.profile ?? null;
+        const retryResponse = await fetchSessionProfile();
+        const retryData = retryResponse.data;
+        if (retryResponse.ok && retryData?.authenticated && retryData?.uid === uid) {
+          const profile = retryData.profile ?? null;
           if (profile) {
             return {
               uid,
               email: profile.email ?? fallbackEmail ?? "",
               name: profile.name ?? fallbackName ?? fallbackEmail?.split("@")[0] ?? "Admin",
               role: normalizeRole(profile.role),
+              accessProfile: profile.accessProfile ?? undefined,
+              permissions: Array.isArray(profile.permissions) ? profile.permissions : [],
+              scope: profile.scope ?? undefined,
               isActive: profile.isActive !== false,
               assignedStoreId: profile.assignedStoreId ?? null,
             } as AdminUser;
           }
         }
-
-        adminSnap = await getDoc(adminRef);
-        if (!adminSnap.exists()) {
-          console.warn("[AuthContext] Doc still missing after setup retry");
-        }
-      } catch (err) {
-        console.error("[AuthContext] Setup API error:", err);
+      } catch (setupErr) {
+        console.error("[AuthContext] Setup API error:", setupErr);
       }
-    }
 
-    // Do not silently allow a Firebase-authenticated user into the admin UI
-    // without a persisted admin profile, because Firestore rules will reject
-    // dashboard queries and trigger permission-denied errors.
-    if (!adminSnap.exists()) {
+      // Still no profile after auto-setup
+      return { profileMissing: true } as const;
+    } catch (error) {
+      console.warn("[AuthContext] Failed to hydrate admin user:", error);
       return { profileMissing: true } as const;
     }
-
-    const data = adminSnap.data();
-    return {
-      ...data,
-      uid,
-      email: data.email ?? fallbackEmail ?? "",
-      name: data.name ?? fallbackName ?? fallbackEmail?.split("@")[0] ?? "Admin",
-      role: normalizeRole(data.role),
-      // Legacy compatibility: if field absent, treat as active.
-      isActive: data.isActive !== false,
-      assignedStoreId: data.assignedStoreId ?? null,
-    } as AdminUser;
   };
 
   const buildOptimisticUser = (
@@ -164,6 +142,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     email: email ?? "",
     name: name ?? email?.split("@")[0] ?? "Admin",
     role: "STAFF",
+    accessProfile: undefined,
+    permissions: [],
+    scope: undefined,
     assignedStoreId: null,
     isActive: true,
   });
@@ -278,7 +259,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           );
 
           if ("sessionExpired" in hydratedOrFallback) {
-            await forceLogout("Session expired. Please login again.");
+            // On the login page the session cookie doesn't exist yet (still
+            // being created by handleLogin). Skip forceLogout to avoid the
+            // race where onAuthStateChanged fires before POST /api/auth/session
+            // completes, causing an unnecessary redirect back to /login.
+            if (pathname !== "/login") {
+              await forceLogout("Session expired. Please login again.");
+            }
             return;
           }
 
@@ -370,6 +357,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  function can(permission: string) {
+    if (user?.role === "SUPER_ADMIN") return true;
+    return Array.isArray(user?.permissions) && user.permissions.includes(permission);
+  }
+
   if (loading) {
     return (
       <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#F4F6FB", fontFamily: font }}>
@@ -387,7 +379,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <Ctx.Provider value={{ user, loading: false, logout: handleLogout }}>
+    <Ctx.Provider value={{ user, loading: false, logout: handleLogout, can }}>
       {children}
     </Ctx.Provider>
   );

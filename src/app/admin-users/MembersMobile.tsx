@@ -1,19 +1,13 @@
 "use client";
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
-import {
-  collection, onSnapshot, query, orderBy, where,
-  getDocs, limit, startAfter, getCountFromServer,
-  QueryDocumentSnapshot, DocumentData,
-} from "firebase/firestore";
-import { db } from "@/lib/firebaseClient";
+
 import { useAuth } from "@/context/AuthContext";
 import { useMobileSidebar } from "@/components/layout/AdminShell";
 import {
   createAccountAction, updateAccountAction,
   deleteAccountAction, updatePointsAction,
 } from "@/actions/userStaffActions";
-import { userConverter, adminUserConverter } from "@/types/firestore";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Menu as MenuIcon, Search, X, Plus, ChevronRight,
@@ -505,6 +499,7 @@ function EditMemberSheet({ user, onClose, onSaved, showToast }: { user: UserWith
       {showInject && (
         <InjectVoucherModalForMember
           uid={user.uid}
+          memberName={user.name}
           onClose={() => setShowInject(false)}
           onSuccess={(m: string) => showToast(m, "success")}
         />
@@ -514,7 +509,7 @@ function EditMemberSheet({ user, onClose, onSaved, showToast }: { user: UserWith
 }
 
 // ── CREATE ACCOUNT SHEET ──
-function CreateAccountSheet({ onClose, onCreated, showToast }: { onClose: () => void; onCreated: () => void; showToast: (m: string, t: "success" | "error") => void }) {
+function CreateAccountSheet({ stores = [], onClose, onCreated, showToast }: { stores: { id: string; name: string }[]; onClose: () => void; onCreated: () => void; showToast: (m: string, t: "success" | "error") => void }) {
   const [accountType, setAccountType] = useState<"member" | "staff">("member");
   const [name,     setName]     = useState("");
   const [email,    setEmail]    = useState("");
@@ -525,16 +520,8 @@ function CreateAccountSheet({ onClose, onCreated, showToast }: { onClose: () => 
   const [role,     setRole]     = useState<"STAFF" | "SUPER_ADMIN">("STAFF");
   const [storeId,  setStoreId]  = useState("");
   const [isActive, setIsActive] = useState(true);
-  const [stores,   setStores]   = useState<{ id: string; name: string }[]>([]);
   const [loading,  setLoading]  = useState(false);
   const [error,    setError]    = useState("");
-
-  useEffect(() => {
-    const unsub = onSnapshot(query(collection(db, "stores"), orderBy("name")),
-      snap => setStores(snap.docs.map(d => ({ id: d.id, name: (d.data().name as string) ?? d.id }))),
-    );
-    return () => unsub();
-  }, []);
 
   useEffect(() => { if (role === "SUPER_ADMIN") setStoreId(""); }, [role]);
 
@@ -666,17 +653,9 @@ function CreateAccountSheet({ onClose, onCreated, showToast }: { onClose: () => 
 }
 
 // ── EDIT STAFF SHEET ──
-function EditStaffSheet({ staff, onClose, onSaved, showToast }: { staff: StaffWithUid; onClose: () => void; onSaved: () => void; showToast: (m: string, t: "success" | "error") => void }) {
+function EditStaffSheet({ staff, stores = [], onClose, onSaved, showToast }: { staff: StaffWithUid; stores: { id: string; name: string }[]; onClose: () => void; onSaved: () => void; showToast: (m: string, t: "success" | "error") => void }) {
   const [form, setForm]       = useState({ name: staff.name, role: staff.role, assignedStoreId: staff.assignedStoreId || "", isActive: staff.isActive ?? true });
-  const [stores,   setStores] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    const unsub = onSnapshot(query(collection(db, "stores"), orderBy("name")),
-      snap => setStores(snap.docs.map(d => ({ id: d.id, name: (d.data().name as string) ?? d.id }))),
-    );
-    return () => unsub();
-  }, []);
 
   const save = async () => {
     setLoading(true);
@@ -737,28 +716,27 @@ function EditStaffSheet({ staff, onClose, onSaved, showToast }: { staff: StaffWi
 
 // ── MAIN ──
 export default function MembersMobile({ initialUsers = [], initialStaff = [] }: { initialUsers?: UserWithUid[]; initialStaff?: StaffWithUid[] }) {
-  const { user: authUser } = useAuth();
+  const { user: authUser, can } = useAuth();
   const { openDrawer }     = useMobileSidebar();
-  const canManage          = authUser?.role === "SUPER_ADMIN";
+  const canManage          = can("staff.read") || can("member.read");
 
   const [tab,         setTab]         = useState<TabId>("member");
   const [users,       setUsers]       = useState<UserWithUid[]>(initialUsers);
   const [staff,       setStaff]       = useState<StaffWithUid[]>(initialStaff);
+  const [stores,      setStores]      = useState<{ id: string; name: string }[]>([]);
   const [search,      setSearch]      = useState("");
   const [searchOpen,  setSearchOpen]  = useState(false);
   const [tierFilter,  setTierFilter]  = useState<TierFilter>("All");
 
-  // ── Sort state (baru) ──
   const [sortBy,      setSortBy]      = useState<SortField>("tier");
   const [sortOrder,   setSortOrder]   = useState<SortOrder>("desc");
   const [showSort,    setShowSort]    = useState(false);
 
   const [loading,     setLoading]     = useState(false);
   const [hasMore,     setHasMore]     = useState(true);
-  const [lastDoc,     setLastDoc]     = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
+  const lastIdRef = useRef<string | null>(null);
   const [stats,       setStats]       = useState({ total: 0, platinum: 0, gold: 0, silver: 0, activeStaff: 0 });
 
-  // Modals
   const [detailUser,  setDetailUser]  = useState<UserWithUid | null>(null);
   const [editUser,    setEditUser]    = useState<UserWithUid | null>(null);
   const [editStaff,   setEditStaff]   = useState<StaffWithUid | null>(null);
@@ -767,92 +745,76 @@ export default function MembersMobile({ initialUsers = [], initialStaff = [] }: 
 
   const showToast = useCallback((msg: string, type: "success" | "error" = "success") => setToast({ msg, type }), []);
 
-  // ── Resolve sort → Firestore field ──
-  function resolveSort(field: SortField, order: SortOrder): { firestoreField: string; dir: SortOrder } {
-    if (field === "largestPoints") return { firestoreField: "currentPoints", dir: order };
-    if (field === "tier")          return { firestoreField: "tier",          dir: order };
-    return { firestoreField: "name", dir: order };
+  // ── Resolve sort field name ──
+  function resolveSort(field: SortField, order: SortOrder): { sortBy: string; dir: SortOrder } {
+    if (field === "largestPoints") return { sortBy: "largestPoints", dir: order };
+    if (field === "tier")          return { sortBy: "tier",          dir: order };
+    return { sortBy: "name", dir: order };
   }
 
-  // Load users (paginated)
+  // Load users via API (paginated)
   const loadUsers = useCallback(async (reset = false) => {
     if (!reset && (loading || !hasMore)) return;
     setLoading(true);
     try {
-      const { firestoreField, dir } = resolveSort(sortBy, sortOrder);
-
-      const constraints: any[] = [];
-      if (tierFilter !== "All") constraints.push(where("tier", "==", tierFilter));
-      if (search.trim()) {
-        const s = search.trim();
-        constraints.push(where("name", ">=", s), where("name", "<=", s + "\uf8ff"));
+      const { sortBy: sortByParam, dir } = resolveSort(sortBy, sortOrder);
+      const params = new URLSearchParams({ sortBy: sortByParam, sortOrder: dir, pageSize: String(PAGE_SIZE) });
+      if (tierFilter !== "All") params.set("tier", tierFilter);
+      if (search.trim()) params.set("search", search.trim());
+      if (reset) {
+        lastIdRef.current = null;
+        params.set("includeStats", "true");
+      } else if (lastIdRef.current) {
+        params.set("afterId", lastIdRef.current);
       }
-      constraints.push(orderBy(firestoreField, dir));
-      constraints.push(limit(PAGE_SIZE));
-      if (!reset && lastDoc) constraints.push(startAfter(lastDoc));
 
-      const snap = await getDocs(query(collection(db, "users").withConverter(userConverter), ...constraints));
-      const newUsers = snap.docs.map(d => ({ ...d.data(), uid: d.id }));
-      setLastDoc(snap.docs[snap.docs.length - 1] ?? null);
-      setHasMore(snap.docs.length === PAGE_SIZE);
+      const res = await fetch(`/api/members?${params}`);
+      if (!res.ok) throw new Error("Failed to fetch");
+      const data = await res.json();
+
+      const newUsers: UserWithUid[] = data.users ?? [];
+      lastIdRef.current = newUsers[newUsers.length - 1]?.uid ?? null;
+      setHasMore(data.hasMore ?? false);
       setUsers(prev => reset ? newUsers : [...prev, ...newUsers]);
+      if (data.stats) setStats(prev => ({ ...prev, ...data.stats }));
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, tierFilter, sortBy, sortOrder]);
 
-  // Stats
-  const fetchStats = useCallback(async () => {
-    try {
-      const coll = collection(db, "users");
-      const [t, p, g, s] = await Promise.all([
-        getCountFromServer(coll),
-        getCountFromServer(query(coll, where("tier", "==", "Platinum"))),
-        getCountFromServer(query(coll, where("tier", "==", "Gold"))),
-        getCountFromServer(query(coll, where("tier", "==", "Silver"))),
-      ]);
-      setStats(prev => ({ ...prev, total: t.data().count, platinum: p.data().count, gold: g.data().count, silver: s.data().count }));
-    } catch (e) { console.error(e); }
-  }, []);
-
-  // Staff realtime
+  // Staff + stores via API
   useEffect(() => {
     if (!canManage) return;
-    const unsub = onSnapshot(
-      query(collection(db, "admin_users").withConverter(adminUserConverter), orderBy("name")),
-      snap => {
-        setStaff(snap.docs.map(d => d.data() as StaffWithUid));
-        setStats(p => ({ ...p, activeStaff: snap.docs.filter(d => (d.data() as any).isActive).length }));
-      },
-    );
-    return () => unsub();
+    fetch("/api/admin-users")
+      .then(r => r.json())
+      .then(data => {
+        setStaff(data.staff ?? []);
+        setStores(data.stores ?? []);
+        setStats(p => ({ ...p, activeStaff: (data.staff ?? []).filter((s: any) => s.isActive).length }));
+      })
+      .catch(console.error);
   }, [canManage]);
 
-  // FIX: pisah initial load dari filter-change effect,
-  // sama persis dengan fix di MembersClient.tsx
   const isFirstRender = useRef(true);
 
-  // 1. Initial load saat mount — tanpa guard canManage
+  // Initial load on mount
   useEffect(() => {
-    setLastDoc(null);
     setHasMore(true);
     loadUsers(true);
-    fetchStats();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 2. Reload saat filter/sort berubah — skip initial render
+  // Reload on filter/sort change
   useEffect(() => {
     if (isFirstRender.current) {
       isFirstRender.current = false;
       return;
     }
-    setLastDoc(null);
     setHasMore(true);
     loadUsers(true);
-    fetchStats();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, tierFilter, sortBy, sortOrder]);
+
 
   // Filtered staff (client-side, small collection)
   const filteredStaff = useMemo(() => {
@@ -1061,7 +1023,7 @@ export default function MembersMobile({ initialUsers = [], initialStaff = [] }: 
             user={detailUser}
             onClose={() => setDetailUser(null)}
             onEdit={() => { setEditUser(detailUser); setDetailUser(null); }}
-            onDeleted={(uid) => { setUsers(prev => prev.filter(u => u.uid !== uid)); fetchStats(); }}
+            onDeleted={(uid) => { setUsers(prev => prev.filter(u => u.uid !== uid)); loadUsers(true); }}
             showToast={showToast}
           />
         )}
@@ -1073,7 +1035,7 @@ export default function MembersMobile({ initialUsers = [], initialStaff = [] }: 
           <EditMemberSheet
             user={editUser}
             onClose={() => setEditUser(null)}
-            onSaved={() => { loadUsers(true); fetchStats(); }}
+            onSaved={() => loadUsers(true)}
             showToast={showToast}
           />
         )}
@@ -1084,6 +1046,7 @@ export default function MembersMobile({ initialUsers = [], initialStaff = [] }: 
         {editStaff && (
           <EditStaffSheet
             staff={editStaff}
+            stores={stores}
             onClose={() => setEditStaff(null)}
             onSaved={() => {}}
             showToast={showToast}
@@ -1094,8 +1057,9 @@ export default function MembersMobile({ initialUsers = [], initialStaff = [] }: 
       {/* ── BOTTOM SHEET: CREATE ACCOUNT ── */}
       <BottomSheet isOpen={showCreate} onClose={() => setShowCreate(false)} title="Create New Account" fullHeight>
         <CreateAccountSheet
+          stores={stores}
           onClose={() => setShowCreate(false)}
-          onCreated={() => { loadUsers(true); fetchStats(); }}
+          onCreated={() => loadUsers(true)}
           showToast={showToast}
         />
       </BottomSheet>

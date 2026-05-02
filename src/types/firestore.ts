@@ -16,13 +16,28 @@ function safeNumber(value: unknown, fallback = 0): number {
 // ============================================================================
 // 1. ADMIN USERS (Akses Panel & Kasir) - Collection: 'admin_users'
 // ============================================================================
-export type AdminRole = "SUPER_ADMIN" | "STAFF" | "admin" | "master" | "manager";
+export type AdminRole = "SUPER_ADMIN" | "ADMIN" | "STAFF" | "AUDITOR" | "admin" | "master" | "manager";
+export type AdminAccessProfile =
+  | "ROOT"
+  | "OPERATIONS"
+  | "MARKETING"
+  | "FINANCE"
+  | "SUPPORT"
+  | "STORE_MANAGER"
+  | "READ_ONLY";
+export type AdminScope = {
+  type: "GLOBAL" | "STORE";
+  storeIds: string[];
+};
 
 export interface AdminUser {
   uid: string;
   name: string;
   email: string;
   role: AdminRole;
+  accessProfile?: AdminAccessProfile;
+  permissions?: string[];
+  scope?: AdminScope;
   assignedStoreId: string | null;
   isActive: boolean;
 }
@@ -38,6 +53,9 @@ export const adminUserConverter: FirestoreDataConverter<AdminUser> = {
       name: data.name,
       email: data.email,
       role: data.role as AdminRole,
+      accessProfile: data.accessProfile,
+      permissions: Array.isArray(data.permissions) ? data.permissions : undefined,
+      scope: data.scope,
       assignedStoreId: data.assignedStoreId ?? null,
       isActive: data.isActive,
     };
@@ -95,6 +113,7 @@ export interface User {
   vouchers?: UserVoucher[];
   xpHistory?: any[];
   photoURL?: string;
+  nameLower?: string;
 }
 
 export const userConverter: FirestoreDataConverter<User> = {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { getAdminSession, isAdminAuthError } from "@/lib/adminSession";
+import { authorize, isRbacForbiddenError } from "@/lib/rbac";
 import { writeActivityLog } from "@/lib/activityLog";
 
 export async function PATCH(
@@ -8,7 +9,8 @@ export async function PATCH(
   context: { params: Promise<{ uid: string }> }
 ) {
   try {
-    const session = await getAdminSession({ allowedRoles: ["SUPER_ADMIN"] });
+    const session = await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "ADMIN"] });
+    authorize(session, { permission: "points.adjust.override" });
 
     const { uid } = await context.params;
     if (!uid) return NextResponse.json({ error: "Missing uid" }, { status: 400 });
@@ -65,6 +67,9 @@ export async function PATCH(
     return NextResponse.json({ success: true });
   } catch (e: any) {
     if (isAdminAuthError(e)) {
+      return NextResponse.json({ error: e.message, code: e.code }, { status: e.status });
+    }
+    if (isRbacForbiddenError(e)) {
       return NextResponse.json({ error: e.message, code: e.code }, { status: e.status });
     }
     console.error("Error updating points:", e);
