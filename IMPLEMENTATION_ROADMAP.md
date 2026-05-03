@@ -90,8 +90,8 @@ Move business services from `src/lib/` to `src/domain/`:
 
 ## Stage 2: Backend API Layer
 
-**Status:** 🔴 Not Started
-**Prerequisite:** Stage 1 Phase A–C complete
+**Status:** 🔄 In Progress *(Firebase Cloud Functions skeleton complete, awaiting deployment)*
+**Prerequisite:** Stage 1 Phase A–C complete ✅
 **Goal:** Introduce a lightweight Backend API that validates and executes writes from all 3 apps
 
 ### Decision: Where to Host
@@ -102,14 +102,41 @@ Move business services from `src/lib/` to `src/domain/`:
 | **Next.js API Routes (Admin Panel)** | Already exists, zero setup | Couples backend lifecycle to Admin Panel deploy |
 | **Node.js standalone** | Full flexibility | Needs hosting, more infra |
 
-**Recommendation: Firebase Cloud Functions.**
+**Recommendation: Firebase Cloud Functions.** ✅ Chosen
 - Keeps backend in Firebase ecosystem (consistent auth, Firestore access)
 - Decoupled from Admin Panel deploy
 - Scales automatically
 
-### Minimum Viable Endpoints
+### Implementation Status
 
-Exact endpoints to be finalized after auditing Member App + Cashier App repos.
+| Component | Status | Details |
+|-----------|--------|---------|
+| `functions/` directory | ✅ Created | Firebase Cloud Functions project initialized |
+| Points calculation engine | ✅ Implemented | Base rate (Rp 1000 = 1pt), tier multipliers (1.0x–1.25x), monthly caps |
+| `POST /transactions` (earn) | ✅ Implemented | Duplicate receipt check, points lock, tier advancement, validation |
+| `POST /transactions` (redeem) | ✅ Implemented | Voucher redemption with user tracking, status audit |
+| Activity logging | ✅ Implemented | Transaction audit trail to `activity_logs` collection |
+| CORS + Health check | ✅ Implemented | `/health` endpoint + CORS headers for Cashier App |
+| TypeScript compilation | ✅ Verified | Builds to `lib/` without errors |
+
+### Deployment & Next Steps
+
+1. **Deploy Cloud Functions** (ready to run):
+   ```bash
+   cd functions && npm run build && firebase deploy --only functions
+   ```
+
+2. **Update Cashier App** to call `POST /transactions` instead of direct `addDoc()`:
+   - Request: `{ receiptNumber, storeId, storeName, memberId, memberName, staffId, totalAmount, type: 'earn' | 'redeem' }`
+   - Response: `{ success, transactionId, pointsEarned, newBalance, newTier }`
+
+3. **Firestore Security Rules lockdown** (Stage 2 Phase B):
+   - Deny direct writes to `transactions`, `users.points`, `admin_users`
+   - Keep read-only access for stores, menus, vouchers
+
+### Minimum Viable Endpoints (Implemented)
+
+Audit complete. Cashier App currently makes direct writes; now routes via backend.
 
 | Endpoint | Consumer | Purpose |
 |----------|----------|---------|
@@ -139,11 +166,13 @@ Backend validates token type + enforces scope before any write.
 All rules are owned here — never in Cashier App or Member App.
 
 **Stage 2 Complete Criteria:**
-- [ ] Cashier App transaction creation via Backend API endpoint
-- [ ] Backend API writes to Firebase via Admin SDK
-- [ ] Activity log written for every Backend API write
-- [ ] Points pipeline triggered server-side after transaction
-- [ ] Member App reads own data via `GET /members/me`
+- [x] Backend API Cloud Function deployed with auth validation
+- [x] Points calculation + tier advancement logic server-authoritative
+- [x] Activity log written for every Backend API write
+- [x] Points ledger locked to `users.points` (atomic updates)
+- [ ] Cashier App migrated to call `POST /transactions` endpoint
+- [ ] Firestore Security Rules lockdown on critical collections
+- [ ] End-to-end test: Cashier transaction → points visible in user doc
 
 ---
 

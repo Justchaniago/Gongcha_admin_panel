@@ -1,4 +1,11 @@
 {
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "default",
+      "ignore": ["node_modules", ".git", "dist", "lib"]
+    }
+  ],
   "firestore": [
     {
       "database": "gongcha-ver001",
