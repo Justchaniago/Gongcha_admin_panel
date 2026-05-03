@@ -170,9 +170,21 @@ All rules are owned here — never in Cashier App or Member App.
 - [x] Points calculation + tier advancement logic server-authoritative
 - [x] Activity log written for every Backend API write
 - [x] Points ledger locked to `users.points` (atomic updates)
-- [ ] Cashier App migrated to call `POST /transactions` endpoint
+- [x] Cashier App migration guide created (3 mutation points documented)
+- [ ] Cashier App code migrated (pending: apply changes to Gongcha_Cashier repo)
 - [ ] Firestore Security Rules lockdown on critical collections
-- [ ] End-to-end test: Cashier transaction → points visible in user doc
+- [ ] End-to-end test: Cashier transaction → points visible in user doc → activity log entry
+
+### Phase B — Cashier App API Migration *(Ready for implementation)*
+
+| Task | File | Status |
+|------|------|--------|
+| Create migration guide | `CASHIER_APP_MIGRATION.md` | ✅ Complete |
+| Document mutation points | `functions/src/cashierAppIntegration.ts` | ✅ Complete |
+| Code snippets (copy-paste ready) | `CASHIER_APP_MIGRATION.md` Step 1-6 | ✅ Complete |
+| Test checklist | `CASHIER_APP_MIGRATION.md` Step 5 | ✅ Complete |
+
+**Next action:** Apply migration guide to `Gongcha_Chasier` repo (3 files, ~30 min with testing)
 
 ---
 
