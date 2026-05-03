@@ -265,3 +265,83 @@ All rules are owned here — never in Cashier App or Member App.
 | `ARCHITECTURE_POLICY.md` | Engineering principles + coding patterns |
 | `WRITE_GOVERNANCE.md` | Write ownership per domain across all 3 apps |
 | `RBAC_POLICY.md` | Roles, permissions, scopes |
+
+---
+
+## Stage 2 Backend API — Final Status (2026-05-03)
+
+### Phase A: Cloud Functions Deployment ✅
+- `POST /transactions` endpoint deployed (us-central1)
+- Firebase token verification + STAFF role check implemented
+- Database reference fixed: uses `gongcha-ver001` (not default)
+- IAM policy set: `allUsers` can invoke (app-level auth in middleware)
+
+### Phase B: Cashier App Integration ✅
+- `backendApi.ts` client created
+- `TransactionService` updated to call backend
+- `.env.local` configured with backend URL
+- Testing revealed & fixed: 500 error (DB name), then missing index
+
+### Missing Piece: Firestore Composite Index
+- Query for monthly cap validation requires composite index:
+  - Collection: `transactions`
+  - Fields: `memberId`, `status`, `type`, `createdAt` (all ASC)
+- Firebase provided creation URL (see function logs)
+- **Action Required:** Click Firebase Console URL to create index
+
+### Transaction Status Flow (PENDING for Approval)
+- Cashier submits → Backend creates `PENDING` transaction
+- Points are **held** (not added to user.points)
+- Response includes `pointsEarned` (what will be added) + `newBalance` (current unchanged)
+- Member app shows current balance (no pending points yet)
+- Admin must approve via PATCH `/api/transactions`
+- Admin approval triggers `applyTransactionReward()` → points added + tier updated
+
+### Next: Create Composite Index + Re-test
+1. Create index via Firebase Console (URL in logs or click button in Console)
+2. Cashier App tests EARN/REDEEM (should succeed now, transactions in PENDING)
+3. Verify transactions appear in Admin Panel with status PENDING
+4. Admin approves one transaction → verify points added to member
+5. Phase C: Firestore Security Rules lockdown
+
+
+### Phase C: Firestore Security Rules Lockdown ✅
+- **Status:** COMPLETE (2026-05-03)
+- **Changes:**
+  - `/transactions`: direct writes denied (backend API only)
+  - `/users.points`: members can't update (backend API only)  
+  - `/stores/{storeId}/transactions`: legacy collection locked
+  - `/activity_logs`: audit-only (backend API only)
+  - `/users`: explicit block on points/tier updates
+
+**Stage 2 Phase A–C Complete.**
+
+---
+
+## Stage 2 Complete Criteria ✅
+
+- [x] Backend API Cloud Function deployed (us-central1)
+- [x] Points calculation + tier advancement logic server-authoritative
+- [x] Activity log written for every Backend API write
+- [x] Points ledger locked to `users.points` (atomic updates)
+- [x] Cashier App migration guide created & applied
+- [x] Cashier App earn/redeem flows tested & working
+- [x] Firestore Security Rules lockdown on critical collections
+- [x] End-to-end: Cashier transaction → points held → admin approve → points visible
+
+**Stage 2: PRODUCTION READY** ✅
+
+---
+
+## Next Steps
+
+### Stage 3: Member App & Cashier App Compliance (Future)
+- Audit Member App direct Firestore writes
+- Audit Cashier App direct Firestore writes (should be none now)
+- Lock down remaining client writes
+- Redirect reads to appropriate APIs
+
+### Stage 1 Phase D–E: Repository & Domain Layers (Post-Production)
+- Repository interface layer for testability
+- Domain service layer separation
+

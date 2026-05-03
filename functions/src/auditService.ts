@@ -1,5 +1,8 @@
 import { getFirestore } from 'firebase-admin/firestore';
+import { getApp } from 'firebase-admin/app';
 import { ActivityLogEntry } from './types';
+
+const DB_NAME = 'gongcha-ver001';
 
 export async function logActivity(
   action: string,
@@ -9,7 +12,7 @@ export async function logActivity(
   changes: Record<string, unknown>,
   metadata?: Record<string, unknown>
 ): Promise<string> {
-  const db = getFirestore();
+  const db = getFirestore(getApp(), DB_NAME);
   const now = new Date();
 
   const entry: ActivityLogEntry = {

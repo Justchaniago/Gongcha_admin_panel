@@ -1,12 +1,15 @@
-import { getFirestore, FieldValue } from 'firebase-admin/firestore';
+import { getFirestore } from 'firebase-admin/firestore';
+import { getApp } from 'firebase-admin/app';
 import { TransactionCreateRequest, TransactionResponse, TransactionRecord } from './types';
 import { calculatePoints, updateUserPoints, validatePointsUpdate, determineTier } from './pointsService';
 import { logTransaction } from './auditService';
 
+const DB_NAME = 'gongcha-ver001';
+
 export async function handleEarnTransaction(
   req: TransactionCreateRequest
 ): Promise<TransactionResponse> {
-  const db = getFirestore();
+  const db = getFirestore(getApp(), DB_NAME);
   const {
     receiptNumber,
     storeId,
@@ -86,7 +89,7 @@ export async function handleEarnTransaction(
     };
   }
 
-  // Create transaction record
+  // Create transaction record (PENDING — awaiting admin approval)
   const now = new Date();
   const transactionData: Omit<TransactionRecord, 'id'> = {
     receiptNumber,
@@ -97,7 +100,7 @@ export async function handleEarnTransaction(
     staffId,
     totalAmount,
     type: 'earn',
-    status: 'COMPLETED',
+    status: 'PENDING',  // Hold for admin approval
     pointsEarned: finalPoints,
     createdAt: now,
     createdBy: staffId,
@@ -105,16 +108,8 @@ export async function handleEarnTransaction(
 
   const transactionRef = await db.collection('transactions').add(transactionData);
 
-  // Update user points and tier
-  const newBalance = (userData?.points || 0) + finalPoints;
-  const newTier = determineTier(newBalance);
-
-  await userRef.update({
-    points: newBalance,
-    tier: newTier,
-    totalEarned: (userData?.totalEarned || 0) + finalPoints,
-    lastPointsUpdate: now,
-  });
+  // DO NOT update user points yet — points held pending admin approval
+  // Admin PATCH /api/transactions will call applyTransactionReward() when approved
 
   // Log activity
   try {
@@ -122,25 +117,29 @@ export async function handleEarnTransaction(
       basePoints,
       multiplier,
       receiptNumber,
+      status: 'PENDING',
     });
   } catch (err) {
     console.error('Failed to log activity:', err);
     // Don't fail the transaction if audit log fails
   }
 
+  // Return current balance (unchanged) — points held until approval
+  const currentBalance = userData?.points || 0;
+
   return {
     success: true,
     transactionId: transactionRef.id,
-    pointsEarned: finalPoints,
-    newBalance,
-    newTier,
+    pointsEarned: finalPoints,  // What will be added when approved
+    newBalance: currentBalance,  // Current balance (unchanged)
+    newTier: currentTier,        // Current tier (unchanged, already declared at line 61)
   };
 }
 
 export async function handleRedeemTransaction(
   req: TransactionCreateRequest
 ): Promise<TransactionResponse> {
-  const db = getFirestore();
+  const db = getFirestore(getApp(), DB_NAME);
   const {
     receiptNumber,
     storeId,
@@ -203,11 +202,7 @@ export async function handleRedeemTransaction(
     };
   }
 
-  // Mark voucher as used
-  userVouchers[voucherIndex].isUsed = true;
-  userVouchers[voucherIndex].redeemedAt = new Date();
-
-  // Create redemption transaction record
+  // Create redemption transaction record (PENDING — awaiting admin approval)
   const now = new Date();
   const transactionData: Omit<TransactionRecord, 'id'> = {
     receiptNumber,
@@ -218,7 +213,7 @@ export async function handleRedeemTransaction(
     staffId,
     totalAmount: 0,
     type: 'redeem',
-    status: 'COMPLETED',
+    status: 'PENDING',  // Hold for admin approval
     pointsEarned: 0,
     voucherCode,
     voucherTitle,
@@ -228,17 +223,15 @@ export async function handleRedeemTransaction(
 
   const transactionRef = await db.collection('transactions').add(transactionData);
 
-  // Update user vouchers
-  await userRef.update({
-    vouchers: userVouchers,
-    lastRedeemedAt: now,
-  });
+  // DO NOT update user vouchers yet — voucher held pending admin approval
+  // Admin PATCH /api/transactions will update voucher status when approved
 
   // Log activity
   try {
     await logTransaction(transactionRef.id, staffId, memberId, 0, 0, {
       voucherCode,
       voucherTitle,
+      status: 'PENDING',
     });
   } catch (err) {
     console.error('Failed to log activity:', err);
@@ -248,7 +241,7 @@ export async function handleRedeemTransaction(
     success: true,
     transactionId: transactionRef.id,
     pointsEarned: 0,
-    newBalance: userData?.points || 0,
-    newTier: userData?.tier || 'REGULAR',
+    newBalance: userData?.points || 0,  // Unchanged
+    newTier: userData?.tier || 'REGULAR',  // Unchanged
   };
 }

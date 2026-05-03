@@ -85,8 +85,10 @@ service cloud.firestore {
     match /users/{userId} {
       // Any authenticated user can read their own document
       allow read:   if isSignedIn() && (request.auth.uid == userId || isActiveAdminPanelUser() || userIsAdmin());
-      // Users can update their own limited fields
+      // Users can update their own limited fields (NOT points — backend API only)
       allow update: if isSignedIn() && request.auth.uid == userId &&
+                       !('points' in request.resource.data.diff(resource.data).affectedKeys()) &&
+                       !('tier' in request.resource.data.diff(resource.data).affectedKeys()) &&
                        request.resource.data.diff(resource.data).affectedKeys()
                          .hasOnly(['phoneNumber', 'photoURL']);
       allow create: if false; // Must use /api/members (Admin SDK)
@@ -135,12 +137,11 @@ service cloud.firestore {
     }
 
     // ── /stores/{storeId}/transactions ─────────────────────────────────────
+    // LEGACY: All transactions now use top-level /transactions collection + Backend API.
+    // Direct writes denied to prevent inconsistency.
     match /stores/{storeId}/transactions/{txId} {
-      // Cashiers can create; managers/admins can read and update status
-      allow read:   if isSignedIn() && (staffHasRole(['cashier', 'store_manager', 'SUPER_ADMIN', 'STAFF']) || userIsAdmin());
-      allow create: if staffHasRole(['cashier', 'store_manager', 'SUPER_ADMIN', 'STAFF']);
-      allow update: if staffHasRole(['store_manager', 'SUPER_ADMIN', 'STAFF']) || userIsAdmin();
-      allow delete: if false;
+      allow read: if false;    // Use /transactions instead
+      allow create, update, delete: if false; // Must use Backend API /transactions
     }
 
     // ── /rewards_catalog ───────────────────────────────────────────────────
@@ -187,6 +188,13 @@ service cloud.firestore {
     // Admin-only log; all access via Admin SDK (API routes).
     match /notifications_log/{logId} {
       allow read, write: if false; // Admin SDK only
+    }
+
+    // ── /activity_logs ─────────────────────────────────────────────────────
+    // Audit trail; written by Backend API & Admin SDK only.
+    // Client SDK cannot read or write directly.
+    match /activity_logs/{logId} {
+      allow read, write: if false; // Admin SDK + Backend Cloud Functions only
     }
 
     // ── Deny everything else ───────────────────────────────────────────────
