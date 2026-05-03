@@ -90,7 +90,7 @@ Move business services from `src/lib/` to `src/domain/`:
 
 ## Stage 2: Backend API Layer
 
-**Status:** 🔄 In Progress *(Firebase Cloud Functions skeleton complete, awaiting deployment)*
+**Status:** 🔄 In Progress *(Phase A deployed ✅ 2026-05-03, Phase B in progress, Phase C pending)*
 **Prerequisite:** Stage 1 Phase A–C complete ✅
 **Goal:** Introduce a lightweight Backend API that validates and executes writes from all 3 apps
 
@@ -119,20 +119,31 @@ Move business services from `src/lib/` to `src/domain/`:
 | CORS + Health check | ✅ Implemented | `/health` endpoint + CORS headers for Cashier App |
 | TypeScript compilation | ✅ Verified | Builds to `lib/` without errors |
 
-### Deployment & Next Steps
+### Deployment Status
 
-1. **Deploy Cloud Functions** (ready to run):
-   ```bash
-   cd functions && npm run build && firebase deploy --only functions
-   ```
+| Task | Status | Details |
+|------|--------|---------|
+| **Deploy Cloud Functions** | ✅ 2026-05-03 | `transactions(us-central1)` + `health(us-central1)` live |
+| **Endpoint accessible** | ✅ | `https://us-central1-gongcha-app-4691f.cloudfunctions.net/transactions` |
+| **Cashier App migration** | 🔄 | Guide ready, applying to workspace |
+| **Firestore Security Rules** | ⏳ | Phase C (deny direct writes to critical collections) |
 
-2. **Update Cashier App** to call `POST /transactions` instead of direct `addDoc()`:
-   - Request: `{ receiptNumber, storeId, storeName, memberId, memberName, staffId, totalAmount, type: 'earn' | 'redeem' }`
-   - Response: `{ success, transactionId, pointsEarned, newBalance, newTier }`
+### Next Steps
 
-3. **Firestore Security Rules lockdown** (Stage 2 Phase B):
+1. **Cashier App Integration** (in progress):
+   - Apply `CASHIER_APP_MIGRATION.md` (TransactionService updates)
+   - Test earn/redeem flows
+   - Verify API calls succeed
+
+2. **Firestore Security Rules Lockdown** (Phase C — Admin Panel):
    - Deny direct writes to `transactions`, `users.points`, `admin_users`
    - Keep read-only access for stores, menus, vouchers
+   - Test: direct Firestore writes fail, API calls succeed
+
+3. **Cashier Passcode Management** (new Admin endpoints):
+   - `POST /cashiers` → create with auto-generated 4-digit PIN
+   - `PUT /cashiers/{id}` → reset PIN
+   - `DELETE /cashiers/{id}` → remove cashier
 
 ### Minimum Viable Endpoints (Implemented)
 
@@ -166,14 +177,15 @@ Backend validates token type + enforces scope before any write.
 All rules are owned here — never in Cashier App or Member App.
 
 **Stage 2 Complete Criteria:**
-- [x] Backend API Cloud Function deployed with auth validation
+- [x] Backend API Cloud Function deployed (✅ 2026-05-03 us-central1)
 - [x] Points calculation + tier advancement logic server-authoritative
 - [x] Activity log written for every Backend API write
 - [x] Points ledger locked to `users.points` (atomic updates)
-- [x] Cashier App migration guide created (3 mutation points documented)
-- [ ] Cashier App code migrated (pending: apply changes to Gongcha_Cashier repo)
-- [ ] Firestore Security Rules lockdown on critical collections
-- [ ] End-to-end test: Cashier transaction → points visible in user doc → activity log entry
+- [x] Cashier App migration guide created
+- [x] Migration guide applied to Cashier App workspace (🔄 in progress)
+- [ ] Cashier App earn/redeem flows tested + working
+- [ ] Firestore Security Rules lockdown on critical collections (Phase C)
+- [ ] End-to-end test: Cashier transaction → points visible → activity log entry → admin approve
 
 ### Phase B — Cashier App API Migration *(Ready for implementation)*
 
