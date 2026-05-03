@@ -1,14 +1,72 @@
-# Cashier App Migration: Direct Firestore → Backend API
+# Cashier App Migration: Integrate Backend API for Server-Authoritative Transactions
 
-**Objective:** Replace direct `addDoc(transactions)` calls with `POST /transactions` API calls to Backend Cloud Functions.
+**Objective:** Route transaction processing through Backend API (Admin Panel Cloud Functions) for centralized validation, points ledger, and audit logging.
 
-**Scope:** 3 mutation points in `src/store/useCashierStore.ts` + 2 callers in `src/screens/CashierDashboard.tsx`.
+**Current State (Audit Result):**
+- Cashier App already abstracts Firestore via `TransactionService` (lines 230, 272 in `useCashierStore.ts`)
+- Uses Cloud Functions: `recordCashierEarnTransaction()`, `recordCashierRedeemClaim()`
+- Cashier App has own `functions/` directory with Cloud Functions
+- **NOT** direct Firestore mutations from UI ✓
+
+**Problem:** Cashier App Cloud Functions likely perform direct Firestore writes without:
+- Points ledger (locked to `users.points`)
+- Tier advancement logic
+- Activity audit logging
+- Duplicate receipt validation at backend
 
 ---
 
-## Step 1: Add API Client Service
+## Architecture Decision: Two Approaches
 
-Create `src/services/backendApi.ts`:
+### **Option A: Delegate to Admin Panel Backend API** (Recommended)
+
+**Approach:** Modify `TransactionService` methods to call Admin Panel Backend API instead of own Cloud Functions.
+
+**Pros:**
+- Single source of truth for business logic (Admin Panel)
+- Points, tier, audit logging centralized
+- Easier to maintain + evolve rules
+- Cashier App becomes thin client
+
+**Cons:**
+- Network dependency on Admin Panel backend (slightly higher latency)
+- Requires coordination if Admin Panel deploys
+
+**Effort:** 2–3 hours (modify TransactionService + test)
+
+---
+
+### **Option B: Enhance Cashier App Cloud Functions** (Local)
+
+**Approach:** Keep Cashier App's own Cloud Functions, add points/tier/audit logic inline.
+
+**Pros:**
+- No cross-service dependency
+- Faster (local function calls)
+- Can evolve independently
+
+**Cons:**
+- Business logic duplicated (both Admin + Cashier have points calculation)
+- Tier/audit logic drift risk
+- Harder to maintain consistency
+
+**Effort:** 3–4 hours (duplicate logic + test both services)
+
+---
+
+## Recommended Path: **Option A** (Admin Panel Backend API)
+
+Why: Single backend, consistent rules, easier long-term.
+
+**Scope:** 2 mutation points in `src/services/TransactionService.ts`
+
+---
+
+## Implementation Plan (Option A)
+
+### Step 1: Create Backend API Client
+
+Create `src/services/backendApi.ts` in Cashier App workspace:
 
 ```typescript
 import { getAuth } from 'firebase/auth';
@@ -76,11 +134,17 @@ export async function postTransaction(
 
 ---
 
-## Step 2: Update useCashierStore.ts
+### Step 2: Update TransactionService.ts
 
-### **Mutation Point 1: EARN Transaction (line ~166)**
+**File location:** `src/services/TransactionService.ts`
 
-**Before:**
+**Current state:** Has `recordCashierEarnTransaction()` and `recordCashierRedeemClaim()` methods that write directly to Firestore OR call own Cloud Functions.
+
+**Action:** Modify both to call Admin Panel Backend API via `backendApi.postTransaction()`.
+
+#### **Mutation Point 1: recordCashierEarnTransaction() (line ~56)**
+
+**Before (Direct or own CF):**
 ```typescript
 const transactionData = {
   receiptNumber,
@@ -187,146 +251,246 @@ import { addDoc, collection, updateDoc, serverTimestamp } from 'firebase/firesto
 
 ---
 
-## Step 3: Update CashierDashboard.tsx Callers
+### Step 2b: Add Import to TransactionService.ts
 
-### **Caller 1: processTransaction() (line ~168)**
+At top of `src/services/TransactionService.ts`, add:
 
-**Before:**
 ```typescript
-try {
-  await processTransaction(amount, posTrxId.trim(), true);
-  const pts = Math.floor(amount / 1000);
-  onShowAlert(`Transaksi sukses! Pelanggan mendapat +${pts} Pts.`, 'success');
-} catch (error) {
-  onShowAlert("Gagal memproses transaksi. Periksa koneksi internet.", "error");
+import { postTransaction, TransactionRequest, TransactionResponse } from './backendApi';
+```
+
+---
+
+### Step 2c: Modify recordCashierEarnTransaction()
+
+**Current method location:** `src/services/TransactionService.ts` (line ~56)
+
+**Current behavior:** Likely writes directly to Firestore or calls own Cloud Function
+
+**New implementation:**
+```typescript
+static async recordCashierEarnTransaction(
+  receiptNumber: string,
+  storeId: string,
+  storeName: string,
+  memberId: string,
+  memberName: string,
+  staffId: string,
+  totalAmount: number
+): Promise<TransactionResponse> {
+  try {
+    const response = await postTransaction({
+      receiptNumber,
+      storeId,
+      storeName,
+      memberId,
+      memberName,
+      staffId,
+      totalAmount,
+      type: 'earn',
+    });
+
+    if (!response.success) {
+      throw new Error(response.error || 'Transaction failed');
+    }
+
+    return response; // Returns: transactionId, pointsEarned, newBalance, newTier
+  } catch (error) {
+    console.error('recordCashierEarnTransaction error:', error);
+    throw error;
+  }
 }
 ```
 
-**After:**
+---
+
+### Step 2d: Modify recordCashierRedeemClaim()
+
+**Current method location:** `src/services/TransactionService.ts` (line ~100)
+
+**Current behavior:** Likely writes directly to Firestore or calls own Cloud Function
+
+**New implementation:**
 ```typescript
-try {
-  const result = await processTransaction(amount, posTrxId.trim(), true);
-  onShowAlert(
-    `Transaksi sukses! Pelanggan mendapat +${result.pointsEarned} Pts. (${result.newTier})`,
-    'success'
-  );
-} catch (error) {
-  const msg = error instanceof Error ? error.message : 'Unknown error';
-  onShowAlert(
-    `Gagal memproses transaksi: ${msg}. Coba lagi atau hubungi support.`,
-    "error"
-  );
+static async recordCashierRedeemClaim(
+  receiptNumber: string,
+  storeId: string,
+  storeName: string,
+  memberId: string,
+  memberName: string,
+  staffId: string,
+  voucherCode: string,
+  voucherTitle: string
+): Promise<TransactionResponse> {
+  try {
+    const response = await postTransaction({
+      receiptNumber,
+      storeId,
+      storeName,
+      memberId,
+      memberName,
+      staffId,
+      totalAmount: 0,
+      type: 'redeem',
+      voucherCode,
+      voucherTitle,
+    });
+
+    if (!response.success) {
+      throw new Error(response.error || 'Redeem failed');
+    }
+
+    return response;
+  } catch (error) {
+    console.error('recordCashierRedeemClaim error:', error);
+    throw error;
+  }
 }
 ```
 
-**Update processTransaction return type:**
+---
 
-In `useCashierStore.ts`, make `processTransaction` return response:
+### Step 3: Fix Missing Import
+
+**File:** `src/screens/CashierDashboard.tsx` (line ~267)
+
+**Issue:** `TransactionService.hasTodayReceipt()` called without import
+
+**Fix - Add to imports:**
+```typescript
+import { TransactionService } from '../services/TransactionService';
+```
+
+---
+
+## Step 4: Update Error Handling (Optional but Recommended)
+
+---
+
+### Step 4b: Error Handling Enhancement (Optional)
+
+In `useCashierStore.ts`, improve error messages when calling `TransactionService`:
 
 ```typescript
-async processTransaction(amount: number, receiptNumber: string, isEarn: boolean) {
-  // ... validation ...
+try {
+  const response = await TransactionService.recordCashierEarnTransaction(
+    receiptNumber, storeId, storeName, memberId, memberName, staffId, totalAmount
+  );
   
-  const response = await postTransaction({ /* ... */ });
-  
-  // Update local state with response
+  // Show response: pointsEarned, newBalance, newTier
   set({
-    // ... local updates using response data ...
     dailyRevenue: get().dailyRevenue + amount,
     transactionCount: get().transactionCount + 1,
   });
   
   return response;
-}
-```
-
-### **Caller 2: redeemVoucher() (line ~588)**
-
-**Before:**
-```typescript
-try {
-  await redeemVoucher();
-  onShowAlert("Voucher berhasil ditukar!", "success");
-} catch (error) {
-  onShowAlert("Gagal menukar voucher. Coba lagi.", "error");
-}
-```
-
-**After:**
-```typescript
-try {
-  const result = await redeemVoucher();
-  onShowAlert(
-    `Voucher "${result.voucherTitle}" berhasil ditukar!`,
-    "success"
-  );
 } catch (error) {
   const msg = error instanceof Error ? error.message : 'Unknown error';
-  onShowAlert(
-    `Gagal menukar voucher: ${msg}. Periksa kode atau hubungi support.`,
-    "error"
-  );
+  console.error('processTransaction error:', msg);
+  throw new Error(`Transaction failed: ${msg}`);
 }
 ```
 
 ---
 
-## Step 4: Environment Configuration
+## Step 5: Environment Configuration
 
-**Add to `.env.local`:**
+**Add to `.env.local` (Cashier App):**
 
 ```bash
-# Backend Cloud Functions URL
+# Admin Panel Backend Cloud Functions URL
 REACT_APP_BACKEND_URL=https://us-central1-gongcha-app-4691f.cloudfunctions.net
 ```
 
-For local dev (Firebase Emulator):
+For local dev (Admin Panel functions emulator):
 ```bash
 REACT_APP_BACKEND_URL=http://localhost:5001/gongcha-app-4691f/us-central1
 ```
 
----
-
-## Step 5: Test Checklist
-
-- [ ] Auth: Login as cashier → token extracted successfully
-- [ ] EARN: Scan member → enter amount → confirm → transaction created via API
-- [ ] Verify response: `pointsEarned`, `newBalance`, `newTier` shown in UI
-- [ ] REDEEM: Scan voucher → confirm → voucher marked used via API
-- [ ] Error: Try duplicate receipt → API returns `code: 'DUPLICATE_RECEIPT'`
-- [ ] Error: Try non-member earn → API returns `code: 'USER_NOT_FOUND'`
-- [ ] Network: Airplane mode → clear error message (not generic "check internet")
+**Note:** Make sure Admin Panel Cloud Functions are deployed before testing:
+```bash
+cd /path/to/gongcha-adminnew/functions
+npm run build && firebase deploy --only functions
+```
 
 ---
 
-## Step 6: Rollback Plan
+## Step 6: Test Checklist
 
-If API fails mid-deployment:
+- [ ] Auth: Login as cashier → Firebase token available
+- [ ] EARN: Enter amount → click confirm → `recordCashierEarnTransaction()` calls backend API
+- [ ] Verify: Transaction success response shows `pointsEarned`, `newBalance`, `newTier`
+- [ ] REDEEM: Scan voucher → click confirm → `recordCashierRedeemClaim()` calls backend API
+- [ ] Verify: Voucher marked as used in Firestore
+- [ ] Error (duplicate): Try same receipt twice → API returns `code: 'DUPLICATE_RECEIPT'`
+- [ ] Error (monthly cap): Try earning > 500 points in month → API returns `code: 'MONTHLY_CAP_EXCEEDED'`
+- [ ] Error (network): Kill backend → clear error message shown in UI
+- [ ] Import fix: Check `CashierDashboard.tsx:267` has `TransactionService` import
+- [ ] Check Admin Panel `functions/lib/` compiled successfully before testing
 
-1. Revert to direct Firestore writes (undo steps 1–3)
-2. Keep daily_stats Cloud Function (still aggregates revenue)
-3. Manually reconcile transactions from `activity_logs` vs `transactions`
+---
+
+## Step 7: Verify Audit Logging
+
+After first earn transaction, check Admin Panel Firestore:
+
+1. Open `activity_logs` collection
+2. Find entry with `action: 'transaction.created'`, `resource: 'transactions'`
+3. Verify fields: `actor` (staffId), `timestamp`, `changes` (amount, pointsEarned)
+
+This proves server-side audit trail is working.
+
+---
+
+## Rollback Plan (If needed)
+
+If Backend API is down or broken:
+
+1. Keep Cashier App working with own Cloud Functions (revert backendApi.ts + TransactionService changes)
+2. Points calculation remains client-side (less reliable but functional)
+3. Manually backfill transactions to activity_logs once backend is fixed
 
 ---
 
 ## Integration Timeline
 
-1. **Create backendApi.ts** (5 min)
-2. **Update useCashierStore.ts** (15 min)
-3. **Update CashierDashboard.tsx** (10 min)
-4. **Test earn + redeem flows** (30 min)
-5. **QA: edge cases + error handling** (1–2 hours)
-6. **Deploy to staging, then prod** (after approval)
+1. **Create backendApi.ts** (10 min)
+2. **Add TransactionService import** (2 min)
+3. **Modify recordCashierEarnTransaction()** (10 min)
+4. **Modify recordCashierRedeemClaim()** (10 min)
+5. **Fix CashierDashboard import** (2 min)
+6. **Add .env.local config** (2 min)
+7. **Test earn + redeem flows locally** (30 min)
+8. **Verify audit logs in Firestore** (10 min)
+9. **Test edge cases (duplicates, monthly cap, network errors)** (30 min)
 
 **Est. total:** 2–3 hours including QA.
 
 ---
 
-## Backend API Contract (Reference)
+## Backend API Reference
 
 **Endpoint:** `POST https://us-central1-gongcha-app-4691f.cloudfunctions.net/transactions`
 
-**Request:** (See backendApi.ts `TransactionRequest`)
+**Request headers:**
+```
+Authorization: Bearer <Firebase ID Token>
+Content-Type: application/json
+```
+
+**Request body (EARN):**
+```json
+{
+  "receiptNumber": "string",
+  "storeId": "string",
+  "storeName": "string",
+  "memberId": "string",
+  "memberName": "string",
+  "staffId": "string",
+  "totalAmount": 50000,
+  "type": "earn"
+}
+```
 
 **Response (Success 201):**
 ```json
@@ -348,11 +512,32 @@ If API fails mid-deployment:
 }
 ```
 
+**Possible error codes:**
+- `DUPLICATE_RECEIPT` — Receipt already processed in this store
+- `USER_NOT_FOUND` — Member UID does not exist
+- `MONTHLY_CAP_EXCEEDED` — Earned > 500 points this month
+- `INVALID_PARAMS` — Missing required fields
+- `SERVER_ERROR` — Internal error
+
 ---
 
-## Notes
+## Key Differences: Option A vs Option B
 
-- Backend validates **staff auth** + **store assignment** → remove client-side auth checks if redundant
-- Voucher atomicity now guaranteed server-side → no risk of orphaned "used" vouchers
-- Points locked immediately → no more "potential points" uncertainty
-- Activity logging automatic → no need for client-side audit trail
+| Aspect | Option A (Recommended) | Option B |
+|--------|---|---|
+| Business logic | Single source (Admin Panel) | Duplicated (both services) |
+| Points calculation | Backend-authoritative | Sync needed between services |
+| Tier advancement | One place to update | Two places to update |
+| Audit logging | Centralized | Service-specific |
+| Testing scope | Smaller (1 backend) | Larger (2 backends) |
+| Maintenance burden | Lower (less duplication) | Higher (sync issues) |
+
+---
+
+## Notes & Best Practices
+
+- **Token handling:** Ensure Firebase auth is initialized before calling `postTransaction()`. If user logs out mid-transaction, API rejects (good).
+- **Retry logic:** If network fails, transaction is idempotent (duplicate receipt check prevents re-processing).
+- **Voucher atomicity:** Backend guarantees voucher is marked used ONLY after transaction succeeds (no orphaned vouchers).
+- **Points lock:** Points written to `users.points` immediately (no "potential points" uncertainty).
+- **Staff auth:** Backend validates staff can transact at assigned store (client-side auth checks can be removed if redundant).
