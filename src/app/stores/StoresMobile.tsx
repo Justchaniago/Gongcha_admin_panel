@@ -152,9 +152,9 @@ export default function StoresMobile({
   initialStores?: StoreWithId[];
   showAddTrigger?: boolean;
 }) {
-  const { user, loading } = useAuth();
+  const { user, loading, can } = useAuth();
   const { openDrawer } = useMobileSidebar();
-  const canManage      = user?.role !== "STAFF";
+  const canManage      = can("store.create") || can("store.update") || can("store.delete");
 
   const [stores,        setStores]        = useState<StoreWithId[]>(initialStores);
   const [search,        setSearch]        = useState("");

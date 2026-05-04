@@ -6,6 +6,7 @@ import { Reward, rewardConverter } from "@/types/firestore";
 import { FieldValue } from "firebase-admin/firestore";
 import { getAdminSession } from "@/lib/adminSession";
 import { writeActivityLog } from "@/lib/activityLog";
+import { authorize } from "@/lib/rbac";
 
 type RewardMutationInput = {
   title?: string;
@@ -38,7 +39,8 @@ function doc(id: string) {
 // ============================================================================
 export async function createReward(data: RewardMutationInput) {
   try {
-    const actor = await getAdminSession({ allowedRoles: ["SUPER_ADMIN"] });
+    const actor = await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "ADMIN"] });
+    authorize(actor, { permission: "reward.create" });
     const title = String(data.title ?? "").trim();
     if (!title) throw new Error("Reward title is required");
 
@@ -83,7 +85,8 @@ export async function createReward(data: RewardMutationInput) {
 // ============================================================================
 export async function updateReward(id: string, data: RewardMutationInput) {
   try {
-    const actor = await getAdminSession({ allowedRoles: ["SUPER_ADMIN"] });
+    const actor = await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "ADMIN"] });
+    authorize(actor, { permission: "reward.update" });
     const ref = doc(id).withConverter(rewardConverter as any);
     const snap = await ref.get();
     if (!snap.exists) throw new Error(`Reward "${id}" not found`);
@@ -118,7 +121,8 @@ export async function updateReward(id: string, data: RewardMutationInput) {
 // ============================================================================
 export async function deleteReward(id: string) {
   try {
-    const actor = await getAdminSession({ allowedRoles: ["SUPER_ADMIN"] });
+    const actor = await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "ADMIN"] });
+    authorize(actor, { permission: "reward.delete" });
     const ref = adminDb.collection("rewards_catalog").doc(id);
     const snap = await ref.get();
     const before = snap.data() ?? null;

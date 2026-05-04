@@ -5,12 +5,11 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { GcButton, GcEmptyState, GcInput, GcModalShell, GcPage, GcPageHeader, GcPanel, GcSelect } from "@/components/ui/gc";
 import {
-  doc,
   collection, onSnapshot, query, orderBy, limit,
   where,
 } from "firebase/firestore";
 import { db } from "../../lib/firebaseClient";
-import { DailyStat, dailyStatConverter } from "@/types/firestore";
+import type { DailyStat } from "@/types/firestore";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type TransactionStatus = "PENDING" | "COMPLETED" | "CANCELLED" | "REFUNDED";
@@ -31,7 +30,7 @@ interface Transaction {
   storeName?: string; // store name to display
 }
 
-interface Member { uid: string; tier: string; currentPoints: number; lifetimePoints: number; }
+interface MemberSummary { total: number; tiers: { Platinum: number; Gold: number; Silver: number }; }
 interface Store  { uid?: string; id?: string; name: string; isActive: boolean; }
 
 function normalizeTransactionStatus(status: unknown): TransactionStatus {
@@ -282,10 +281,17 @@ export default function DashboardClient({ initialRole, initialTransactions, init
   const storesRef = useRef<Store[]>(initialStores);
   // Use initial data from server as default state
   const [allTransactions, setAllTransactions] = useState<Transaction[]>(() => initialTransactions.map((tx) => normalizeTransaction(tx, initialStores)));
-  // Keep using state members for legacy logic to continue working
-  const [members, setMembers] = useState<Member[]>(initialUsers);
-  const [txStatus,     setTxStatus]     = useState<"connecting"|"live"|"error">("connecting");
-  const [memberStatus, setMemberStatus] = useState<"connecting"|"live"|"error">("connecting");
+  const [memberSummary, setMemberSummary] = useState<MemberSummary>(() => {
+    const tiers = { Platinum: 0, Gold: 0, Silver: 0 };
+    initialUsers.forEach((m: any) => {
+      if (m.tier === "Platinum") tiers.Platinum++;
+      else if (m.tier === "Gold") tiers.Gold++;
+      else if (m.tier === "Silver") tiers.Silver++;
+    });
+    return { total: initialUsers.length, tiers };
+  });
+  const [txStatus,        setTxStatus]        = useState<"connecting"|"live"|"error">("connecting");
+  const [memberStatus,    setMemberStatus]    = useState<"connecting"|"live"|"error">("connecting");
   const [dailyStatStatus, setDailyStatStatus] = useState<"connecting"|"live"|"error">("connecting");
   const [dailyStatsDocs, setDailyStatsDocs] = useState<DailyStat[]>([]);
   const [selectedTxDocPaths, setSelectedTxDocPaths] = useState<string[]>([]);
@@ -359,91 +365,51 @@ export default function DashboardClient({ initialRole, initialTransactions, init
 
   const getTxDocPath = (tx: any) => tx?.docPath ?? (tx?.docId ? `transactions/${tx.docId}` : "");
 
-  // ── Daily Stat (The God Document) ─────────────────────────────────────────
+  // ── Dashboard API polling (daily stats + members + stores) ─────────────────
   useEffect(() => {
-    if (authLoading) {
+    if (authLoading || !user) {
       setDailyStatStatus("connecting");
       return;
     }
 
-    if (!user) {
+    if (mode === "range" && (!dateFrom || !dateTo || dateFrom > dateTo)) {
       setDailyStatsDocs([]);
-      setDailyStatStatus("error");
+      setDailyStatStatus("live");
       return;
     }
 
     setDailyStatStatus("connecting");
+    let cancelled = false;
 
-    if (mode === "range") {
-      if (!dateFrom || !dateTo || dateFrom > dateTo) {
-        setDailyStatsDocs([]);
-        setDailyStatStatus("live");
-        return;
-      }
-
-      const baseRef = collection(db, "daily_stats").withConverter(dailyStatConverter);
-      const constraints: Parameters<typeof query>[1][] = [
-        where("date", ">=", dateFrom),
-        where("date", "<=", dateTo),
-      ];
-
-      if (role === "SUPER_ADMIN") {
-        if (selectedStoreId === "all") {
-          constraints.push(where("type", "==", "GLOBAL"));
+    const fetchDashboard = async () => {
+      try {
+        const today = getTodayString();
+        const params = new URLSearchParams({ storeId: selectedStoreId });
+        if (mode === "range" && dateFrom && dateTo) {
+          params.set("from", dateFrom);
+          params.set("to", dateTo);
         } else {
-          constraints.push(where("storeId", "==", selectedStoreId));
+          params.set("from", today);
+          params.set("to", today);
         }
-      } else {
-        if (!userAssignedStoreId) {
-          setDailyStatsDocs([]);
-          setDailyStatStatus("error");
-          return;
-        }
-        constraints.push(where("storeId", "==", userAssignedStoreId));
-      }
-
-      const rangeQ = query(baseRef, ...constraints, orderBy("date", "asc"));
-      const unsub = onSnapshot(
-        rangeQ,
-        (snap) => {
-          setDailyStatsDocs(snap.docs.map((d) => d.data()));
-          setDailyStatStatus("live");
-        },
-        (err: any) => {
-          setDailyStatsDocs([]);
-          // If staff cannot read daily_stats directly, avoid red status and continue with tx-based widgets.
-          setDailyStatStatus(err?.code === "permission-denied" ? "live" : "error");
-        }
-      );
-      return () => unsub();
-    }
-
-    const today = getTodayString();
-    const targetId = role === "SUPER_ADMIN"
-      ? (selectedStoreId === "all" ? `${today}_GLOBAL` : `${today}_${selectedStoreId}`)
-      : (userAssignedStoreId ? `${today}_${userAssignedStoreId}` : null);
-
-    if (!targetId) {
-      setDailyStatsDocs([]);
-      setDailyStatStatus("error");
-      return;
-    }
-
-    const dailyRef = doc(db, "daily_stats", targetId).withConverter(dailyStatConverter);
-    const unsub = onSnapshot(
-      dailyRef,
-      (snap) => {
-        setDailyStatsDocs(snap.exists() ? [snap.data()] : []);
+        const res = await fetch(`/api/dashboard?${params}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (cancelled) return;
+        setDailyStatsDocs(data.dailyStats ?? []);
+        setStores(data.stores ?? []);
+        setMemberSummary(data.memberSummary ?? { total: 0, tiers: { Platinum: 0, Gold: 0, Silver: 0 } });
         setDailyStatStatus("live");
-      },
-      (err: any) => {
-        setDailyStatsDocs([]);
-        setDailyStatStatus(err?.code === "permission-denied" ? "live" : "error");
+        setMemberStatus("live");
+      } catch {
+        if (!cancelled) setDailyStatStatus("error");
       }
-    );
+    };
 
-    return () => unsub();
-  }, [authLoading, dateFrom, dateTo, mode, role, selectedStoreId, user, userAssignedStoreId]);
+    fetchDashboard();
+    const timer = setInterval(fetchDashboard, 30_000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [authLoading, dateFrom, dateTo, mode, selectedStoreId, user]);
 
   // ── Firestore listeners ──────────────────────────────────────────────────
   useEffect(() => {
@@ -508,43 +474,14 @@ export default function DashboardClient({ initialRole, initialTransactions, init
       },
     );
 
-    let unsubMem: (() => void) | null = null;
-    if (!isLimitedAccess) {
-      const memQ = query(collection(db, "users"));
-      unsubMem = onSnapshot(memQ,
-        (snap) => {
-          setMembers(snap.docs.map(d => ({ uid: d.id, ...d.data() } as Member)));
-          setMemberStatus("live");
-        },
-        () => setMemberStatus("error"),
-      );
-    } else {
-      // Staff dashboard does not need full members stream.
-      setMemberStatus("live");
-      setMembers([]);
-    }
-
-    // Stores
-    const storeQ = query(collection(db, "stores"));
-    const unsubStore = onSnapshot(storeQ,
-      (snap) => {
-        setStores(snap.docs.map(d => ({ uid: d.id, ...d.data() } as Store)));
-      },
-      (err) => {
-        console.error("[stores] error:", err);
-      }
-    );
-
     return () => {
       unsubTx();
-      if (unsubMem) unsubMem();
-      unsubStore();
     };
   }, [authLoading, dateFrom, dateTo, isLimitedAccess, mode, user, userAssignedStoreId]);
 
   // ── Derived stats ────────────────────────────────────────────────────────
   // ALL TIME (tidak terpengaruh date picker):
-  const totalMembers  = members.length;
+  const totalMembers  = memberSummary.total;
   const totalStores   = stores.length;
   const pendingCount  = dashboardTransactions.filter((t) => t.status === "PENDING").length;
   const cancelledCount = dashboardTransactions.filter((t) => t.status === "CANCELLED").length;
@@ -611,11 +548,7 @@ export default function DashboardClient({ initialRole, initialTransactions, init
     }
   }
 
-  const tierCounts = useMemo(() => ({
-    Platinum: members.filter(m => m.tier === "Platinum").length,
-    Gold:     members.filter(m => m.tier === "Gold").length,
-    Silver:   members.filter(m => m.tier === "Silver").length,
-  }), [members]);
+  const tierCounts = memberSummary.tiers;
 
   const overallStatus = authLoading ? "connecting"
     : txStatus === "live" && memberStatus === "live" && dailyStatStatus === "live" ? "live"

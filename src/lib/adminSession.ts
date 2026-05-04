@@ -1,12 +1,20 @@
 import { cookies } from "next/headers";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
-
-export type AdminPanelRole = "SUPER_ADMIN" | "STAFF";
+import {
+  normalizeAdminRbac,
+  type AccessProfile,
+  type AdminPanelRole,
+  type Permission,
+  type RbacScope,
+} from "@/lib/rbac";
 
 export type AdminSession = {
   uid: string;
   email: string | null;
   role: AdminPanelRole;
+  accessProfile: AccessProfile;
+  permissions: Permission[];
+  scope: RbacScope;
   assignedStoreId: string | null;
   profile: FirebaseFirestore.DocumentData;
   claims: Awaited<ReturnType<typeof adminAuth.verifySessionCookie>>;
@@ -28,23 +36,6 @@ export class AdminAuthError extends Error {
   }
 }
 
-export function normalizeAdminRole(rawRole: unknown): AdminPanelRole | null {
-  const normalized = String(rawRole ?? "")
-    .trim()
-    .toUpperCase()
-    .replace(/[\s-]+/g, "_");
-
-  if (["SUPER_ADMIN", "ADMIN", "MASTER"].includes(normalized)) {
-    return "SUPER_ADMIN";
-  }
-
-  if (["STAFF", "MANAGER"].includes(normalized)) {
-    return "STAFF";
-  }
-
-  return null;
-}
-
 export function isAdminAuthError(error: unknown): error is AdminAuthError {
   return error instanceof AdminAuthError;
 }
@@ -52,7 +43,7 @@ export function isAdminAuthError(error: unknown): error is AdminAuthError {
 export async function getAdminSession(
   options: GetAdminSessionOptions = {},
 ): Promise<AdminSession> {
-  const allowedRoles = options.allowedRoles ?? ["SUPER_ADMIN", "STAFF"];
+  const allowedRoles = options.allowedRoles ?? ["SUPER_ADMIN", "ADMIN", "STAFF", "AUDITOR"];
   const cookieStore = await cookies();
   const sessionCookie = cookieStore.get("session")?.value;
 
@@ -79,19 +70,22 @@ export async function getAdminSession(
     throw new AdminAuthError("Access denied. Account is inactive.", 403, "ACCOUNT_INACTIVE");
   }
 
-  const role = normalizeAdminRole(profile.role);
-  if (!role) {
+  const rbac = normalizeAdminRbac(profile);
+  if (!rbac) {
     throw new AdminAuthError("Access denied. Invalid admin role.", 403, "ROLE_INVALID");
   }
 
-  if (!allowedRoles.includes(role)) {
+  if (!allowedRoles.includes(rbac.role)) {
     throw new AdminAuthError("Access denied. You do not have permission.", 403, "ROLE_FORBIDDEN");
   }
 
   return {
     uid: claims.uid,
     email: claims.email ?? null,
-    role,
+    role: rbac.role,
+    accessProfile: rbac.accessProfile,
+    permissions: rbac.permissions,
+    scope: rbac.scope,
     assignedStoreId: profile.assignedStoreId ?? null,
     profile,
     claims,

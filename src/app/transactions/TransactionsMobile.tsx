@@ -183,9 +183,9 @@ const QueueCard = ({ tx, onVerify, onReject, loadingId, isAdmin, onDelete }: { t
 
 // ── MAIN ───────────────────────────────────────────────────────────────────
 export default function TransactionsMobile({ initialTransactions = [], initialRole }: Props) {
-  const { user }        = useAuth();
+  const { user, can }   = useAuth();
   const { openDrawer }  = useMobileSidebar();
-  const isAdmin         = user?.role === "SUPER_ADMIN" || initialRole === "admin" || initialRole === "SUPER_ADMIN";
+  const isAdmin         = can("transaction.delete") || initialRole === "admin" || initialRole === "SUPER_ADMIN";
 
   const [tab,         setTab]         = useState<TabId>("summary");
   const [txs,         setTxs]         = useState<Tx[]>(initialTransactions);

@@ -5,6 +5,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
+import { normalizeAdminRbac } from "@/lib/rbac";
 
 export async function GET(request: Request) {
   try {
@@ -70,11 +71,15 @@ export async function POST(request: Request) {
     }
 
     // Add user to admin_users collection
+    const defaultProfile = normalizeAdminRbac({ role: "STAFF", assignedStoreId: null });
     await adminDb.collection("admin_users").doc(userId).set({
       uid: userId,
       email,
       name,
       role: "STAFF",
+      accessProfile: defaultProfile?.accessProfile ?? "STORE_MANAGER",
+      permissions: defaultProfile?.permissions ?? [],
+      scope: defaultProfile?.scope ?? { type: "STORE", storeIds: [] },
       assignedStoreId: null,
       isActive: true,
       createdAt: new Date(),

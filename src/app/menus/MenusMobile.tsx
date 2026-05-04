@@ -331,9 +331,9 @@ export default function MenusMobile({
   initialMenus?: any[];
   categories?:   string[];
 }) {
-  const { user, loading } = useAuth();
+  const { user, loading, can } = useAuth();
   const { openDrawer } = useMobileSidebar();
-  const canManage      = user?.role !== "STAFF";
+  const canManage      = can("menu.create") || can("menu.update") || can("menu.delete");
 
   const [menus,         setMenus]         = useState<any[]>(initialMenus);
   const [search,        setSearch]        = useState("");

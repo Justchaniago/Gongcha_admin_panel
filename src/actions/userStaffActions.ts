@@ -4,14 +4,17 @@ import { adminDb, adminAuth } from "@/lib/firebaseAdmin";
 import { revalidatePath } from "next/cache";
 import { getAdminSession } from "@/lib/adminSession";
 import { writeActivityLog } from "@/lib/activityLog";
+import { authorize, normalizeAdminRbac } from "@/lib/rbac";
 
-async function getAuthSession() {
-  return getAdminSession({ allowedRoles: ["SUPER_ADMIN", "STAFF"] });
+async function getAuthSession(permission: Parameters<typeof authorize>[1]["permission"]) {
+  const session = await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "ADMIN", "STAFF"] });
+  authorize(session, { permission });
+  return session;
 }
 
 // ├── CREATE ACCOUNT (MEMBER OR STAFF) ──
 export async function createAccountAction(payload: any, type: "member" | "staff") {
-  const actor = await getAuthSession();
+  const actor = await getAuthSession(type === "staff" ? "staff.create" : "member.create");
   const { email, password, name, role, assignedStoreId, phoneNumber, tier } = payload;
 
   try {
@@ -36,7 +39,15 @@ export async function createAccountAction(payload: any, type: "member" | "staff"
         role: role === "SUPER_ADMIN" ? "SUPER_ADMIN" : "STAFF",
         assignedStoreId: role === "SUPER_ADMIN" ? null : (assignedStoreId ?? null),
       };
+      const staffRbac = normalizeAdminRbac(staffData);
       await adminDb.collection("admin_users").doc(authUser.uid).set(staffData);
+      if (staffRbac) {
+        await adminDb.collection("admin_users").doc(authUser.uid).set({
+          accessProfile: staffRbac.accessProfile,
+          permissions: staffRbac.permissions,
+          scope: staffRbac.scope,
+        }, { merge: true });
+      }
       await writeActivityLog({
         actor,
         action: "STAFF_CREATED",
@@ -80,7 +91,7 @@ export async function createAccountAction(payload: any, type: "member" | "staff"
 
 // ── UPDATE ACCOUNT ──
 export async function updateAccountAction(uid: string, data: any, collection: "users" | "staff" | "admin_users") {
-  const actor = await getAuthSession();
+  const actor = await getAuthSession(collection === "users" ? "member.update" : "staff.update");
   const cleanData = { ...data, updatedAt: new Date().toISOString() };
   const targetRef = adminDb.collection(collection).doc(uid);
   const beforeSnap = await targetRef.get();
@@ -108,7 +119,7 @@ export async function updateAccountAction(uid: string, data: any, collection: "u
 
 // ── DELETE ACCOUNT ──
 export async function deleteAccountAction(uid: string, collection: "users" | "staff" | "admin_users") {
-  const actor = await getAuthSession();
+  const actor = await getAuthSession(collection === "users" ? "member.disable" : "staff.disable");
   const targetRef = adminDb.collection(collection).doc(uid);
   const beforeSnap = await targetRef.get();
   const before = beforeSnap.data() ?? null;
@@ -133,7 +144,7 @@ export async function deleteAccountAction(uid: string, collection: "users" | "st
 
 // ── UPDATE POINTS ──
 export async function updatePointsAction(uid: string, points: number, pending: number, lifetime: number) {
-  const actor = await getAuthSession();
+  const actor = await getAuthSession("points.adjust.override");
   const targetRef = adminDb.collection("users").doc(uid);
   const beforeSnap = await targetRef.get();
   const before = beforeSnap.data() ?? null;

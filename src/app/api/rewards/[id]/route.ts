@@ -3,6 +3,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { getAdminSession, isAdminAuthError } from "@/lib/adminSession";
 import { writeActivityLog } from "@/lib/activityLog";
+import { authorize, isRbacForbiddenError } from "@/lib/rbac";
 
 function guardId(id: unknown): string | null {
   if (typeof id !== "string" || !id.trim()) return null;
@@ -14,7 +15,8 @@ export async function GET(
   context: { params: Promise<unknown> },
 ) {
   try {
-    await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "STAFF"] });
+    const session = await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "ADMIN", "STAFF", "AUDITOR"] });
+    authorize(session, { permission: "reward.read" });
     const params = await context.params as { id?: string };
     const safeId = guardId(params.id);
 
@@ -32,6 +34,9 @@ export async function GET(
     if (isAdminAuthError(error)) {
       return NextResponse.json({ message: error.message }, { status: error.status });
     }
+    if (isRbacForbiddenError(error)) {
+      return NextResponse.json({ message: error.message, code: error.code }, { status: error.status });
+    }
     return NextResponse.json({ message: error.message ?? "Internal server error." }, { status: 500 });
   }
 }
@@ -41,7 +46,8 @@ export async function PATCH(
   context: { params: Promise<unknown> },
 ) {
   try {
-    const actor = await getAdminSession({ allowedRoles: ["SUPER_ADMIN"] });
+    const actor = await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "ADMIN"] });
+    authorize(actor, { permission: "reward.update" });
     const params = await context.params as { id?: string };
     const safeId = guardId(params.id);
 
@@ -95,6 +101,9 @@ export async function PATCH(
     if (isAdminAuthError(error)) {
       return NextResponse.json({ message: error.message }, { status: error.status });
     }
+    if (isRbacForbiddenError(error)) {
+      return NextResponse.json({ message: error.message, code: error.code }, { status: error.status });
+    }
     return NextResponse.json({ message: error.message ?? "Internal server error." }, { status: 500 });
   }
 }
@@ -104,7 +113,8 @@ export async function DELETE(
   context: { params: Promise<unknown> },
 ) {
   try {
-    const actor = await getAdminSession({ allowedRoles: ["SUPER_ADMIN"] });
+    const actor = await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "ADMIN"] });
+    authorize(actor, { permission: "reward.delete" });
     const params = await context.params as { id?: string };
     const safeId = guardId(params.id);
 
@@ -135,6 +145,9 @@ export async function DELETE(
   } catch (error: any) {
     if (isAdminAuthError(error)) {
       return NextResponse.json({ message: error.message }, { status: error.status });
+    }
+    if (isRbacForbiddenError(error)) {
+      return NextResponse.json({ message: error.message, code: error.code }, { status: error.status });
     }
     return NextResponse.json({ message: error.message ?? "Internal server error." }, { status: 500 });
   }

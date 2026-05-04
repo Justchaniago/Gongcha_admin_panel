@@ -1,4 +1,5 @@
 import { getAdminSession, type AdminSession } from "@/lib/adminSession";
+import { hasPermission } from "@/lib/rbac";
 
 type AuditPermissionLevel = "none" | "read" | "manage";
 
@@ -35,11 +36,18 @@ export function getAuditAccessForIdentity(identity: { uid: string; email: string
 }
 
 export function getAuditAccessFromSession(session: AdminSession): AuditAccess {
-  return getAuditAccessForIdentity({ uid: session.uid, email: session.email });
+  const allowlistAccess = getAuditAccessForIdentity({ uid: session.uid, email: session.email });
+  const canManage = allowlistAccess.canManage || hasPermission(session, "audit.manage");
+  const canRead = canManage || allowlistAccess.canRead || hasPermission(session, "audit.read");
+  return {
+    canRead,
+    canManage,
+    level: canManage ? "manage" : canRead ? "read" : "none",
+  };
 }
 
 export async function getAuditSession(required: "read" | "manage" = "read") {
-  const session = await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "STAFF"] });
+  const session = await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "ADMIN", "STAFF", "AUDITOR"] });
   const access = getAuditAccessFromSession(session);
 
   if (required === "manage" && !access.canManage) {

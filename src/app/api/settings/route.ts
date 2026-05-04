@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 // Pastikan hanya menggunakan firebaseAdmin, jangan campur dengan firebaseServer
 import { adminDb } from "@/lib/firebaseAdmin";
 import { getAdminSession, isAdminAuthError } from "@/lib/adminSession";
+import { authorize, isRbacForbiddenError } from "@/lib/rbac";
 import { writeActivityLog } from "@/lib/activityLog";
 
 const SETTINGS_DOC = "settings/global";
@@ -29,7 +30,8 @@ const DEFAULTS = {
 // ── GET — read settings ───────────────────────────────────────────────────────
 export async function GET() {
   try {
-    await getAdminSession({ allowedRoles: ["SUPER_ADMIN"] });
+    const session = await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "ADMIN", "AUDITOR"] });
+    authorize(session, { permission: "settings.read" });
 
     const snap = await adminDb.doc(SETTINGS_DOC).get();
     if (!snap.exists) {
@@ -41,6 +43,9 @@ export async function GET() {
     if (isAdminAuthError(e)) {
       return NextResponse.json({ message: e.message }, { status: e.status });
     }
+    if (isRbacForbiddenError(e)) {
+      return NextResponse.json({ message: e.message, code: e.code }, { status: e.status });
+    }
     return NextResponse.json({ message: e.message || "Internal Server Error" }, { status: 500 });
   }
 }
@@ -48,7 +53,8 @@ export async function GET() {
 // ── PATCH — update settings ───────────────────────────────────────────────────
 export async function PATCH(req: NextRequest) {
   try {
-    const auth = await getAdminSession({ allowedRoles: ["SUPER_ADMIN"] });
+    const auth = await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "ADMIN"] });
+    authorize(auth, { permission: "settings.update" });
     const beforeSnap = await adminDb.doc(SETTINGS_DOC).get();
     const beforeData = beforeSnap.exists ? { ...DEFAULTS, ...beforeSnap.data() } : { ...DEFAULTS };
 
@@ -99,6 +105,9 @@ export async function PATCH(req: NextRequest) {
     console.error("[PATCH /api/settings] Error:", e);
     if (isAdminAuthError(e)) {
       return NextResponse.json({ message: e.message }, { status: e.status });
+    }
+    if (isRbacForbiddenError(e)) {
+      return NextResponse.json({ message: e.message, code: e.code }, { status: e.status });
     }
     // Sekarang error tidak akan membuat server crash blank (500 tanpa info), melainkan mengembalikan pesan JSON.
     return NextResponse.json({ message: e.message || "Gagal menyimpan ke server" }, { status: 500 });

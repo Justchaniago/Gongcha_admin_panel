@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getStorage } from "firebase-admin/storage";
 import { getAdminSession, isAdminAuthError } from "@/lib/adminSession";
+import { authorize, isRbacForbiddenError } from "@/lib/rbac";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -51,7 +52,9 @@ function getBucket() {
 }
 
 async function validateSuperAdmin() {
-  return getAdminSession({ allowedRoles: ["SUPER_ADMIN"] });
+  const session = await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "ADMIN"] });
+  authorize(session, { permission: "asset.manage" });
+  return session;
 }
 
 function normalizeInputPath(raw: unknown) {
@@ -417,6 +420,9 @@ export async function GET(req: NextRequest) {
     if (isAdminAuthError(error)) {
       return NextResponse.json({ message: error.message }, { status: error.status });
     }
+    if (isRbacForbiddenError(error)) {
+      return NextResponse.json({ message: error.message, code: error.code }, { status: error.status });
+    }
     return NextResponse.json({ message: error.message ?? "Unable to load asset gallery. Please try again later." }, { status: 500 });
   }
 }
@@ -510,6 +516,9 @@ export async function POST(req: NextRequest) {
     console.error("[POST /api/assets]", error);
     if (isAdminAuthError(error)) {
       return NextResponse.json({ message: error.message }, { status: error.status });
+    }
+    if (isRbacForbiddenError(error)) {
+      return NextResponse.json({ message: error.message, code: error.code }, { status: error.status });
     }
     return NextResponse.json({ message: error.message ?? "Unable to create asset. Please try again later." }, { status: 500 });
   }
@@ -653,6 +662,9 @@ export async function PATCH(req: NextRequest) {
     if (isAdminAuthError(error)) {
       return NextResponse.json({ message: error.message }, { status: error.status });
     }
+    if (isRbacForbiddenError(error)) {
+      return NextResponse.json({ message: error.message, code: error.code }, { status: error.status });
+    }
     return NextResponse.json({ message: error.message ?? "Unable to update asset. Please try again later." }, { status: 500 });
   }
 }
@@ -718,6 +730,9 @@ export async function DELETE(req: NextRequest) {
     console.error("[DELETE /api/assets]", error);
     if (isAdminAuthError(error)) {
       return NextResponse.json({ message: error.message }, { status: error.status });
+    }
+    if (isRbacForbiddenError(error)) {
+      return NextResponse.json({ message: error.message, code: error.code }, { status: error.status });
     }
     return NextResponse.json({ message: error.message ?? "Unable to delete asset. Please try again later." }, { status: 500 });
   }

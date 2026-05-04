@@ -4,12 +4,12 @@ import React, { useEffect, useState, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useMobileSidebar } from "@/components/layout/AdminShell";
 import {
-  collection, query, orderBy, onSnapshot, doc,
+  collection, query, orderBy, onSnapshot,
   where, limit,
 } from "firebase/firestore";
 import { db } from "@/lib/firebaseClient";
 import { useAuth } from "@/context/AuthContext";
-import { DailyStat, dailyStatConverter } from "@/types/firestore";
+import type { DailyStat } from "@/types/firestore";
 import { motion, AnimatePresence, useMotionValue, useTransform, animate } from "framer-motion";
 import {
   Menu, LayoutDashboard, Clock, Receipt, BarChart2,
@@ -43,7 +43,7 @@ interface Transaction {
   userId?: string | null;
   memberId?: string | null;
 }
-interface Member    { uid: string; tier: string; currentPoints: number; lifetimePoints: number; }
+interface MemberSummary { total: number; tiers: { Platinum: number; Gold: number; Silver: number }; }
 interface StoreItem { uid?: string; id?: string; name: string; isActive: boolean; }
 
 // ── HELPERS ────────────────────────────────────────────────────────────────
@@ -333,9 +333,17 @@ export default function DashboardMobile({ initialRole, initialTransactions, init
   const userName   = user?.name ?? user?.email?.split("@")[0] ?? "Admin";
 
   const [tab,        setTab]        = useState<TabId>("overview");
-  const [stores,     setStores]     = useState<StoreItem[]>(initialStores);
-  const [members,    setMembers]    = useState<Member[]>(initialUsers);
-  const [allTx,      setAllTx]      = useState<Transaction[]>(() => initialTransactions.map(t => normTx(t, initialStores)));
+  const [stores,        setStores]        = useState<StoreItem[]>(initialStores);
+  const [memberSummary, setMemberSummary] = useState<MemberSummary>(() => {
+    const tiers = { Platinum: 0, Gold: 0, Silver: 0 };
+    initialUsers.forEach((m: any) => {
+      if (m.tier === "Platinum") tiers.Platinum++;
+      else if (m.tier === "Gold") tiers.Gold++;
+      else if (m.tier === "Silver") tiers.Silver++;
+    });
+    return { total: initialUsers.length, tiers };
+  });
+  const [allTx,         setAllTx]         = useState<Transaction[]>(() => initialTransactions.map(t => normTx(t, initialStores)));
   const storesRef = useRef<StoreItem[]>(initialStores);
   const [rawPending, setRawPending] = useState<any[]>([]);
   const [dailyStats, setDailyStats] = useState<DailyStat[]>([]);
@@ -391,25 +399,6 @@ export default function DashboardMobile({ initialRole, initialTransactions, init
       }
     );
 
-    const unStore = onSnapshot(query(collection(db, "stores")),
-      snap => setStores(snap.docs.map(d => ({ uid: d.id, ...d.data() } as StoreItem))),
-      err => console.error("[dashboard-mobile] stores listener failed:", err)
-    );
-
-    let unMem: (() => void) | null = null;
-    if (isAdmin) {
-      unMem = onSnapshot(
-        query(collection(db, "users")),
-        snap => setMembers(snap.docs.map(d => ({ uid: d.id, ...d.data() } as Member))),
-        err => {
-          if (err?.code !== "permission-denied") {
-            console.error("[dashboard-mobile] users listener failed:", err);
-          }
-          setMembers([]);
-        }
-      );
-    }
-
     const today = new Date(); today.setHours(0, 0, 0, 0);
     let pq = query(collection(db, "transactions"), where("createdAt", ">=", today), orderBy("createdAt", "desc"));
     if (!isAdmin && assignedId) pq = query(collection(db, "transactions"), where("storeId", "==", assignedId), where("createdAt", ">=", today), orderBy("createdAt", "desc"));
@@ -428,46 +417,50 @@ export default function DashboardMobile({ initialRole, initialTransactions, init
       }
     );
 
-    return () => { unTx(); unStore(); unMem?.(); unPending(); };
+    return () => { unTx(); unPending(); };
   }, [assignedId, authLoading, dfrom, dto, isAdmin, mode, user]);
 
-  // Daily stats
+  // ── Dashboard API polling (daily stats + members + stores) ─────────────────
   useEffect(() => {
     if (authLoading || !user) {
       setDailyStats([]);
       return;
     }
 
-    const today = todayStr();
-    if (mode === "range") {
-      if (!dfrom || !dto || dfrom > dto) { setDailyStats([]); return; }
-      const cs: any[] = [where("date", ">=", dfrom), where("date", "<=", dto)];
-      if (isAdmin) cs.push(effectiveStore === "all" ? where("type", "==", "GLOBAL") : where("storeId", "==", effectiveStore));
-      else if (assignedId) cs.push(where("storeId", "==", assignedId));
-      const u = onSnapshot(query(collection(db, "daily_stats").withConverter(dailyStatConverter), ...cs, orderBy("date", "asc")),
-        snap => setDailyStats(snap.docs.map(d => d.data())),
-        err => {
-          if (err?.code !== "permission-denied") {
-            console.error("[dashboard-mobile] daily_stats range listener failed:", err);
-          }
-          setDailyStats([]);
-        }
-      );
-      return () => u();
+    if (mode === "range" && (!dfrom || !dto || dfrom > dto)) {
+      setDailyStats([]);
+      return;
     }
-    const tid = isAdmin ? (effectiveStore === "all" ? `${today}_GLOBAL` : `${today}_${effectiveStore}`) : (assignedId ? `${today}_${assignedId}` : null);
-    if (!tid) { setDailyStats([]); return; }
-    const u = onSnapshot(doc(db, "daily_stats", tid).withConverter(dailyStatConverter),
-      snap => setDailyStats(snap.exists() ? [snap.data()] : []),
-      err => {
-        if (err?.code !== "permission-denied") {
-          console.error("[dashboard-mobile] daily_stats doc listener failed:", err);
+
+    let cancelled = false;
+
+    const fetchDashboard = async () => {
+      try {
+        const today = todayStr();
+        const params = new URLSearchParams({ storeId });
+        if (mode === "range" && dfrom && dto) {
+          params.set("from", dfrom);
+          params.set("to", dto);
+        } else {
+          params.set("from", today);
+          params.set("to", today);
         }
-        setDailyStats([]);
+        const res = await fetch(`/api/dashboard?${params}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (cancelled) return;
+        setDailyStats(data.dailyStats ?? []);
+        setStores(data.stores ?? []);
+        setMemberSummary(data.memberSummary ?? { total: 0, tiers: { Platinum: 0, Gold: 0, Silver: 0 } });
+      } catch {
+        if (!cancelled) setDailyStats([]);
       }
-    );
-    return () => u();
-  }, [assignedId, authLoading, dfrom, dto, effectiveStore, isAdmin, mode, user]);
+    };
+
+    fetchDashboard();
+    const timer = setInterval(fetchDashboard, 30_000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [authLoading, dfrom, dto, mode, storeId, user]);
 
   // Derived
   const filteredTx = useMemo(() => effectiveStore === "all" ? allTx : allTx.filter(t => t.storeId === effectiveStore), [allTx, effectiveStore]);
@@ -502,7 +495,7 @@ export default function DashboardMobile({ initialRole, initialTransactions, init
   const totalXP     = windowedTx.filter(t => t.status === "COMPLETED").reduce((s, t) => s + (t.potentialPoints ?? 0), 0);
   const avgTrx      = windowedTx.length ? Math.round(windowedTx.reduce((s, t) => s + t.amount, 0) / windowedTx.length) : 0;
   const recentTrx   = windowedTx.slice(0, 10);
-  const tierCounts  = useMemo(() => ({ Platinum: members.filter(m => m.tier === "Platinum").length, Gold: members.filter(m => m.tier === "Gold").length, Silver: members.filter(m => m.tier === "Silver").length }), [members]);
+  const tierCounts  = memberSummary.tiers;
   const storePerf   = useMemo(() => {
     if (!dailyStats.length) return [];
     const safeStats = dailyStats.map(d => ({ ...d, totalRevenue: asNumber(d.totalRevenue) }));
@@ -513,7 +506,7 @@ export default function DashboardMobile({ initialRole, initialTransactions, init
   const cRev     = useCounter(revenue);
   const cQueue   = useCounter(pendingQueue.length);
   const cClaims  = useCounter(claimsCount);
-  const cMembers = useCounter(members.length);
+  const cMembers = useCounter(memberSummary.total);
   const cStores  = useCounter(stores.length);
   const cXP      = useCounter(totalXP);
   const cTrx     = useCounter(totalTrx);
@@ -824,7 +817,7 @@ export default function DashboardMobile({ initialRole, initialTransactions, init
                     { label: "Gold",     color: "#92400E", bg: "#FFFBEB", border: "#FDE68A", count: tierCounts.Gold     },
                     { label: "Silver",   color: "#475569", bg: "#F8FAFC", border: "#E2E8F0", count: tierCounts.Silver   },
                   ].map((t, i) => {
-                    const pct = members.length ? Math.round(t.count / members.length * 100) : 0;
+                    const pct = memberSummary.total ? Math.round(t.count / memberSummary.total * 100) : 0;
                     return (
                       <motion.div key={t.label} initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: .2 + i * .06 }}
                         style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "9px 12px", borderRadius: 10, background: t.bg, border: `1px solid ${t.border}`, marginBottom: i < 2 ? 6 : 0 }}>

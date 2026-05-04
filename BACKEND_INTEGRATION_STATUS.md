@@ -148,3 +148,88 @@ Copy this message to Cashier App workspace:
 - Upgrade Node.js runtime (20 is deprecated after 2026-10-30)
 - Upgrade firebase-functions to latest
 
+
+---
+
+## Stage 3: Member App & Cashier App Compliance (Planning)
+
+**Status:** 🔄 Ready to start  
+**Cashier App Task:** Audit remaining direct Firestore writes
+
+### Cashier App Audit Checklist
+
+**Question 1: Direct Firestore Writes**
+```
+Search codebase for:
+- addDoc(collection(...))
+- updateDoc(doc(...))
+- deleteDoc(doc(...))
+- setDoc(doc(...))
+- writeBatch.set/update/delete
+```
+
+**Expected result:** None (all transactions now via `postTransaction()` API)
+
+**If found any:** Report location + what it writes
+
+---
+
+**Question 2: Direct Firestore Reads**
+```
+Search for: getDocs, getDoc, onSnapshot, query(...)
+Currently acceptable collections:
+- /stores (POS needs store list)
+- /products (menu catalog)
+- /rewards_catalog (show available rewards)
+
+Other reads (if any)?
+```
+
+**Decision needed:**
+- Keep direct reads (faster for POS)?
+- OR route all reads via Admin Panel API (centralized)?
+
+---
+
+**Question 3: Sensitive Data Read/Write**
+```
+Check for direct access to:
+- /users/* (member points/profile)
+- /transactions/* (transaction history)
+- /vouchers/* (voucher status)
+- /activity_logs (audit trail)
+```
+
+**Expected:** None (all routed via backend API)
+
+---
+
+### Cashier App Audit Response Template
+
+Reply with:
+
+```
+AUDIT RESULTS:
+
+1. Direct Firestore Writes:
+   [ ] None found (expected)
+   [ ] Found at: (location + description)
+
+2. Direct Firestore Reads (acceptable):
+   [ ] /stores (used for store selector)
+   [ ] /products (used for menu display)
+   [ ] /rewards_catalog (used for reward browsing)
+   [ ] Others: (list)
+
+3. Sensitive Data Access:
+   [ ] None found (expected)
+   [ ] Found at: (location + what accessed)
+
+4. Recommendation:
+   [ ] Cashier App compliant - no changes needed
+   [ ] Need to migrate reads to API: (list which)
+   [ ] Need to add new API endpoints: (describe)
+```
+
+---
+

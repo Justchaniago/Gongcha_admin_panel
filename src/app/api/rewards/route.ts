@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { getAdminSession, isAdminAuthError } from "@/lib/adminSession";
+import { authorize, isRbacForbiddenError } from "@/lib/rbac";
 import { writeActivityLog } from "@/lib/activityLog";
 
 function parseRewardBody(body: any) {
@@ -26,7 +27,8 @@ function parseRewardBody(body: any) {
 
 export async function GET(_req: NextRequest) {
   try {
-    await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "STAFF"] });
+    const session = await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "ADMIN", "STAFF", "AUDITOR"] });
+    authorize(session, { permission: "reward.read" });
     const snap = await adminDb.collection("rewards_catalog").get();
     const rewards = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
     return NextResponse.json({ rewards });
@@ -34,13 +36,17 @@ export async function GET(_req: NextRequest) {
     if (isAdminAuthError(error)) {
       return NextResponse.json({ message: error.message }, { status: error.status });
     }
+    if (isRbacForbiddenError(error)) {
+      return NextResponse.json({ message: error.message, code: error.code }, { status: error.status });
+    }
     return NextResponse.json({ message: error.message ?? "Internal server error." }, { status: 500 });
   }
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const actor = await getAdminSession({ allowedRoles: ["SUPER_ADMIN"] });
+    const actor = await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "ADMIN"] });
+    authorize(actor, { permission: "reward.create" });
     const body = await req.json();
     const rewardId = String(body.rewardId ?? "").trim();
 
@@ -87,6 +93,9 @@ export async function POST(req: NextRequest) {
   } catch (error: any) {
     if (isAdminAuthError(error)) {
       return NextResponse.json({ message: error.message }, { status: error.status });
+    }
+    if (isRbacForbiddenError(error)) {
+      return NextResponse.json({ message: error.message, code: error.code }, { status: error.status });
     }
     return NextResponse.json({ message: error.message ?? "Internal server error." }, { status: 500 });
   }

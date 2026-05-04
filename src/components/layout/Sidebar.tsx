@@ -6,15 +6,15 @@ import LogoutButton from "@/components/LogoutButton";
 import { useAuth } from "@/context/AuthContext";
 
 const navItems = [
-  { href: "/dashboard",     label: "Dashboard",  badge: false },
-  { href: "/stores",        label: "Outlets",    badge: false },
-  { href: "/transactions",  label: "Transaksi",  badge: false },
-  { href: "/menus",         label: "Menu",       badge: false },
-  { href: "/assets",        label: "Assets",     badge: false, superAdminOnly: true },
-  { href: "/admin-users",   label: "Member",     badge: false, superAdminOnly: true },
-  { href: "/rewards",       label: "Rewards",    badge: false },
-  { href: "/notifications", label: "Notifikasi", badge: false, superAdminOnly: true },
-  { href: "/settings",      label: "Settings",   badge: false, superAdminOnly: true },
+  { href: "/dashboard",     label: "Dashboard",  badge: false, permission: "dashboard.read" },
+  { href: "/stores",        label: "Outlets",    badge: false, permission: "store.read" },
+  { href: "/transactions",  label: "Transaksi",  badge: false, permission: "transaction.read" },
+  { href: "/menus",         label: "Menu",       badge: false, permission: "menu.read" },
+  { href: "/assets",        label: "Assets",     badge: false, permission: "asset.manage" },
+  { href: "/admin-users",   label: "Member",     badge: false, permission: "member.read" },
+  { href: "/rewards",       label: "Rewards",    badge: false, permission: "reward.read" },
+  { href: "/notifications", label: "Notifikasi", badge: false, permission: "notification.send" },
+  { href: "/settings",      label: "Settings",   badge: false, permission: "settings.read" },
 ];
 
 const icons: Record<string, React.ReactNode> = {
@@ -31,10 +31,9 @@ const icons: Record<string, React.ReactNode> = {
 
 export default function Sidebar() {
   const pathname = usePathname();
-  const { user } = useAuth();
+  const { user, can } = useAuth();
   const profileName = user?.name || user?.email?.split("@")[0] || "Admin";
-  const isSuperAdmin = user?.role === "SUPER_ADMIN";
-  const visibleNavItems = navItems.filter((item) => !item.superAdminOnly || isSuperAdmin);
+  const visibleNavItems = navItems.filter((item) => can(item.permission));
   const [isOpen, setIsOpen] = React.useState(false);
   const closeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 

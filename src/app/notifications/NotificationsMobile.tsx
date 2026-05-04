@@ -90,10 +90,10 @@ function TypeBadge({ type }: { type: string }) {
 }
 
 export default function NotificationsMobile({ initialLogs = [], members = [] }: { initialLogs?: NotifLog[]; members?: Member[] }) {
-  const { user }       = useAuth();
+  const { user, can }  = useAuth();
   const { openDrawer } = useMobileSidebar();
   const router         = useRouter();
-  const canMutate      = user?.role === "SUPER_ADMIN";
+  const canMutate      = can("notification.send");
 
   const [tab,          setTab]          = useState<TabId>("send");
   const [logs,         setLogs]         = useState<NotifLog[]>(initialLogs);

@@ -6,6 +6,7 @@ import { adminDb } from "@/lib/firebaseAdmin";
 import { Store, storeConverter } from "@/types/firestore";
 import { getAdminSession } from "@/lib/adminSession";
 import { writeActivityLog } from "@/lib/activityLog";
+import { authorize } from "@/lib/rbac";
 
 type StoreMutationInput = {
   name?: string;
@@ -110,7 +111,8 @@ async function setDoc(
 }
 
 async function verifyAdmin() {
-  const session = await getAdminSession({ allowedRoles: ["SUPER_ADMIN"] });
+  const session = await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "ADMIN"] });
+  authorize(session, { permission: "store.update" });
   return session.uid;
 }
 
@@ -118,7 +120,8 @@ async function verifyAdmin() {
 // CREATE STORE
 // ============================================================================
 export async function createStore(data: StoreMutationInput) {
-  const actor = await getAdminSession({ allowedRoles: ["SUPER_ADMIN"] });
+  const actor = await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "ADMIN"] });
+  authorize(actor, { permission: "store.create" });
   const name = data.name?.trim();
   if (!name) throw new Error("Nama outlet wajib diisi.");
 
@@ -169,7 +172,8 @@ export async function createStore(data: StoreMutationInput) {
 // UPDATE STORE
 // ============================================================================
 export async function updateStore(id: string, data: StoreMutationInput) {
-  const actor = await getAdminSession({ allowedRoles: ["SUPER_ADMIN"] });
+  const actor = await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "ADMIN"] });
+  authorize(actor, { permission: "store.update", resource: { storeId: id } });
   const ref = doc("stores", id).withConverter(storeConverter as any);
   const snap = await ref.get();
   if (!snap.exists) throw new Error(`Store "${id}" tidak ditemukan.`);
@@ -232,7 +236,8 @@ export async function updateStore(id: string, data: StoreMutationInput) {
 // DELETE STORE (SOFT DELETE)
 // ============================================================================
 export async function deleteStore(id: string) {
-  const actor = await getAdminSession({ allowedRoles: ["SUPER_ADMIN"] });
+  const actor = await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "ADMIN"] });
+  authorize(actor, { permission: "store.delete", resource: { storeId: id } });
   const ref = adminDb.collection("stores").doc(id);
   const snap = await ref.get();
   if (!snap.exists) throw new Error(`Store "${id}" tidak ditemukan.`);

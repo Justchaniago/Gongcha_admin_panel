@@ -131,7 +131,7 @@ const inputStyle: React.CSSProperties = {
 };
 
 export default function SettingsMobile() {
-  const { user: authUser } = useAuth();
+  const { user: authUser, can } = useAuth();
   const { openDrawer }     = useMobileSidebar();
   const router             = useRouter();
 
@@ -145,8 +145,8 @@ export default function SettingsMobile() {
   const [dangerConfirm, setDangerConfirm] = useState<string | null>(null);
 
   useEffect(() => {
-    if (authUser && authUser.role !== "SUPER_ADMIN") router.replace("/dashboard");
-  }, [authUser, router]);
+    if (authUser && !can("settings.read")) router.replace("/dashboard");
+  }, [authUser, can, router]);
 
   const loadSettings = useCallback(async () => {
     setLoading(true);

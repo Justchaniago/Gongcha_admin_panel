@@ -5,6 +5,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { getAdminSession } from "@/lib/adminSession";
 import { writeActivityLog } from "@/lib/activityLog";
+import { authorize } from "@/lib/rbac";
 
 type UpdateMemberInput = {
   name?: string;
@@ -16,14 +17,16 @@ type UpdateMemberInput = {
 };
 
 async function verifySuperAdmin() {
-  const session = await getAdminSession({ allowedRoles: ["SUPER_ADMIN"] });
+  const session = await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "ADMIN"] });
+  authorize(session, { permission: "member.update" });
   return session.uid;
 }
 
 export async function updateMemberAction(uid: string, input: UpdateMemberInput) {
   const actorUid = await verifySuperAdmin();
   if (!uid) throw new Error("uid is required");
-  const actor = await getAdminSession({ allowedRoles: ["SUPER_ADMIN"] });
+  const actor = await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "ADMIN"] });
+  authorize(actor, { permission: "member.update" });
   const beforeSnap = await adminDb.collection("users").doc(uid).get();
   const before = beforeSnap.data() ?? null;
 
@@ -65,8 +68,8 @@ export async function updateMemberAction(uid: string, input: UpdateMemberInput) 
 }
 
 export async function sendMemberNotificationAction(uid: string, title: string, body: string) {
-  await verifySuperAdmin();
-  const actor = await getAdminSession({ allowedRoles: ["SUPER_ADMIN"] });
+  const actor = await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "ADMIN"] });
+  authorize(actor, { permission: "notification.send" });
   if (!uid) throw new Error("uid is required");
   if (!title.trim() || !body.trim()) throw new Error("title and body are required");
 

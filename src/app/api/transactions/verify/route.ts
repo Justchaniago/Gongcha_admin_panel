@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { Timestamp } from "firebase-admin/firestore";
 import { getAdminSession, isAdminAuthError } from "@/lib/adminSession";
+import { authorize, isRbacForbiddenError } from "@/lib/rbac";
 import { writeActivityLog } from "@/lib/activityLog";
 import { applyTransactionReward, getTransactionMemberReference, MemberPointsError } from "@/lib/memberPoints";
 import { createTxNotification } from "@/lib/transactionNotifications";
@@ -43,7 +44,7 @@ function warnOnInvalidTransactionShape(
 
 export async function POST(req: NextRequest): Promise<NextResponse<VerifyResponse>> {
   try {
-    const auth = await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "STAFF"] });
+    const auth = await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "ADMIN", "STAFF"] });
 
     // ── Parse request ──
     const body: VerifyRequest = await req.json();
@@ -109,6 +110,10 @@ export async function POST(req: NextRequest): Promise<NextResponse<VerifyRespons
     }
 
     warnOnInvalidTransactionShape(txData, txSnapshot.ref);
+    authorize(auth, {
+      permission: "transaction.verify",
+      resource: { storeId: String(txData.storeId ?? txData.storeLocation ?? "") },
+    });
 
     // ── POS Verification: Match transaction number, date, and total ──
     const errors: string[] = [];
@@ -202,6 +207,12 @@ export async function POST(req: NextRequest): Promise<NextResponse<VerifyRespons
       );
     }
     if (isAdminAuthError(error)) {
+      return NextResponse.json(
+        { success: false, message: error.message },
+        { status: error.status }
+      );
+    }
+    if (isRbacForbiddenError(error)) {
       return NextResponse.json(
         { success: false, message: error.message },
         { status: error.status }

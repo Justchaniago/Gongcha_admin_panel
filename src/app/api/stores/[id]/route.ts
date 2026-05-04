@@ -4,6 +4,7 @@ import { GeoPoint } from "firebase-admin/firestore";
 import { Store, storeConverter } from "@/types/firestore";
 import { getAdminSession, isAdminAuthError } from "@/lib/adminSession";
 import { writeActivityLog } from "@/lib/activityLog";
+import { authorize, isRbacForbiddenError } from "@/lib/rbac";
 
 type StoreResponse = Omit<Store, "location"> & {
   id: string;
@@ -30,7 +31,9 @@ function serializeStore(id: string, data: Store): StoreResponse {
 }
 
 async function verifyAdminAccess() {
-  await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "STAFF"] });
+  const session = await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "ADMIN", "STAFF", "AUDITOR"] });
+  authorize(session, { permission: "store.read" });
+  return session;
 }
 
 function parsePatchBody(body: any): Partial<Omit<Store, "id">> {
@@ -88,6 +91,9 @@ export async function GET(
     if (isAdminAuthError(error)) {
       return NextResponse.json({ message: error.message }, { status: error.status });
     }
+    if (isRbacForbiddenError(error)) {
+      return NextResponse.json({ message: error.message, code: error.code }, { status: error.status });
+    }
     return NextResponse.json({ message: "Internal Server Error" }, { status: 500 });
   }
 }
@@ -98,7 +104,8 @@ export async function PATCH(
 ) {
   try {
     const { id } = await params; // Await params
-    const actor = await getAdminSession({ allowedRoles: ["SUPER_ADMIN"] });
+    const actor = await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "ADMIN"] });
+    authorize(actor, { permission: "store.update", resource: { storeId: id } });
 
     const body = await req.json();
     const updates = parsePatchBody(body);
@@ -135,6 +142,9 @@ export async function PATCH(
     console.error("PATCH STORE ERROR:", error);
     if (isAdminAuthError(error)) {
       return NextResponse.json({ message: error.message }, { status: error.status });
+    }
+    if (isRbacForbiddenError(error)) {
+      return NextResponse.json({ message: error.message, code: error.code }, { status: error.status });
     }
     const message = error?.message;
     if (message === "Invalid location") {

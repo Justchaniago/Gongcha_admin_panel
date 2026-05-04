@@ -649,8 +649,8 @@ export default function MenusClient({ initialMenus = [], showAddTrigger }: { ini
   const [showAdd, setShowAdd] = useState(false);
   const [toast, setToast] = useState<{msg:string;type:'success'|'error'}|null>(null);
   const [searchFocus, setSearchFocus] = useState(false);
-  const { user, loading } = useAuth();
-  const canManageMenus = user?.role !== "STAFF";
+  const { user, loading, can } = useAuth();
+  const canManageMenus = can("menu.create") || can("menu.update") || can("menu.delete");
 
   const showToast = useCallback((msg: string, type: 'success'|'error' = 'success') => setToast({ msg, type }), []);
 

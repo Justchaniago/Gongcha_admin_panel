@@ -113,7 +113,7 @@ const inputStyle: React.CSSProperties = {
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function SettingsPage() {
-  const { user: authUser } = useAuth();
+  const { user: authUser, can } = useAuth();
   const router = useRouter();
   const [canReadActivityLog, setCanReadActivityLog] = useState(false);
   const [settings,  setSettings]  = useState<Settings>(DEFAULTS);
@@ -126,10 +126,10 @@ export default function SettingsPage() {
 
   // Redirect staff users to dashboard
   useEffect(() => {
-    if (authUser && authUser.role !== "SUPER_ADMIN") {
+    if (authUser && !can("settings.read")) {
       router.replace("/dashboard");
     }
-  }, [authUser, router]);
+  }, [authUser, can, router]);
 
   const showToast = (msg: string, type: "success"|"error" = "success") => setToast({ msg, type });
 

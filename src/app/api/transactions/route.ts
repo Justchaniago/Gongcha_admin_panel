@@ -1,7 +1,8 @@
 // src/app/api/transactions/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { adminDb } from "@/lib/firebaseServer";
+import { adminDb } from "@/lib/firebaseAdmin";
 import { getAdminSession, isAdminAuthError } from "@/lib/adminSession";
+import { authorize, isRbacForbiddenError } from "@/lib/rbac";
 import { writeActivityLog } from "@/lib/activityLog";
 import { applyTransactionReward, getTransactionMemberReference, MemberPointsError } from "@/lib/memberPoints";
 import { createTxNotification } from "@/lib/transactionNotifications";
@@ -84,14 +85,18 @@ function toIsoString(value: any): string | null {
 // ── Auth helper ───────────────────────────────────────────────────────────────
 async function validateSession(req: NextRequest) {
   try {
-    const session = await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "STAFF"] });
-    return { token: session.claims, userRole: session.role, error: null, status: 200 };
+    const session = await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "ADMIN", "STAFF", "AUDITOR"] });
+    return { session, token: session.claims, userRole: session.role, error: null, status: 200 };
   } catch (error) {
     if (isAdminAuthError(error)) {
-      return { token: null, userRole: null, error: error.message, status: error.status };
+      return { session: null, token: null, userRole: null, error: error.message, status: error.status };
     }
     throw error;
   }
+}
+
+function actorFromValidation(validation: Awaited<ReturnType<typeof validateSession>>) {
+  return validation.session;
 }
 
 // ── GET — list all transactions ───────────────────────────────────────────────
@@ -102,6 +107,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
+    authorize(validation.session!, { permission: "transaction.read" });
     const snap = await adminDb.collection(TRANSACTIONS_COLLECTION).limit(500).get();
 
     const txs = snap.docs
@@ -142,6 +148,14 @@ export async function GET(req: NextRequest) {
       })
       // Filter: only show "earn" (purchase) transactions, exclude "redeem"
       .filter((tx) => tx.type === "earn")
+      .filter((tx) => {
+        try {
+          authorize(validation.session!, { permission: "transaction.read", resource: { storeId: tx.storeId } });
+          return true;
+        } catch {
+          return false;
+        }
+      })
       // Sort newest-first in memory (avoids needing a Firestore collection-group index)
       .sort((a, b) => {
         const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
@@ -155,6 +169,9 @@ export async function GET(req: NextRequest) {
     console.error("[GET /api/transactions]", e);
     if (isAdminAuthError(e)) {
       return NextResponse.json({ message: e.message }, { status: e.status });
+    }
+    if (isRbacForbiddenError(e)) {
+      return NextResponse.json({ message: e.message, code: e.code }, { status: e.status });
     }
     return NextResponse.json({ message: e.message }, { status: 500 });
   }
@@ -185,6 +202,10 @@ export async function PATCH(req: NextRequest) {
     }
 
     const txData = txSnap.data()!;
+    authorize(validation.session!, {
+      permission: action === "verify" ? "transaction.verify" : "transaction.reject",
+      resource: { storeId: String(txData.storeId ?? txData.storeLocation ?? "") },
+    });
 
     if (normalizeStatus(txData.status) !== "PENDING") {
       return NextResponse.json(
@@ -208,14 +229,7 @@ export async function PATCH(req: NextRequest) {
 
       await createTxNotification(rewardResult.memberUid ?? getUserId(txData), "verified", txData, verifiedBy);
       await writeActivityLog({
-        actor: validation.token ? {
-          uid: validation.token.uid,
-          email: validation.token.email ?? null,
-          role: validation.userRole,
-          assignedStoreId: null,
-          profile: { name: validation.token.name ?? validation.token.email ?? validation.token.uid },
-          claims: validation.token,
-        } : null,
+        actor: actorFromValidation(validation),
         action: "TRANSACTION_APPROVED",
         targetType: "transaction",
         targetId: txSnap.id,
@@ -245,14 +259,7 @@ export async function PATCH(req: NextRequest) {
       // Auto-notification to member
       await createTxNotification(getUserId(txData), "rejected", txData, verifiedBy);
       await writeActivityLog({
-        actor: validation.token ? {
-          uid: validation.token.uid,
-          email: validation.token.email ?? null,
-          role: validation.userRole,
-          assignedStoreId: null,
-          profile: { name: validation.token.name ?? validation.token.email ?? validation.token.uid },
-          claims: validation.token,
-        } : null,
+        actor: actorFromValidation(validation),
         action: "TRANSACTION_REJECTED",
         targetType: "transaction",
         targetId: txSnap.id,
@@ -274,6 +281,9 @@ export async function PATCH(req: NextRequest) {
     }
     if (isAdminAuthError(e)) {
       return NextResponse.json({ message: e.message }, { status: e.status });
+    }
+    if (isRbacForbiddenError(e)) {
+      return NextResponse.json({ message: e.message, code: e.code }, { status: e.status });
     }
     return NextResponse.json({ message: e.message ?? "Internal server error" }, { status: 500 });
   }
@@ -315,6 +325,10 @@ export async function POST(req: NextRequest) {
         }
 
         const txData = txSnap.data()!;
+        authorize(validation.session!, {
+          permission: actionType === "verify" ? "transaction.verify" : "transaction.reject",
+          resource: { storeId: String(txData.storeId ?? txData.storeLocation ?? "") },
+        });
 
         if (actionType === "verify") {
           const rewardResult = await applyTransactionReward({
@@ -327,14 +341,7 @@ export async function POST(req: NextRequest) {
           });
           await createTxNotification(rewardResult.memberUid ?? getUserId(txData), "verified", txData, verifiedBy);
           await writeActivityLog({
-            actor: validation.token ? {
-              uid: validation.token.uid,
-              email: validation.token.email ?? null,
-              role: validation.userRole,
-              assignedStoreId: null,
-              profile: { name: validation.token.name ?? validation.token.email ?? validation.token.uid },
-              claims: validation.token,
-            } : null,
+            actor: actorFromValidation(validation),
             action: "TRANSACTION_APPROVED",
             targetType: "transaction",
             targetId: txSnap.id,
@@ -355,14 +362,7 @@ export async function POST(req: NextRequest) {
           await txRef.update({ status: "CANCELLED", verifiedAt: now, verifiedBy });
           await createTxNotification(getUserId(txData), "rejected", txData, verifiedBy);
           await writeActivityLog({
-            actor: validation.token ? {
-              uid: validation.token.uid,
-              email: validation.token.email ?? null,
-              role: validation.userRole,
-              assignedStoreId: null,
-              profile: { name: validation.token.name ?? validation.token.email ?? validation.token.uid },
-              claims: validation.token,
-            } : null,
+            actor: actorFromValidation(validation),
             action: "TRANSACTION_REJECTED",
             targetType: "transaction",
             targetId: txSnap.id,
@@ -394,6 +394,9 @@ export async function POST(req: NextRequest) {
     if (isAdminAuthError(e)) {
       return NextResponse.json({ message: e.message }, { status: e.status });
     }
+    if (isRbacForbiddenError(e)) {
+      return NextResponse.json({ message: e.message, code: e.code }, { status: e.status });
+    }
     return NextResponse.json({ message: e.message ?? "Internal server error" }, { status: 500 });
   }
 }
@@ -405,14 +408,8 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ message: validation.error }, { status: validation.status });
   }
 
-  if (validation.userRole !== "SUPER_ADMIN") {
-    return NextResponse.json(
-      { message: "Only admin is allowed to delete transactions." },
-      { status: 403 }
-    );
-  }
-
   try {
+    authorize(validation.session!, { permission: "transaction.delete" });
     const { docPaths } = await req.json();
     if (!Array.isArray(docPaths) || docPaths.length === 0) {
       return NextResponse.json(
@@ -442,14 +439,7 @@ export async function DELETE(req: NextRequest) {
 
         await txRef.delete();
         await writeActivityLog({
-          actor: validation.token ? {
-            uid: validation.token.uid,
-            email: validation.token.email ?? null,
-            role: validation.userRole,
-            assignedStoreId: null,
-            profile: { name: validation.token.name ?? validation.token.email ?? validation.token.uid },
-            claims: validation.token,
-          } : null,
+          actor: actorFromValidation(validation),
           action: "TRANSACTION_DELETED",
           targetType: "transaction",
           targetId: txSnap.id,
@@ -475,6 +465,9 @@ export async function DELETE(req: NextRequest) {
     console.error("[DELETE /api/transactions]", e);
     if (isAdminAuthError(e)) {
       return NextResponse.json({ message: e.message }, { status: e.status });
+    }
+    if (isRbacForbiddenError(e)) {
+      return NextResponse.json({ message: e.message, code: e.code }, { status: e.status });
     }
     return NextResponse.json({ message: e.message ?? "Internal server error" }, { status: 500 });
   }

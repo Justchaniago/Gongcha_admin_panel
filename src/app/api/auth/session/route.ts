@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import { cookies } from "next/headers";
+import { normalizeAdminRbac } from "@/lib/rbac";
 
 // Memaksa API ini tidak pernah di-cache oleh Next.js (Wajib di Next 15)
 export const dynamic = "force-dynamic";
@@ -81,6 +82,8 @@ export async function GET() {
       console.warn("[api/auth/session] Profile lookup failed, continuing without profile:", profileError);
     }
 
+    const rbac = adminData ? normalizeAdminRbac(adminData) : null;
+
     return NextResponse.json({
       authenticated: true,
       uid: decoded.uid,
@@ -92,7 +95,10 @@ export async function GET() {
             uid: decoded.uid,
             email: adminData.email ?? decoded.email ?? null,
             name: adminData.name ?? decoded.name ?? decoded.email?.split("@")[0] ?? "Admin",
-            role: adminData.role ?? "STAFF",
+            role: rbac?.role ?? adminData.role ?? "STAFF",
+            accessProfile: rbac?.accessProfile ?? adminData.accessProfile ?? null,
+            permissions: rbac?.permissions ?? [],
+            scope: rbac?.scope ?? null,
             isActive: adminData.isActive !== false,
             assignedStoreId: adminData.assignedStoreId ?? null,
           }

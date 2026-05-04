@@ -349,9 +349,9 @@ function RewardFormSheet({ reward, onClose, onSaved, showToast }: { reward: Rewa
 
 // ── MAIN ──
 export default function RewardsMobile({ initialRewards = [] }: { initialRewards?: Reward[] }) {
-  const { user, loading } = useAuth();
+  const { user, loading, can } = useAuth();
   const { openDrawer } = useMobileSidebar();
-  const canMutate      = user?.role === "SUPER_ADMIN";
+  const canMutate      = can("reward.create") || can("reward.update") || can("reward.delete");
 
   const [rewards,      setRewards]      = useState<Reward[]>(initialRewards);
   const [search,       setSearch]       = useState("");

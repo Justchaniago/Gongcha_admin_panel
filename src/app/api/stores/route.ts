@@ -4,6 +4,7 @@ import { GeoPoint } from "firebase-admin/firestore";
 import { Store, storeConverter } from "@/types/firestore";
 import { getAdminSession, isAdminAuthError } from "@/lib/adminSession";
 import { writeActivityLog } from "@/lib/activityLog";
+import { authorize, isRbacForbiddenError } from "@/lib/rbac";
 
 type StoreResponse = Omit<Store, "location"> & {
   id: string;
@@ -30,7 +31,9 @@ function serializeStore(id: string, data: Store): StoreResponse {
 }
 
 async function verifyAdminAccess() {
-  return getAdminSession({ allowedRoles: ["SUPER_ADMIN", "STAFF"] });
+  const session = await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "ADMIN", "STAFF", "AUDITOR"] });
+  authorize(session, { permission: "store.read" });
+  return session;
 }
 
 function parseStoreBody(body: any): Omit<Store, "id"> {
@@ -83,13 +86,17 @@ export async function GET() {
     if (isAdminAuthError(error)) {
       return NextResponse.json({ message: error.message }, { status: error.status });
     }
+    if (isRbacForbiddenError(error)) {
+      return NextResponse.json({ message: error.message, code: error.code }, { status: error.status });
+    }
     return NextResponse.json({ message: "Internal Server Error" }, { status: 500 });
   }
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const actor = await getAdminSession({ allowedRoles: ["SUPER_ADMIN"] });
+    const actor = await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "ADMIN"] });
+    authorize(actor, { permission: "store.create" });
 
     const body = await req.json();
     const storeId = String(body?.storeId ?? "").trim();
@@ -120,6 +127,9 @@ export async function POST(req: NextRequest) {
     console.error("POST STORE ERROR:", error);
     if (isAdminAuthError(error)) {
       return NextResponse.json({ message: error.message }, { status: error.status });
+    }
+    if (isRbacForbiddenError(error)) {
+      return NextResponse.json({ message: error.message, code: error.code }, { status: error.status });
     }
     const message = error?.message;
     if (["Incomplete data", "Invalid location", "Invalid operationalHours"].includes(message)) {

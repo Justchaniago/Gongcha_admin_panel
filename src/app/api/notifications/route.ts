@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { adminDb } from "@/lib/firebaseServer";
+import { adminDb } from "@/lib/firebaseAdmin";
 import { v4 as uuidv4 } from "uuid";
 import type { AdminNotificationLog, NotificationType } from "@/types/firestore";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { getAdminSession, isAdminAuthError } from "@/lib/adminSession";
+import { authorize, isRbacForbiddenError } from "@/lib/rbac";
 import { writeActivityLog } from "@/lib/activityLog";
 
 // Map admin-side NotificationType to the type values the customer app expects
@@ -36,7 +37,8 @@ async function writeNotificationToUser(
 // ── GET — fetch notification log (most recent 100) ─────────────────────────
 export async function GET(req: NextRequest) {
   try {
-    await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "STAFF"] });
+    const session = await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "ADMIN", "STAFF", "AUDITOR"] });
+    authorize(session, { permission: "audit.read" });
     const snap = await adminDb
       .collection("notifications_log")
       .orderBy("sentAt", "desc")
@@ -50,6 +52,9 @@ export async function GET(req: NextRequest) {
     if (isAdminAuthError(err)) {
       return NextResponse.json({ message: err.message }, { status: err.status });
     }
+    if (isRbacForbiddenError(err)) {
+      return NextResponse.json({ message: err.message, code: err.code }, { status: err.status });
+    }
     return NextResponse.json({ message: err.message ?? "Internal server error" }, { status: 500 });
   }
 }
@@ -57,7 +62,8 @@ export async function GET(req: NextRequest) {
 // ── POST — send manual notification (broadcast or targeted) ───────────────
 export async function POST(req: NextRequest) {
   try {
-    const session = await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "STAFF"] });
+    const session = await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "ADMIN", "STAFF"] });
+    authorize(session, { permission: "notification.send" });
     const body = await req.json();
     const { title, message: bodyText, targetType, targetUid, targetName } = body;
 
@@ -139,7 +145,9 @@ export async function POST(req: NextRequest) {
     if (isAdminAuthError(err)) {
       return NextResponse.json({ message: err.message }, { status: err.status });
     }
+    if (isRbacForbiddenError(err)) {
+      return NextResponse.json({ message: err.message, code: err.code }, { status: err.status });
+    }
     return NextResponse.json({ message: err.message ?? "Internal server error" }, { status: 500 });
   }
 }
-

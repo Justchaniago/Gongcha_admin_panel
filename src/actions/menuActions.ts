@@ -5,6 +5,7 @@ import { Product, productConverter } from "@/types/firestore";
 import { FieldValue } from "firebase-admin/firestore";
 import { getAdminSession } from "@/lib/adminSession";
 import { writeActivityLog } from "@/lib/activityLog";
+import { authorize } from "@/lib/rbac";
 
 type ProductMutationInput = {
   name?: string;
@@ -77,7 +78,8 @@ async function setDoc(
 
 export async function createMenu(data: ProductMutationInput) {
   try {
-    const actor = await getAdminSession({ allowedRoles: ["SUPER_ADMIN"] });
+    const actor = await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "ADMIN"] });
+    authorize(actor, { permission: "menu.create" });
     const rawName = String(data.name ?? "").trim();
     const productId = generateProductId(rawName);
     if (!productId) throw new Error("Failed to generate product ID from name");
@@ -117,7 +119,8 @@ export async function createMenu(data: ProductMutationInput) {
 
 export async function updateMenu(id: string, data: ProductMutationInput) {
   try {
-    const actor = await getAdminSession({ allowedRoles: ["SUPER_ADMIN"] });
+    const actor = await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "ADMIN"] });
+    authorize(actor, { permission: "menu.update" });
     const ref = doc(id).withConverter(productConverter as any);
     const snap = await ref.get();
     if (!snap.exists) throw new Error(`Product "${id}" not found`);
@@ -157,7 +160,8 @@ export async function updateMenu(id: string, data: ProductMutationInput) {
 
 export async function deleteMenu(id: string) {
   try {
-    const actor = await getAdminSession({ allowedRoles: ["SUPER_ADMIN"] });
+    const actor = await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "ADMIN"] });
+    authorize(actor, { permission: "menu.delete" });
     const ref = adminDb.collection("products").doc(id);
     const snap = await ref.get();
     const before = snap.data() ?? null;

@@ -393,8 +393,8 @@ export default function StoresClient({ initialStores = [], showAddTrigger }: { i
   const [showAdd,      setShowAdd]      = useState(false);
   const [toast,        setToast]        = useState<{msg:string;type:'success'|'error'}|null>(null);
   const [searchFocus,  setSearchFocus]  = useState(false);
-  const { user, loading } = useAuth();
-  const canManageStores = user?.role !== "STAFF";
+  const { user, loading, can } = useAuth();
+  const canManageStores = can("store.create") || can("store.update") || can("store.delete");
 
   const showToast = useCallback((msg: string, type: 'success'|'error' = 'success') => setToast({ msg, type }), []);
 

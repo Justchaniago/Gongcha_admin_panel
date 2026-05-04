@@ -411,8 +411,8 @@ function ShowcaseRewardCard({ reward }: { reward: Reward }) {
 
 // ── Main ───────────────────────────────────────────────────────────────────────
 export default function RewardsClient({ initialRewards = [], showAddTrigger }: { initialRewards?: Reward[]; showAddTrigger?: boolean }) {
-  const { user, loading } = useAuth();
-  const canMutate = user?.role === "SUPER_ADMIN";
+  const { user, loading, can } = useAuth();
+  const canMutate = can("reward.create") || can("reward.update") || can("reward.delete");
   const [rewards,      setRewards]      = useState<Reward[]>(initialRewards); 
   const [syncStatus,   setSyncStatus]   = useState<SyncStatus>('connecting');
   const [search,       setSearch]       = useState('');
