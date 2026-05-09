@@ -6,5 +6,5 @@ export const metadata = {
 };
 
 export default function NotificationsPage() {
-  return <NotificationsClient initialRole="" initialLogs={[]} members={[]} />;
+  return <NotificationsClient />;
 }

@@ -4,11 +4,7 @@ import { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { GcButton, GcEmptyState, GcInput, GcModalShell, GcPage, GcPageHeader, GcPanel, GcSelect } from "@/components/ui/gc";
-import {
-  collection, onSnapshot, query, orderBy, limit,
-  where,
-} from "firebase/firestore";
-import { db } from "../../lib/firebaseClient";
+// Note: onSnapshot, query, orderBy, limit, where removed — now using polling /api/transactions
 import type { DailyStat } from "@/types/firestore";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -438,44 +434,45 @@ export default function DashboardClient({ initialRole, initialTransactions, init
       }
     };
 
-    const txBase = collection(db, "transactions");
-    const queryStartDate = mode === "range" ? dateFrom : getTodayString();
-    const queryEndDate = mode === "range" ? dateTo : getTodayString();
-    const hasValidRange = mode !== "range" || (dateFrom && dateTo && dateFrom <= dateTo);
-    const baseConstraints: Parameters<typeof query>[1][] = [];
+    // Poll /api/transactions every 10s instead of using direct Firestore onSnapshot
+    const fetchTransactions = async () => {
+      try {
+        const res = await fetch("/api/transactions", {
+          cache: "no-store",
+          headers: {
+            "Content-Type": "application/json",
+          }
+        });
 
-    if (isLimitedAccess && userAssignedStoreId) {
-      baseConstraints.push(where("storeId", "==", userAssignedStoreId));
-    }
+        if (!res.ok) {
+          if (res.status === 403) {
+            void loadTransactionsFallback();
+            return;
+          }
+          throw new Error(`HTTP ${res.status}`);
+        }
 
-    if (hasValidRange && queryStartDate && queryEndDate) {
-      const { start } = getDateBounds(queryStartDate);
-      const { end } = getDateBounds(queryEndDate);
-      baseConstraints.push(where("createdAt", ">=", start));
-      baseConstraints.push(where("createdAt", "<=", end));
-    }
-
-    const txQ = query(txBase, ...baseConstraints, orderBy("createdAt", "desc"), limit(200));
-    const unsubTx = onSnapshot(txQ,
-      (snap) => {
-        const txList = snap.docs.map((d) =>
-          normalizeTransaction({ docId: d.id, docPath: d.ref.path, ...d.data() }, storesRef.current)
+        const data = (await res.json()) as any[];
+        const txList = data.map((d) =>
+          normalizeTransaction(d, storesRef.current)
         );
 
         setAllTransactions(txList);
         setTxStatus("live");
-      },
-      (err: any) => {
-        if (err?.code === "permission-denied") {
-          void loadTransactionsFallback();
-          return;
-        }
+      } catch (error) {
+        console.error("[DashboardDesktop] Failed to fetch transactions:", error);
         setTxStatus("error");
-      },
-    );
+      }
+    };
+
+    // Initial fetch
+    fetchTransactions();
+
+    // Poll every 10 seconds
+    const interval = setInterval(fetchTransactions, 10000);
 
     return () => {
-      unsubTx();
+      clearInterval(interval);
     };
   }, [authLoading, dateFrom, dateTo, isLimitedAccess, mode, user, userAssignedStoreId]);
 

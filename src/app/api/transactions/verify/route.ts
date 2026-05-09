@@ -12,6 +12,7 @@ interface VerifyRequest {
   transactionId?: string;    // Legacy alias
   posAmount: number;         // Total amount from POS (must match)
   posDate: string;           // Date from POS in YYYY-MM-DD format (must match)
+  override?: boolean;        // Admin force-approve despite mismatch
 }
 
 interface VerifyResponse {
@@ -49,7 +50,7 @@ export async function POST(req: NextRequest): Promise<NextResponse<VerifyRespons
     // ── Parse request ──
     const body: VerifyRequest = await req.json();
     const receiptNumber = body.receiptNumber ?? body.transactionId ?? "";
-    const { posAmount, posDate } = body;
+    const { posAmount, posDate, override: forceApprove } = body;
 
     if (!receiptNumber || posAmount === undefined || !posDate) {
       return NextResponse.json(
@@ -129,18 +130,20 @@ export async function POST(req: NextRequest): Promise<NextResponse<VerifyRespons
       );
     }
 
-    // 1. Transaction number is already matched by query (posTransactionId field)
+    if (!forceApprove) {
+      // 1. Transaction number is already matched by query (posTransactionId field)
 
-    // 2. Check date (REQUIRED - must match)
-    const txDate = txData.createdAt?.toDate?.()?.toISOString?.().split("T")[0];
-    if (txDate !== posDate) {
-      errors.push(`Date mismatch: DB=${txDate}, POS=${posDate}`);
-    }
+      // 2. Check date (REQUIRED - must match)
+      const txDate = txData.createdAt?.toDate?.()?.toISOString?.().split("T")[0];
+      if (txDate !== posDate) {
+        errors.push(`Date mismatch: DB=${txDate}, POS=${posDate}`);
+      }
 
-    // 3. Check amount (REQUIRED - must match exactly)
-    const dbAmount = Number(txData.totalAmount ?? txData.amount ?? 0);
-    if (Math.abs(dbAmount - posAmount) > 0.01) {
-      errors.push(`Amount mismatch: DB=${dbAmount}, POS=${posAmount}`);
+      // 3. Check amount (REQUIRED - must match exactly)
+      const dbAmount = Number(txData.totalAmount ?? txData.amount ?? 0);
+      if (Math.abs(dbAmount - posAmount) > 0.01) {
+        errors.push(`Amount mismatch: DB=${dbAmount}, POS=${posAmount}`);
+      }
     }
 
     // ── Update status ──

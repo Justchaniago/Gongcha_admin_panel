@@ -93,6 +93,17 @@ service cloud.firestore {
                          .hasOnly(['phoneNumber', 'photoURL']);
       allow create: if false; // Must use /api/members (Admin SDK)
       allow delete: if false; // Must use /api/members/[uid] (Admin SDK)
+
+      // ── /users/{userId}/notifications ──────────────────────────────────
+      // Written by Admin SDK (backend push service); member app reads + deletes own.
+      match /notifications/{notifId} {
+        allow read:   if isSignedIn() && request.auth.uid == userId;
+        allow update: if isSignedIn() && request.auth.uid == userId &&
+                         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead']) &&
+                         request.resource.data.isRead == true;
+        allow delete: if isSignedIn() && request.auth.uid == userId;
+        allow create: if false; // Admin SDK only
+      }
     }
 
     // ── /staff ─────────────────────────────────────────────────────────────
@@ -156,6 +167,17 @@ service cloud.firestore {
     match /rewards/{rewardId} {
       allow read:   if isActiveAdminPanelUser() || isSignedIn();
       allow write:  if isPrivilegedAdmin();
+    }
+
+    // ── /promotions ────────────────────────────────────────────────────────
+    // Carousel banners and modal ads managed by marketing via admin panel.
+    // Read: any authenticated user (member app + admin app).
+    // Write: via Admin SDK API routes only (promo.create/update/delete RBAC enforced there).
+    match /promotions/{promoId} {
+      allow read:   if true; // Public content — banners/ads readable without auth
+      allow create: if false; // Must use /api/promotions (Admin SDK)
+      allow update: if false; // Must use /api/promotions/[id] (Admin SDK)
+      allow delete: if false; // Must use /api/promotions/[id] (Admin SDK)
     }
 
     // ── /settings ──────────────────────────────────────────────────────────

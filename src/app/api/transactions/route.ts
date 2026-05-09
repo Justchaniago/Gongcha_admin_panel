@@ -144,6 +144,9 @@ export async function GET(req: NextRequest) {
           createdAt: toIsoString(data.createdAt),
           verifiedAt: toIsoString(data.verifiedAt),
           verifiedBy: data.verifiedBy ?? null,
+          reason: String(data.reason ?? data.failureReason ?? ""),
+          needsManualReview: Boolean(data.needsManualReview ?? false),
+          manualReviewDone: Boolean(data.manualReviewDone ?? false),
         };
       })
       // Filter: only show "earn" (purchase) transactions, exclude "redeem"

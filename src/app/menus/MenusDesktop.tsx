@@ -8,6 +8,7 @@ import { Product, productConverter } from "@/types/firestore";
 import { createMenu, updateMenu, deleteMenu } from "@/actions/menuActions";
 import { useAuth } from "@/context/AuthContext";
 import { GcButton, GcEmptyState, GcFieldLabel, GcInput, GcModalShell, GcPage, GcPageHeader, GcPanel, GcSelect, GcTextarea, GcToast } from "@/components/ui/gc";
+import AiDescPanel from "@/components/AiDescPanel";
 
 type ProductWithId = Product;
 type SyncStatus = "connecting" | "live" | "error";
@@ -183,6 +184,7 @@ function MenuModal({ menu, onClose, onSaved }: {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [showAiDesc, setShowAiDesc] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [processingImage, setProcessingImage] = useState(false);
   const [showLibrary, setShowLibrary] = useState(false);
@@ -375,8 +377,26 @@ function MenuModal({ menu, onClose, onSaved }: {
             </div>
           </div>
           <div>
-            <FL>Description (description)</FL>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+              <FL>Description (description)</FL>
+              <button
+                type="button"
+                onClick={() => setShowAiDesc((v) => !v)}
+                style={{ fontSize: 11.5, fontWeight: 700, color: showAiDesc ? "#6D28D9" : C.tx3, background: showAiDesc ? "#EDE9FE" : "transparent", border: showAiDesc ? "1px solid #C4B5FD" : "1px solid transparent", borderRadius: 6, padding: "3px 9px", cursor: "pointer", fontFamily: font }}
+              >
+                ✨ AI Bantu
+              </button>
+            </div>
             <GcTextarea placeholder="Drink description..." value={form.description} onChange={set('description')}/>
+            {showAiDesc && (
+              <AiDescPanel
+                type="menu_description"
+                entityName={form.name}
+                contextPlaceholder="Konteks tambahan (opsional, mis: matcha latte, creamy)"
+                onApply={(desc) => setForm((p) => ({ ...p, description: desc }))}
+                onClose={() => setShowAiDesc(false)}
+              />
+            )}
           </div>
 
           {section('Customer App Options')}

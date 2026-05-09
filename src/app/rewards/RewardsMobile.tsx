@@ -15,6 +15,7 @@ import {
   Activity,
 } from "lucide-react";
 import BentoRow, { BentoCard } from "@/components/ui/BentoRow";
+import AiDescPanel from "@/components/AiDescPanel";
 
 // ── DESIGN TOKENS ──
 const T = {
@@ -202,6 +203,7 @@ function RewardFormSheet({ reward, onClose, onSaved, showToast }: { reward: Rewa
     isActive:       reward?.isActive ?? true,
     isRedeemable:   (reward as any)?.isRedeemable ?? true,
     imageUrl:       reward?.imageUrl ?? "",
+    category:       (reward as any)?.category ?? "Beverage",
   });
   const [loading,         setLoading]         = useState(false);
   const [error,           setError]           = useState("");
@@ -209,6 +211,7 @@ function RewardFormSheet({ reward, onClose, onSaved, showToast }: { reward: Rewa
   const [processingImage, setProcessingImage] = useState(false);
   const [storageOpen,     setStorageOpen]     = useState(false);
   const [idTouched,       setIdTouched]       = useState(false);
+  const [showAiDesc,      setShowAiDesc]      = useState(false);
 
   useEffect(() => {
     if (!isNew || idTouched) return;
@@ -246,6 +249,7 @@ function RewardFormSheet({ reward, onClose, onSaved, showToast }: { reward: Rewa
         title: form.title.trim(), description: form.description.trim(),
         pointsrequired: form.pointsrequired !== "" ? Number(form.pointsrequired) : 0,
         isActive: form.isActive, isRedeemable: form.isRedeemable, imageUrl: form.imageUrl.trim(),
+        category: form.category || "Beverage",
       };
       const r = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).message ?? "Failed to save.");
@@ -275,12 +279,36 @@ function RewardFormSheet({ reward, onClose, onSaved, showToast }: { reward: Rewa
         <Field label="Voucher Name">
           <input value={form.title} onChange={e => setForm(p => ({ ...p, title: e.target.value }))} placeholder="Free Drink Any Size" style={inputStyle} />
         </Field>
-        <Field label="Description">
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+            <label style={{ fontSize: 9, fontWeight: 800, color: T.tx4, textTransform: "uppercase" as const, letterSpacing: ".14em" }}>Description</label>
+            <button onClick={() => setShowAiDesc(v => !v)}
+              style={{ fontSize: 11, fontWeight: 700, color: showAiDesc ? "#6D28D9" : T.tx3, background: showAiDesc ? "#EDE9FE" : "transparent", border: showAiDesc ? "1px solid #C4B5FD" : "1px solid transparent", borderRadius: 6, padding: "3px 9px", cursor: "pointer" }}>
+              ✨ AI Bantu
+            </button>
+          </div>
           <textarea value={form.description} onChange={e => setForm(p => ({ ...p, description: e.target.value }))} rows={3}
             style={{ ...inputStyle, resize: "none" }} placeholder="Short description..." />
-        </Field>
+          {showAiDesc && (
+            <AiDescPanel
+              type="reward_description"
+              entityName={form.title}
+              contextPlaceholder="Konteks tambahan (opsional, mis: free drink, diskon 50%)"
+              onApply={desc => setForm(p => ({ ...p, description: desc }))}
+              onClose={() => setShowAiDesc(false)}
+            />
+          )}
+        </div>
         <Field label="Points Required" hint="0 = free">
           <input type="number" min="0" value={form.pointsrequired} onChange={e => setForm(p => ({ ...p, pointsrequired: e.target.value }))} placeholder="500" style={inputStyle} />
+        </Field>
+        <Field label="Category">
+          <select value={form.category} onChange={e => setForm(p => ({ ...p, category: e.target.value }))}
+            style={{ ...inputStyle, cursor: "pointer", appearance: "none" as const }}>
+            {["Beverage", "Discount", "Merchandise", "Food", "Bundle", "Special"].map(c => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
         </Field>
 
         {/* Image */}
@@ -480,6 +508,9 @@ export default function RewardsMobile({ initialRewards = [] }: { initialRewards?
                     <p style={{ fontSize: 13, fontWeight: 700, color: r.isActive ? T.tx1 : T.tx3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginBottom: 3 }}>{r.title}</p>
                     <div style={{ display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap" as const }}>
                       <span style={{ fontSize: 11, fontWeight: 800, color: T.purple }}>{fmtPts(r.pointsrequired)}</span>
+                      {(r as any).category && (
+                        <span style={{ fontSize: 9, fontWeight: 800, padding: "2px 7px", borderRadius: 6, background: T.blueL, color: T.blueD }}>{(r as any).category}</span>
+                      )}
                       <span style={{ fontSize: 9, fontWeight: 800, padding: "2px 7px", borderRadius: 6, background: isRedeemable ? T.greenL : T.amberL, color: isRedeemable ? T.green : T.amber }}>
                         {isRedeemable ? "Catalog" : "Direct Only"}
                       </span>
@@ -539,6 +570,11 @@ export default function RewardsMobile({ initialRewards = [] }: { initialRewards?
               <span style={{ fontSize: 9, fontWeight: 800, padding: "3px 9px", borderRadius: 99, background: (selectedR as any).isRedeemable !== false ? T.greenL : T.amberL, color: (selectedR as any).isRedeemable !== false ? T.green : T.amber }}>
                 {(selectedR as any).isRedeemable !== false ? "In Catalog" : "Direct Only"}
               </span>
+              {(selectedR as any).category && (
+                <span style={{ fontSize: 9, fontWeight: 800, padding: "3px 9px", borderRadius: 99, background: T.blueL, color: T.blueD }}>
+                  {(selectedR as any).category}
+                </span>
+              )}
             </div>
             {canMutate && (
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>

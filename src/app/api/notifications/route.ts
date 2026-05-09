@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { v4 as uuidv4 } from "uuid";
 import type { AdminNotificationLog, NotificationType } from "@/types/firestore";
-import { FieldValue, Timestamp } from "firebase-admin/firestore";
+import { Timestamp } from "firebase-admin/firestore";
 import { getAdminSession, isAdminAuthError } from "@/lib/adminSession";
 import { authorize, isRbacForbiddenError } from "@/lib/rbac";
 import { writeActivityLog } from "@/lib/activityLog";
@@ -18,7 +18,7 @@ function toCustomerType(t: NotificationType): 'gift' | 'points' | 'promo' | 'ord
 
 async function writeNotificationToUser(
   uid: string,
-  payload: { title: string; body: string; customerType: ReturnType<typeof toCustomerType> }
+  payload: { title: string; body: string; type: NotificationType }
 ) {
   const now = Timestamp.now();
   const expireAt = Timestamp.fromMillis(now.toMillis() + 7 * 24 * 60 * 60 * 1000);
@@ -30,7 +30,7 @@ async function writeNotificationToUser(
     isRead: false,
     createdAt: now,
     expireAt,
-    type: payload.customerType,
+    type: payload.type,
   });
 }
 
@@ -92,26 +92,17 @@ export async function POST(req: NextRequest) {
           writeNotificationToUser(userDoc.id, {
             title,
             body: bodyText,
-            customerType,
+            type,
           })
         )
       );
-
-      await adminDb.collection("global_promos").doc(notifId).set({
-        title,
-        description: bodyText,
-        imageUrl: "",
-        isActive: true,
-        createdAt: FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp(),
-      });
     } else {
       // Targeted: write to user sub-collection
       recipientCount = 1;
       await writeNotificationToUser(targetUid, {
         title,
         body: bodyText,
-        customerType,
+        type,
       });
     }
 

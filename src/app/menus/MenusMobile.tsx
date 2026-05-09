@@ -14,6 +14,7 @@ import {
   AlertCircle, Image as ImageIcon, List, FolderOpen, RefreshCw,
 } from "lucide-react";
 import BentoRow, { BentoCard } from "@/components/ui/BentoRow";
+import AiDescPanel from "@/components/AiDescPanel";
 
 // ── DESIGN TOKENS ──
 const T = {
@@ -347,6 +348,7 @@ export default function MenusMobile({
   const [formLoading,        setFormLoading]        = useState(false);
   const [storagePickerOpen,  setStoragePickerOpen]  = useState(false);
   const [customCategory,     setCustomCategory]     = useState(false);
+  const [showAiDesc,         setShowAiDesc]         = useState(false);
 
   const [formData, setFormData] = useState({
     name: "", category: "", price: "", description: "",
@@ -702,11 +704,26 @@ export default function MenusMobile({
           <Field label="Price (Rp)" type="number" required placeholder="25000" value={formData.price} onChange={(e: any) => setFormData({ ...formData, price: e.target.value })} />
 
           <div style={{ marginBottom: 14 }}>
-            <label style={{ display: "block", fontSize: 9, fontWeight: 800, color: T.tx4, textTransform: "uppercase" as const, letterSpacing: ".14em", marginBottom: 6 }}>Description</label>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+              <label style={{ fontSize: 9, fontWeight: 800, color: T.tx4, textTransform: "uppercase" as const, letterSpacing: ".14em" }}>Description</label>
+              <button onClick={() => setShowAiDesc(v => !v)}
+                style={{ fontSize: 11, fontWeight: 700, color: showAiDesc ? "#6D28D9" : T.tx3, background: showAiDesc ? "#EDE9FE" : "transparent", border: showAiDesc ? "1px solid #C4B5FD" : "1px solid transparent", borderRadius: 6, padding: "3px 9px", cursor: "pointer" }}>
+                ✨ AI Bantu
+              </button>
+            </div>
             <textarea rows={3}
               style={{ width: "100%", background: T.bg, border: `1px solid ${T.border2}`, borderRadius: 12, padding: "12px 14px", fontSize: 14, color: T.tx1, outline: "none", boxSizing: "border-box" as const, resize: "none" }}
               placeholder="Short description…" value={formData.description} onChange={(e: any) => setFormData({ ...formData, description: e.target.value })}
             />
+            {showAiDesc && (
+              <AiDescPanel
+                type="menu_description"
+                entityName={formData.name}
+                contextPlaceholder="Konteks tambahan (opsional, mis: matcha latte, creamy)"
+                onApply={desc => setFormData(f => ({ ...f, description: desc }))}
+                onClose={() => setShowAiDesc(false)}
+              />
+            )}
           </div>
 
           {/* IMAGE SECTION */}

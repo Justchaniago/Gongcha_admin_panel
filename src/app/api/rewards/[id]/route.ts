@@ -63,7 +63,7 @@ export async function PATCH(
       return NextResponse.json({ message: `Reward "${safeId}" tidak ditemukan.` }, { status: 404 });
     }
 
-    const allowed = ["title", "description", "isActive", "isRedeemable"] as const;
+    const allowed = ["title", "description", "isActive", "isRedeemable", "category"] as const;
     const update: Record<string, unknown> = {};
     for (const key of allowed) {
       if (key in body) {

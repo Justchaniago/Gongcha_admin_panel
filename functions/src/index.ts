@@ -1,10 +1,11 @@
 import { initializeApp, getApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
-import * as functions from 'firebase-functions';
+import * as functions from 'firebase-functions/v1';
 import * as express from 'express';
 import { TransactionCreateRequest } from './types';
 import { handleEarnTransaction, handleRedeemTransaction } from './transactionHandler';
+export { monitorProductionBot } from './monitoringBot';
 
 initializeApp();
 
@@ -134,14 +135,15 @@ app.post('/vouchers/redeem', async (req: express.Request, res: express.Response)
 
     const voucherCode = generateVoucherCode();
     const now = new Date();
-    const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+    const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
 
     const newVoucher = {
+      id: voucherCode,
       code: voucherCode,
       title: reward.title,
       description: reward.description,
       rewardId,
-      createdAt: now,
+      createdAt: now.toISOString(),
       expiresAt,
       isUsed: false,
     };
@@ -177,7 +179,7 @@ app.post('/vouchers/redeem', async (req: express.Request, res: express.Response)
           newBalance,
           newTier,
           voucherCode,
-          expiresAt: expiresAt.toISOString(),
+          expiresAt,
         },
         createdAt: new Date(),
       });

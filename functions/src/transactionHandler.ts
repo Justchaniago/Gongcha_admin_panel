@@ -1,5 +1,6 @@
-import { getFirestore } from 'firebase-admin/firestore';
+import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { getApp } from 'firebase-admin/app';
+import { randomUUID } from 'crypto';
 import { TransactionCreateRequest, TransactionResponse, TransactionRecord } from './types';
 import { calculatePoints, updateUserPoints, validatePointsUpdate, determineTier } from './pointsService';
 import { logTransaction } from './auditService';
@@ -108,8 +109,30 @@ export async function handleEarnTransaction(
 
   const transactionRef = await db.collection('transactions').add(transactionData);
 
-  // DO NOT update user points yet — points held pending admin approval
-  // Admin PATCH /api/transactions will call applyTransactionReward() when approved
+  // Update pendingPoints so member app can display them while awaiting approval
+  const notifId = randomUUID();
+  const amountFormatted = `Rp ${totalAmount.toLocaleString('id-ID')}`;
+  await Promise.all([
+    userRef.update({
+      pendingPoints: FieldValue.increment(finalPoints),
+      updatedAt: new Date(),
+    }),
+    db.collection('users').doc(memberId).collection('notifications').doc(notifId).set({
+      type: 'points_pending',
+      title: '⏳ Poin Pending Masuk!',
+      body: `Transaksi ${receiptNumber} di ${storeName || storeId} (${amountFormatted}) sedang diverifikasi. ${finalPoints} poin akan dikreditkan setelah verifikasi.`,
+      isRead: false,
+      createdAt: new Date().toISOString(),
+      data: {
+        transactionId: transactionRef.id,
+        receiptNumber,
+        storeId,
+        storeName,
+        points: finalPoints,
+        totalAmount,
+      },
+    }),
+  ]);
 
   // Log activity
   try {
@@ -160,15 +183,16 @@ export async function handleRedeemTransaction(
     };
   }
 
-  // Check for duplicate redemption receipt
+  // Check for duplicate redemption — only block on COMPLETED, not stale PENDING
   const existingReceipt = await db
     .collection('transactions')
     .where('receiptNumber', '==', receiptNumber)
     .where('storeId', '==', storeId)
-    .limit(1)
+    .limit(10)
     .get();
 
-  if (!existingReceipt.empty) {
+  const alreadyCompleted = existingReceipt.docs.some(d => d.data().status === 'COMPLETED');
+  if (alreadyCompleted) {
     return {
       success: false,
       error: 'Receipt already processed',
@@ -176,62 +200,70 @@ export async function handleRedeemTransaction(
     };
   }
 
-  // Get user and verify voucher ownership
   const userRef = db.collection('users').doc(memberId);
-  const userSnap = await userRef.get();
-
-  if (!userSnap.exists) {
-    return {
-      success: false,
-      error: 'User not found',
-      code: 'USER_NOT_FOUND',
-    };
-  }
-
-  const userData = userSnap.data();
-  const userVouchers = userData?.vouchers || [];
-  const voucherIndex = userVouchers.findIndex(
-    (v: any) => v.code === voucherCode && !v.isUsed
-  );
-
-  if (voucherIndex === -1) {
-    return {
-      success: false,
-      error: 'Voucher not found or already redeemed',
-      code: 'VOUCHER_NOT_FOUND',
-    };
-  }
-
-  // Create redemption transaction record (PENDING — awaiting admin approval)
   const now = new Date();
-  const transactionData: Omit<TransactionRecord, 'id'> = {
-    receiptNumber,
-    storeId,
-    storeName,
-    memberId,
-    memberName,
-    staffId,
-    totalAmount: 0,
-    type: 'redeem',
-    status: 'PENDING',  // Hold for admin approval
-    pointsEarned: 0,
-    voucherCode,
-    voucherTitle,
-    createdAt: now,
-    createdBy: staffId,
-  };
+  const transactionRef = db.collection('transactions').doc();
 
-  const transactionRef = await db.collection('transactions').add(transactionData);
+  let finalUserData: any;
 
-  // DO NOT update user vouchers yet — voucher held pending admin approval
-  // Admin PATCH /api/transactions will update voucher status when approved
+  try {
+    await db.runTransaction(async (tx) => {
+      const userSnap = await tx.get(userRef);
 
-  // Log activity
+      if (!userSnap.exists) {
+        throw Object.assign(new Error('User not found'), { code: 'USER_NOT_FOUND' });
+      }
+
+      finalUserData = userSnap.data();
+      const userVouchers = finalUserData?.vouchers || [];
+      const voucherIndex = userVouchers.findIndex(
+        (v: any) => v.code === voucherCode && !v.isUsed
+      );
+
+      if (voucherIndex === -1) {
+        throw Object.assign(new Error('Voucher not found or already redeemed'), { code: 'VOUCHER_NOT_FOUND' });
+      }
+
+      const updatedVouchers = [...userVouchers];
+      updatedVouchers[voucherIndex] = {
+        ...updatedVouchers[voucherIndex],
+        isUsed: true,
+        redeemedAt: now.toISOString(),
+        usedAtStore: storeName,
+      };
+
+      const transactionData: Omit<TransactionRecord, 'id'> = {
+        receiptNumber,
+        storeId,
+        storeName,
+        memberId,
+        memberName,
+        staffId,
+        totalAmount: 0,
+        type: 'redeem',
+        status: 'COMPLETED',
+        pointsEarned: 0,
+        voucherCode,
+        voucherTitle,
+        createdAt: now,
+        createdBy: staffId,
+      };
+
+      tx.set(transactionRef, transactionData);
+      tx.update(userRef, { vouchers: updatedVouchers });
+    });
+  } catch (err: any) {
+    if (err.code === 'USER_NOT_FOUND' || err.code === 'VOUCHER_NOT_FOUND') {
+      return { success: false, error: err.message, code: err.code };
+    }
+    throw err;
+  }
+
   try {
     await logTransaction(transactionRef.id, staffId, memberId, 0, 0, {
       voucherCode,
       voucherTitle,
-      status: 'PENDING',
+      status: 'COMPLETED',
     });
   } catch (err) {
     console.error('Failed to log activity:', err);
@@ -241,7 +273,7 @@ export async function handleRedeemTransaction(
     success: true,
     transactionId: transactionRef.id,
     pointsEarned: 0,
-    newBalance: userData?.points || 0,  // Unchanged
-    newTier: userData?.tier || 'REGULAR',  // Unchanged
+    newBalance: finalUserData?.points || 0,
+    newTier: finalUserData?.tier || 'REGULAR',
   };
 }

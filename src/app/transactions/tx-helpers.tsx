@@ -29,6 +29,9 @@ export interface Tx {
   type?: "earn" | "redeem";
   status: TxStatus;
   createdAt: string|null; verifiedAt: string|null; verifiedBy: string|null;
+  reason?: string;
+  needsManualReview?: boolean;
+  manualReviewDone?: boolean;
 }
 
 export interface CsvRow {
@@ -281,19 +284,18 @@ export function Toast({ msg, type, onDone }: { msg: string; type: "success"|"err
 
 // ── Status Badge ──────────────────────────────────────────────────────────────
 const STATUS_CFG = {
-  PENDING:    { label:"Pending",    bg:"#FEF3C7", color:"#D97706" },
-  COMPLETED:  { label:"Completed",  bg:"#D1FAE5", color:"#059669" },
-  CANCELLED:  { label:"Cancelled",  bg:"#FEE2E2", color:"#DC2626" },
-  REFUNDED:   { label:"Refunded",   bg:"#FEF3C7", color:"#D97706" },
-  // Legacy lowercase support
-  pending:    { label:"Pending",    bg:"#FEF3C7", color:"#D97706" },
-  verified:   { label:"Verified",   bg:"#D1FAE5", color:"#059669" },
-  rejected:   { label:"Rejected",   bg:"#FEE2E2", color:"#DC2626" },
+  PENDING:    { label:"Pending",    bg:"#FFFBEB", color:"#92400E", border:"rgba(180,83,9,.2)"   },
+  COMPLETED:  { label:"Completed",  bg:"#F0FDF4", color:"#15803D", border:"rgba(21,128,61,.2)"  },
+  CANCELLED:  { label:"Cancelled",  bg:"#FFF1F2", color:"#BE123C", border:"rgba(190,18,60,.2)"  },
+  REFUNDED:   { label:"Refunded",   bg:"#F5F3FF", color:"#6D28D9", border:"rgba(109,40,217,.2)" },
+  pending:    { label:"Pending",    bg:"#FFFBEB", color:"#92400E", border:"rgba(180,83,9,.2)"   },
+  verified:   { label:"Verified",   bg:"#F0FDF4", color:"#15803D", border:"rgba(21,128,61,.2)"  },
+  rejected:   { label:"Rejected",   bg:"#FFF1F2", color:"#BE123C", border:"rgba(190,18,60,.2)"  },
 };
 export function StatusBadge({ status }: { status: string }) {
   const cfg = STATUS_CFG[status as keyof typeof STATUS_CFG] ?? STATUS_CFG.PENDING;
   return (
-    <span style={{ display:"inline-block", padding:"3px 10px", borderRadius:99, background:cfg.bg, color:cfg.color, fontSize:11, fontWeight:700 }}>
+    <span style={{ display:"inline-block", padding:"2px 8px", borderRadius:99, background:cfg.bg, color:cfg.color, border:`1px solid ${cfg.border}`, fontSize:10.5, fontWeight:600, letterSpacing:".01em", whiteSpace:"nowrap" }}>
       {cfg.label}
     </span>
   );
@@ -337,13 +339,13 @@ export function CsvPanel({ pendingTxs, stores, onMatchVerify, onToast }: {
   onMatchVerify: (rows: CsvCandidate[]) => Promise<void>;
   onToast: (msg: string, type: "success"|"error") => void;
 }) {
-  const [dragging,  setDragging]  = useState(false);
-  const [csvRows,   setCsvRows]   = useState<Record<string,string>[]>([]);
-  const [fileName,  setFileName]  = useState("");
-  const [matched,   setMatched]   = useState<CsvCandidate[]>([]);
+  const [dragging,   setDragging]   = useState(false);
+  const [csvRows,    setCsvRows]    = useState<Record<string,string>[]>([]);
+  const [fileName,   setFileName]   = useState("");
+  const [matched,    setMatched]    = useState<CsvCandidate[]>([]);
   const [mismatched, setMismatched] = useState<CsvMismatch[]>([]);
-  const [unmatched, setUnmatched] = useState<Record<string,string>[]>([]);
-  const [loading,   setLoading]   = useState(false);
+  const [unmatched,  setUnmatched]  = useState<Record<string,string>[]>([]);
+  const [loading,    setLoading]    = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const receiptMatchedCount = matched.length + mismatched.length;
 
@@ -356,28 +358,22 @@ export function CsvPanel({ pendingTxs, stores, onMatchVerify, onToast }: {
       setCsvRows(rows);
       const matchedRows: CsvCandidate[] = [];
       const mismatchedRows: CsvMismatch[] = [];
-      const unmatchedRows: Record<string,string>[] = [];
-      
+      const noDataRows: Record<string,string>[] = [];
+
       rows.forEach(row => {
         const posData = extractPosData(row);
-        if (!posData) { unmatchedRows.push(row); return; }
-        
-        const found = pendingTxs.find(tx => 
+        if (!posData) { noDataRows.push(row); return; }
+
+        const found = pendingTxs.find(tx =>
           getReceiptNumber(tx).toLowerCase() === posData.receiptNumber.toLowerCase()
         );
-        
+
         if (found) {
           const reasons: string[] = [];
           const txAmount = getAmount(found);
           const txDate = toIsoDate(found.createdAt);
-
-          if (Math.abs(txAmount - posData.amount) > 0.01) {
-            reasons.push(`Amount mismatch: app ${fmtRp(txAmount)} vs POS ${fmtRp(posData.amount)}`);
-          }
-
-          if (txDate && txDate !== posData.date) {
-            reasons.push(`Date mismatch: app ${txDate} vs POS ${posData.date}`);
-          }
+          if (Math.abs(txAmount - posData.amount) > 0.01) reasons.push(`Amount mismatch: DB ${fmtRp(txAmount)} vs POS ${fmtRp(posData.amount)}`);
+          if (txDate && txDate !== posData.date) reasons.push(`Date mismatch: DB ${txDate} vs POS ${posData.date}`);
 
           if (reasons.length > 0) {
             mismatchedRows.push({ tx: found, posData, reasons });
@@ -385,13 +381,13 @@ export function CsvPanel({ pendingTxs, stores, onMatchVerify, onToast }: {
             matchedRows.push({ tx: found, posData });
           }
         } else {
-          unmatchedRows.push(row);
+          noDataRows.push(row);
         }
       });
-      
+
       setMatched(matchedRows);
       setMismatched(mismatchedRows);
-      setUnmatched(unmatchedRows);
+      setUnmatched(noDataRows);
     };
     reader.readAsText(file);
   }
@@ -404,12 +400,6 @@ export function CsvPanel({ pendingTxs, stores, onMatchVerify, onToast }: {
         ...matched,
         ...mismatched.map(({ tx, posData }) => ({ tx, posData })),
       ]);
-      onToast(
-        mismatched.length > 0
-          ? `✓ ${matched.length} matched processed, ${mismatched.length} mismatched rows sent for rejection review`
-          : `✓ ${matched.length} transactions verified and pending points released!`,
-        "success",
-      );
       setCsvRows([]); setMatched([]); setMismatched([]); setUnmatched([]); setFileName("");
     } catch (e: any) {
       onToast(e.message ?? "Failed", "error");
@@ -468,32 +458,29 @@ export function CsvPanel({ pendingTxs, stores, onMatchVerify, onToast }: {
       {/* Match results */}
       {csvRows.length > 0 && (
         <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-          <div style={{ padding:"10px 14px", borderRadius:10, background:matched.length>0?C.greenBg:C.orangeBg, border:`1px solid ${matched.length>0?"#6EE7B7":"#FDE68A"}` }}>
-            <p style={{ fontSize:12.5, fontWeight:700, color:matched.length>0?C.green:C.orange, margin:0 }}>
-              {matched.length > 0
-                ? `✓ ${matched.length} transactions fully matched from ${csvRows.length} CSV rows - Ready for final verification`
-                : `⚠ No fully matched transactions found from ${csvRows.length} CSV rows`}
+          <div style={{ padding:"10px 14px", borderRadius:10, background:receiptMatchedCount>0?C.greenBg:C.orangeBg, border:`1px solid ${receiptMatchedCount>0?"#6EE7B7":"#FDE68A"}` }}>
+            <p style={{ fontSize:12.5, fontWeight:700, color:receiptMatchedCount>0?C.green:C.orange, margin:0 }}>
+              {receiptMatchedCount > 0
+                ? `✓ ${matched.length} matched${mismatched.length > 0 ? `, ${mismatched.length} mismatch` : ""} from ${csvRows.length} CSV rows`
+                : `⚠ No transactions matched from ${csvRows.length} CSV rows`}
             </p>
           </div>
           {mismatched.length > 0 && (
-            <div style={{ padding:"10px 14px", borderRadius:10, background:C.orangeBg, border:"1px solid #FDE68A" }}>
-              <p style={{ fontSize:12, fontWeight:700, color:C.orange, margin:"0 0 6px" }}>
-                {mismatched.length} transactions have receipt matches but failed pre-check
+            <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+              <p style={{ fontSize:12, fontWeight:700, color:C.orange, margin:0 }}>
+                ⚠ {mismatched.length} transaksi data mismatch — akan auto-rejected, review di history
               </p>
-              <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-                {mismatched.slice(0, 4).map(({ tx, reasons }) => (
-                  <div key={tx.docId} style={{ fontSize:11, color:C.tx2 }}>
-                    <code style={{ color:C.orange, fontWeight:700 }}>{getReceiptNumber(tx) || "—"}</code>
-                    {" · "}
-                    {reasons.join(" · ")}
+              {mismatched.map(m => (
+                <div key={m.tx.docId} style={{ background:C.white, border:`1px solid ${C.border}`, borderRadius:10, padding:"10px 14px", display:"flex", flexDirection:"column", gap:4 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+                    <code style={{ fontSize:12, fontWeight:700, color:C.tx1 }}>{getReceiptNumber(m.tx)}</code>
+                    <span style={{ fontSize:11, color:C.tx3 }}>{m.tx.memberName}</span>
                   </div>
-                ))}
-                {mismatched.length > 4 && (
-                  <div style={{ fontSize:11, color:C.tx3 }}>
-                    +{mismatched.length - 4} more mismatched rows
+                  <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
+                    {m.reasons.map((r, i) => <span key={i} style={{ fontSize:11, color:C.red }}>· {r}</span>)}
                   </div>
-                )}
-              </div>
+                </div>
+              ))}
             </div>
           )}
           {unmatched.length > 0 && (
@@ -511,7 +498,7 @@ export function CsvPanel({ pendingTxs, stores, onMatchVerify, onToast }: {
         {loading
           ? "Verifying with POS data…"
           : receiptMatchedCount > 0
-            ? `✓ Process ${receiptMatchedCount} Receipt-Matched Transactions`
+            ? `✓ Process ${receiptMatchedCount} Transactions`
             : "Verify & Match POS"}
       </button>
 
@@ -527,6 +514,69 @@ export function CsvPanel({ pendingTxs, stores, onMatchVerify, onToast }: {
         </code>
       </div>
     </div>
+  );
+}
+
+// ── Manual Review Modal ───────────────────────────────────────────────────────
+export function ReviewModal({ tx, onApprove, onConfirmReject, onClose, loading }: {
+  tx: Tx;
+  onApprove: () => void;
+  onConfirmReject: () => void;
+  onClose: () => void;
+  loading: boolean;
+}) {
+  return (
+    <GcModalShell
+      onClose={onClose}
+      title="Manual Review"
+      eyebrow="Admin Override — 1 kesempatan"
+      maxWidth={500}
+      footer={
+        <>
+          <GcButton variant="ghost" size="lg" onClick={onClose} disabled={loading}>
+            Batal
+          </GcButton>
+          <GcButton variant="danger" size="lg" onClick={onConfirmReject} loading={loading}>
+            ✕ Konfirmasi Reject
+          </GcButton>
+          <GcButton variant="primary" size="lg" onClick={onApprove} loading={loading}>
+            ✓ Approve
+          </GcButton>
+        </>
+      }
+    >
+      <div style={{ display:"flex", flexDirection:"column", gap:12, paddingTop:4 }}>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+          {[
+            ["Receipt", getReceiptNumber(tx) || "—"],
+            ["Member", tx.memberName],
+            ["Amount", fmtRp(getAmount(tx))],
+            ["Date", fmtDate(tx.createdAt)],
+            ["Store", getStoreLabel(tx)],
+            ["Points", `${tx.potentialPoints ?? 0} pts`],
+          ].map(([label, val]) => (
+            <div key={label} style={{ background:C.bg, borderRadius:8, padding:"8px 12px" }}>
+              <p style={{ fontSize:10, fontWeight:700, color:C.tx3, textTransform:"uppercase", letterSpacing:".06em", margin:0 }}>{label}</p>
+              <p style={{ fontSize:13, fontWeight:600, color:C.tx1, margin:"2px 0 0" }}>{val}</p>
+            </div>
+          ))}
+        </div>
+        {tx.reason && (
+          <div style={{ background:"#FEF2F2", border:"1px solid #FECACA", borderRadius:10, padding:"10px 14px" }}>
+            <p style={{ fontSize:11, fontWeight:700, color:C.red, margin:"0 0 4px" }}>Alasan Rejection:</p>
+            {tx.reason.split(" | ").map((r, i) => (
+              <p key={i} style={{ fontSize:12, color:"#991B1B", margin:"2px 0 0" }}>· {r}</p>
+            ))}
+          </div>
+        )}
+        <div style={{ background:"#FFFBEB", border:"1px solid #FDE68A", borderRadius:10, padding:"10px 14px" }}>
+          <p style={{ fontSize:11, color:"#92400E", margin:0 }}>
+            ⚠ Ini adalah <strong>1 kali kesempatan review</strong>. Setelah approve atau konfirmasi reject, tidak bisa diubah lagi.
+            {" "}Jika di-approve, {tx.potentialPoints ?? 0} poin langsung dikreditkan ke member.
+          </p>
+        </div>
+      </div>
+    </GcModalShell>
   );
 }
 

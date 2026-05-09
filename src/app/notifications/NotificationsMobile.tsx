@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { useMobileSidebar } from "@/components/layout/AdminShell";
 import { motion, AnimatePresence } from "framer-motion";
@@ -38,6 +37,65 @@ const T = {
   border2: "#E5E7EB",
   r12: 12, r16: 16,
 } as const;
+
+interface AiSuggestion { title: string; body: string; }
+
+function AiNotifPanel({ currentTitle, currentBody, onApply, onClose }: {
+  currentTitle: string; currentBody: string;
+  onApply: (title: string, body: string) => void; onClose: () => void;
+}) {
+  const [context, setContext]         = useState(currentTitle || currentBody ? `${currentTitle} ${currentBody}`.trim() : "");
+  const [suggestions, setSuggestions] = useState<AiSuggestion[]>([]);
+  const [loading, setLoading]         = useState(false);
+  const [error, setError]             = useState<string | null>(null);
+
+  const generate = async () => {
+    if (!context.trim()) return;
+    setLoading(true); setError(null); setSuggestions([]);
+    try {
+      const res = await fetch("/api/ai/suggest", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "notification", context: context.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message ?? "Gagal generate.");
+      setSuggestions(data.suggestions ?? []);
+    } catch (e: any) { setError(e.message); }
+    finally { setLoading(false); }
+  };
+
+  return (
+    <div style={{ marginTop: 10, padding: "14px 16px", borderRadius: 12, background: "#EDE9FE", border: "1.5px solid #C4B5FD" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: "#6D28D9" }}>✨ AI Bantu — Notifikasi</span>
+        <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 18, color: T.tx3, lineHeight: 1, padding: "0 2px" }}>×</button>
+      </div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+        <input type="text" value={context} onChange={e => setContext(e.target.value)} onKeyDown={e => e.key === "Enter" && generate()}
+          placeholder="Topik notifikasi (mis: promo matcha akhir bulan)"
+          style={{ flex: 1, padding: "10px 12px", borderRadius: 10, border: "1.5px solid #C4B5FD", fontSize: 13, outline: "none", background: "#fff" }}
+        />
+        <button onClick={generate} disabled={loading || !context.trim()}
+          style={{ padding: "10px 14px", borderRadius: 10, border: "none", background: loading || !context.trim() ? T.border2 : "#6D28D9", color: loading || !context.trim() ? T.tx4 : "#fff", fontSize: 12, fontWeight: 700, cursor: loading || !context.trim() ? "default" : "pointer", whiteSpace: "nowrap" as const }}>
+          {loading ? "⏳…" : "Generate"}
+        </button>
+      </div>
+      {error && <p style={{ fontSize: 12, color: T.red, marginBottom: 8 }}>{error}</p>}
+      {suggestions.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {suggestions.map((s, i) => (
+            <button key={i} onClick={() => { onApply(s.title, s.body); onClose(); }}
+              style={{ textAlign: "left" as const, padding: "10px 12px", borderRadius: 10, border: "1.5px solid #C4B5FD", background: "#fff", cursor: "pointer" }}>
+              <p style={{ fontSize: 12, fontWeight: 700, color: T.tx1, margin: "0 0 3px" }}>{s.title}</p>
+              <p style={{ fontSize: 11, color: T.tx2, margin: 0, lineHeight: 1.4 }}>{s.body}</p>
+            </button>
+          ))}
+          <p style={{ fontSize: 10, color: T.tx3, margin: 0 }}>Klik kartu untuk mengisi form.</p>
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface NotifLog {
   id: string; type: string; title: string; body: string;
@@ -89,14 +147,15 @@ function TypeBadge({ type }: { type: string }) {
   );
 }
 
-export default function NotificationsMobile({ initialLogs = [], members = [] }: { initialLogs?: NotifLog[]; members?: Member[] }) {
-  const { user, can }  = useAuth();
+export default function NotificationsMobile() {
+  const { can }        = useAuth();
   const { openDrawer } = useMobileSidebar();
-  const router         = useRouter();
   const canMutate      = can("notification.send");
 
   const [tab,          setTab]          = useState<TabId>("send");
-  const [logs,         setLogs]         = useState<NotifLog[]>(initialLogs);
+  const [logs,         setLogs]         = useState<NotifLog[]>([]);
+  const [members,      setMembers]      = useState<Member[]>([]);
+  const [membersLoading, setMembersLoading] = useState(true);
   const [targetType,   setTargetType]   = useState<"all" | "user">("all");
   const [targetUid,    setTargetUid]    = useState("");
   const [title,        setTitle]        = useState("");
@@ -107,10 +166,17 @@ export default function NotificationsMobile({ initialLogs = [], members = [] }: 
   const [showPicker,   setShowPicker]   = useState(false);
   const [refreshing,   setRefreshing]   = useState(false);
   const [toast,        setToast]        = useState<{ msg: string; type: "success" | "error" } | null>(null);
+  const [showAiNotif,  setShowAiNotif]  = useState(false);
 
   useEffect(() => {
-    if (user && user.role !== "SUPER_ADMIN") router.replace("/dashboard");
-  }, [user, router]);
+    fetch("/api/members?pageSize=500&sortBy=name&sortOrder=asc")
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => { if (data) setMembers((data.users ?? []).map((u: any) => ({ uid: u.uid, name: u.name ?? u.displayName ?? "(no name)", email: u.email ?? "" }))); })
+      .finally(() => setMembersLoading(false));
+    fetch("/api/notifications")
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => { if (data) setLogs(data.logs ?? []); });
+  }, []);
 
   const filteredMembers = members.filter(m => {
     const q = memberSearch.toLowerCase();
@@ -227,6 +293,22 @@ export default function NotificationsMobile({ initialLogs = [], members = [] }: 
                   </button>
                 </div>
               )}
+
+              {/* AI Bantu button */}
+              <div style={{ marginBottom: 16 }}>
+                <button onClick={() => setShowAiNotif(v => !v)}
+                  style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 10, border: `1px solid ${showAiNotif ? "#C4B5FD" : T.border2}`, background: showAiNotif ? "#EDE9FE" : T.bg, color: showAiNotif ? "#6D28D9" : T.tx3, fontSize: 12, fontWeight: 700, cursor: "pointer", width: "100%", justifyContent: "center" as const }}>
+                  ✨ AI Bantu — Buat Konten Notifikasi
+                </button>
+                {showAiNotif && (
+                  <AiNotifPanel
+                    currentTitle={title}
+                    currentBody={message}
+                    onApply={(t, b) => { setTitle(t); setMessage(b); }}
+                    onClose={() => setShowAiNotif(false)}
+                  />
+                )}
+              </div>
 
               {/* Title */}
               <div style={{ marginBottom: 14 }}>

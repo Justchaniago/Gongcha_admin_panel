@@ -12,6 +12,7 @@ function parseRewardBody(body: any) {
   const imageUrl = String(body.imageUrl ?? "").trim();
   const isActive = body.isActive !== false;
   const isRedeemable = body.isRedeemable !== false;
+  const category = String(body.category ?? "Beverage").trim() || "Beverage";
 
   if (!title) throw new Error("title wajib diisi.");
 
@@ -22,6 +23,7 @@ function parseRewardBody(body: any) {
     imageUrl,
     isActive,
     isRedeemable,
+    category,
   };
 }
 

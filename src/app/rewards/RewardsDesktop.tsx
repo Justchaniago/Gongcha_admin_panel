@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { font } from "@/lib/design-tokens";
 import { GcPage, GcPageHeader, GcPanel, GcEmptyState, GcFieldLabel, GcToast, GcModalShell, GcButton, GcInput, GcTextarea } from "@/components/ui/gc";
 import { useAuth } from "@/context/AuthContext";
+import AiDescPanel from "@/components/AiDescPanel";
 
 // Firebase/Firestore imports
 import { ref, uploadBytesResumable, getDownloadURL, listAll } from "firebase/storage";
@@ -134,7 +135,9 @@ function DeleteModal({ reward, onClose, onDeleted }: { reward:Reward; onClose:()
 }
 
 // 🔥 UPDATE TYPE: Tambah isRedeemable
-type RewardForm = { rewardId:string; title:string; description:string; pointsrequired:string; isActive:boolean; isRedeemable:boolean; imageUrl:string; };
+type RewardForm = { rewardId:string; title:string; description:string; pointsrequired:string; isActive:boolean; isRedeemable:boolean; imageUrl:string; category:string; };
+
+const REWARD_CATEGORIES = ['Beverage','Discount','Merchandise','Food','Bundle','Special'];
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -154,12 +157,14 @@ function RewardModal({ reward, onClose, onSaved, onDeleteRequest }: { reward:Rew
     pointsrequired: reward ? String(reward.pointsrequired) : '',
     isActive:       reward?.isActive ?? true,
     // 🔥 DEFAULT: Katalog aktif jika baru dibuat
-    isRedeemable:   (reward as any)?.isRedeemable ?? true, 
+    isRedeemable:   (reward as any)?.isRedeemable ?? true,
     imageUrl:       reward ? reward.imageUrl : '',
+    category:       (reward as any)?.category ?? 'Beverage',
   });
   
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState('');
+  const [showAiDesc, setShowAiDesc] = useState(false);
   const [idTouched, setIdTouched] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [processingImage, setProcessingImage] = useState(false);
@@ -223,7 +228,7 @@ function RewardModal({ reward, onClose, onSaved, onDeleteRequest }: { reward:Rew
       const method = isNew ? 'POST' : 'PATCH';
       const url    = isNew ? '/api/rewards' : `/api/rewards/${reward!.id}`;
       // 🔥 PAYLOAD: Kirim isRedeemable ke API
-      const payload = { ...(isNew ? { rewardId: form.rewardId.trim() } : {}), title: form.title.trim(), description: form.description.trim(), pointsrequired: form.pointsrequired !== '' ? Number(form.pointsrequired) : 0, isActive: form.isActive, isRedeemable: form.isRedeemable, imageUrl: form.imageUrl.trim() };
+      const payload = { ...(isNew ? { rewardId: form.rewardId.trim() } : {}), title: form.title.trim(), description: form.description.trim(), pointsrequired: form.pointsrequired !== '' ? Number(form.pointsrequired) : 0, isActive: form.isActive, isRedeemable: form.isRedeemable, imageUrl: form.imageUrl.trim(), category: form.category || 'Beverage' };
       const r = await fetch(url, { method, headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) });
       if (!r.ok) throw new Error((await r.json().catch(()=>({}))).message ?? 'Failed to save.');
       onSaved(isNew ? `Reward "${form.title}" successfully added!` : `"${form.title}" successfully updated.`);
@@ -260,7 +265,34 @@ function RewardModal({ reward, onClose, onSaved, onDeleteRequest }: { reward:Rew
             <SectionLabel>Reward Information</SectionLabel>
             <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
               <div><FL required>Voucher Name</FL><GcInput placeholder="Free Drink Any Size" value={form.title} onChange={set('title')}/></div>
-              <div><FL>Description</FL><GcTextarea placeholder="Redeem your points for free drinks..." value={form.description} onChange={set('description')}/></div>
+              <div>
+                <FL>Category</FL>
+                <select value={form.category} onChange={set('category')} className="gc-select" style={{ width:'100%', height:36, borderRadius:9, outline:'none', border:`1.5px solid ${C.border}`, background:C.white, padding:'0 30px 0 12px', fontFamily:font, fontSize:12.5, fontWeight:500, color:C.tx1, cursor:'pointer' }}>
+                  {REWARD_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+                  <FL>Description</FL>
+                  <button
+                    type="button"
+                    onClick={() => setShowAiDesc((v) => !v)}
+                    style={{ fontSize: 11.5, fontWeight: 700, color: showAiDesc ? "#6D28D9" : C.tx3, background: showAiDesc ? "#EDE9FE" : "transparent", border: showAiDesc ? "1px solid #C4B5FD" : "1px solid transparent", borderRadius: 6, padding: "3px 9px", cursor: "pointer", fontFamily: font }}
+                  >
+                    ✨ AI Bantu
+                  </button>
+                </div>
+                <GcTextarea placeholder="Redeem your points for free drinks..." value={form.description} onChange={set('description')}/>
+                {showAiDesc && (
+                  <AiDescPanel
+                    type="reward_description"
+                    entityName={form.title}
+                    contextPlaceholder="Konteks tambahan (opsional, mis: free drink, diskon 50%)"
+                    onApply={(desc) => setForm((p) => ({ ...p, description: desc }))}
+                    onClose={() => setShowAiDesc(false)}
+                  />
+                )}
+              </div>
             </div>
           </div>
           <div>

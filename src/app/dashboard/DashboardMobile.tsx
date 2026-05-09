@@ -3,11 +3,7 @@
 import React, { useEffect, useState, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useMobileSidebar } from "@/components/layout/AdminShell";
-import {
-  collection, query, orderBy, onSnapshot,
-  where, limit,
-} from "firebase/firestore";
-import { db } from "@/lib/firebaseClient";
+// Note: collection, query, orderBy, onSnapshot, where, limit removed — now using polling /api/transactions
 import { useAuth } from "@/context/AuthContext";
 import type { DailyStat } from "@/types/firestore";
 import { motion, AnimatePresence, useMotionValue, useTransform, animate } from "framer-motion";
@@ -367,57 +363,56 @@ export default function DashboardMobile({ initialRole, initialTransactions, init
       return;
     }
 
-    const txBase = collection(db, "transactions");
-    const queryStartDate = mode === "range" ? dfrom : todayStr();
-    const queryEndDate = mode === "range" ? dto : todayStr();
-    const hasValidRange = mode !== "range" || (dfrom && dto && dfrom <= dto);
-    const txConstraints: Parameters<typeof query>[1][] = [];
+    // Poll /api/transactions every 10s instead of using dual onSnapshot calls
+    const fetchTransactions = async () => {
+      try {
+        const res = await fetch("/api/transactions", {
+          cache: "no-store",
+          headers: {
+            "Content-Type": "application/json",
+          }
+        });
 
-    if (!isAdmin && assignedId) {
-      txConstraints.push(where("storeId", "==", assignedId));
-    }
-
-    if (hasValidRange && queryStartDate && queryEndDate) {
-      const { start } = getBounds(queryStartDate);
-      const { end } = getBounds(queryEndDate);
-      txConstraints.push(where("createdAt", ">=", start));
-      txConstraints.push(where("createdAt", "<=", end));
-    }
-
-    const txQuery = query(txBase, ...txConstraints, orderBy("createdAt", "desc"), limit(200));
-
-    const unTx = onSnapshot(txQuery,
-      snap => setAllTx(snap.docs.map(d => normTx({ docId: d.id, docPath: d.ref.path, ...d.data() }, stores))),
-      async (err: any) => {
-        if (err?.code !== "permission-denied") return;
-        try {
-          const fallbackTx = await fetchTransactionsFallback(storesRef.current);
-          setAllTx(fallbackTx);
-        } catch (fallbackErr) {
-          console.error("[dashboard-mobile] transactions fallback failed:", fallbackErr);
+        if (!res.ok) {
+          if (res.status === 403) {
+            setAllTx([]);
+            setRawPending([]);
+            setLoading(false);
+            return;
+          }
+          throw new Error(`HTTP ${res.status}`);
         }
-      }
-    );
 
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    let pq = query(collection(db, "transactions"), where("createdAt", ">=", today), orderBy("createdAt", "desc"));
-    if (!isAdmin && assignedId) pq = query(collection(db, "transactions"), where("storeId", "==", assignedId), where("createdAt", ">=", today), orderBy("createdAt", "desc"));
-    const unPending = onSnapshot(
-      pq,
-      snap => {
-        setRawPending(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        const data = (await res.json()) as any[];
+        const txList = data.map((d) =>
+          normTx(d, stores)
+        );
+
+        // All transactions
+        setAllTx(txList);
+
+        // Extract pending for pending count
+        const pending = txList.filter((tx: any) => tx.status === "PENDING");
+        setRawPending(pending);
+
         setLoading(false);
-      },
-      err => {
-        if (err?.code !== "permission-denied") {
-          console.error("[dashboard-mobile] pending listener failed:", err);
-        }
+      } catch (error) {
+        console.error("[DashboardMobile] Failed to fetch transactions:", error);
+        setAllTx([]);
         setRawPending([]);
         setLoading(false);
       }
-    );
+    };
 
-    return () => { unTx(); unPending(); };
+    // Initial fetch
+    fetchTransactions();
+
+    // Poll every 10 seconds
+    const interval = setInterval(fetchTransactions, 10000);
+
+    return () => {
+      clearInterval(interval);
+    };
   }, [assignedId, authLoading, dfrom, dto, isAdmin, mode, user]);
 
   // ── Dashboard API polling (daily stats + members + stores) ─────────────────

@@ -115,3 +115,49 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ uid
     return NextResponse.json({ message: err.message ?? "Internal server error." }, { status: 500 });
   }
 }
+
+// DELETE /api/members/[uid]/vouchers — Hapus voucher dari user by voucherId
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ uid: string }> }) {
+  const { uid } = await params;
+  if (!uid) return NextResponse.json({ message: "UID diperlukan." }, { status: 400 });
+
+  try {
+    const session = await getAdminSession({ allowedRoles: ["SUPER_ADMIN", "ADMIN", "STAFF"] });
+    authorize(session, { permission: "voucher.cancel" });
+
+    const body = await req.json();
+    const { voucherId, voucherCode } = body;
+    if (!voucherId && !voucherCode) return NextResponse.json({ message: "voucherId atau voucherCode wajib diisi." }, { status: 400 });
+
+    const userRef = adminDb.collection("users").doc(uid);
+    const userSnap = await userRef.get();
+    if (!userSnap.exists) return NextResponse.json({ message: "User tidak ditemukan." }, { status: 404 });
+
+    const vouchers: UserVoucher[] = userSnap.data()?.vouchers ?? [];
+    const target = vouchers.find((v) =>
+      (voucherId && v.id === voucherId) || (voucherCode && v.code === voucherCode)
+    );
+    if (!target) return NextResponse.json({ message: "Voucher tidak ditemukan pada user ini." }, { status: 404 });
+
+    await userRef.update({ vouchers: admin.firestore.FieldValue.arrayRemove(target) });
+
+    const targetName = userSnap.data()?.name ?? userSnap.data()?.email ?? uid;
+    await writeActivityLog({
+      actor: session,
+      action: "VOUCHER_CANCELLED",
+      targetType: "member",
+      targetId: uid,
+      targetLabel: targetName,
+      summary: `Removed voucher "${target.title}" (${target.code}) from ${targetName}`,
+      source: "api/members/[uid]/vouchers:DELETE",
+      metadata: { voucherId, voucherCode: target.code, voucherTitle: target.title },
+    });
+
+    return NextResponse.json({ success: true, removed: target });
+  } catch (err: any) {
+    console.error("[DELETE /api/members/[uid]/vouchers]", err);
+    if (isAdminAuthError(err)) return NextResponse.json({ message: err.message }, { status: err.status });
+    if (isRbacForbiddenError(err)) return NextResponse.json({ message: err.message, code: err.code }, { status: err.status });
+    return NextResponse.json({ message: err.message ?? "Internal server error." }, { status: 500 });
+  }
+}

@@ -49,7 +49,11 @@ export type Permission =
   | "audit.read"
   | "audit.manage"
   | "notification.send"
-  | "asset.manage";
+  | "asset.manage"
+  | "promo.read"
+  | "promo.create"
+  | "promo.update"
+  | "promo.delete";
 
 export type RbacScope = {
   type: ScopeType;
@@ -104,6 +108,10 @@ export const ALL_PERMISSIONS: Permission[] = [
   "audit.manage",
   "notification.send",
   "asset.manage",
+  "promo.read",
+  "promo.create",
+  "promo.update",
+  "promo.delete",
 ];
 
 export const PROFILE_PERMISSIONS: Record<AccessProfile, Permission[]> = {
@@ -130,6 +138,10 @@ export const PROFILE_PERMISSIONS: Record<AccessProfile, Permission[]> = {
     "voucher.cancel",
     "notification.send",
     "asset.manage",
+    "promo.read",
+    "promo.create",
+    "promo.update",
+    "promo.delete",
   ],
   FINANCE: ["dashboard.read", "transaction.read", "transaction.refund", "audit.read"],
   SUPPORT: ["member.read", "transaction.read", "voucher.read", "voucher.issue", "audit.read"],

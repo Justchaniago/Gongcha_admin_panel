@@ -53,9 +53,9 @@ export async function createTxNotification(
     };
 
     await Promise.all([
-      adminDb.collection("notifications").doc(notifId).set({
-        userId: memberId,
-        type: action === "verified" ? "points" : "system",
+      // Write to subcollection — member app subscribes to users/{uid}/notifications
+      adminDb.collection("users").doc(memberId).collection("notifications").doc(notifId).set({
+        type: action === "verified" ? "tx_verified" : "tx_rejected",
         title,
         body,
         isRead: false,

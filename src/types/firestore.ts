@@ -431,6 +431,47 @@ export interface ActivityLog {
   deleteReason?: string;
 }
 
+export type PromotionType = "carousel" | "modal_ad";
+
+export interface Promotion {
+  id: string;
+  type: PromotionType;
+  title: string;
+  imageUrl: string;
+  storagePath: string;
+  order: number;
+  isActive: boolean;
+  startDate?: Timestamp | null;
+  endDate?: Timestamp | null;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+  createdBy: string;
+}
+
+export const promotionConverter: FirestoreDataConverter<Promotion> = {
+  toFirestore(promo: PartialWithFieldValue<Promotion>): DocumentData {
+    return promo;
+  },
+  fromFirestore(snapshot: QueryDocumentSnapshot, options: SnapshotOptions): Promotion {
+    const data = snapshot.data(options)!;
+    return {
+      id: snapshot.id,
+      type: (data.type ?? "carousel") as PromotionType,
+      title: data.title ?? "",
+      imageUrl: data.imageUrl ?? "",
+      storagePath: data.storagePath ?? "",
+      order: typeof data.order === "number" ? data.order : 0,
+      isActive: data.isActive === true,
+      startDate: data.startDate ?? null,
+      endDate: data.endDate ?? null,
+      createdAt: data.createdAt,
+      updatedAt: data.updatedAt,
+      createdBy: data.createdBy ?? "",
+    };
+  },
+};
+
+/** @deprecated Use Promotion instead */
 export interface GlobalPromo {
   id: string;
   title: string;
@@ -439,6 +480,7 @@ export interface GlobalPromo {
   isActive: boolean;
 }
 
+/** @deprecated Use promotionConverter instead */
 export const globalPromoConverter: FirestoreDataConverter<GlobalPromo> = {
   toFirestore(promo: PartialWithFieldValue<GlobalPromo>): DocumentData {
     return promo;
@@ -452,7 +494,7 @@ export const globalPromoConverter: FirestoreDataConverter<GlobalPromo> = {
       imageUrl: data.imageUrl,
       isActive: data.isActive,
     };
-  }
+  },
 };
 
 // ============================================================================

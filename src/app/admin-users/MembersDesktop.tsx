@@ -437,9 +437,40 @@ function EditPointsModal({ user, onClose, onSaved, toast, confirm }: any) {
 
 function MemberDetailModal({ user, onClose, onEdit, onDeleted, toast, confirm }: any) {
   const tier = TIER_CFG[user.tier] ?? TIER_CFG.Silver;
+  const { can } = useAuth();
   const [localUser, setLocalUser] = useState(user);
   const [showEditPoints, setShowEditPoints] = useState(false);
   const [showPhotoPreview, setShowPhotoPreview] = useState(false);
+  const [deletingVoucherId, setDeletingVoucherId] = useState<string | null>(null);
+
+  const canCancelVoucher = can("voucher.cancel");
+
+  function handleDeleteVoucher(v: any) {
+    confirm({
+      title: "Hapus Voucher?",
+      description: `Voucher "${v.title}" (${v.code}) akan dihapus permanen dari akun member ini.`,
+      confirmLabel: "Ya, Hapus",
+      danger: true,
+      onConfirm: async () => {
+        setDeletingVoucherId(v.id);
+        try {
+          const res = await fetch(`/api/members/${localUser.uid}/vouchers`, {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ voucherId: v.id ?? undefined, voucherCode: v.code }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data.message ?? "Gagal menghapus voucher.");
+          setLocalUser((prev: any) => ({ ...prev, vouchers: (prev.vouchers ?? []).filter((x: any) => x.code !== v.code) }));
+          toast(`Voucher "${v.title}" berhasil dihapus.`, "success");
+        } catch (err: any) {
+          toast(err.message, "error");
+        } finally {
+          setDeletingVoucherId(null);
+        }
+      },
+    });
+  }
 
   function handleDelete() {
     confirm({
@@ -513,14 +544,28 @@ function MemberDetailModal({ user, onClose, onEdit, onDeleted, toast, confirm }:
         <div style={{ maxHeight: 180, overflowY: "auto", border: `1px solid ${C.border}`, borderRadius: 10 }}>
           {localUser.vouchers?.length > 0
             ? localUser.vouchers.map((v: any, idx: number) => (
-                <div key={idx} style={{ padding: "10px", borderBottom: `1px solid ${C.border2}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <div>
-                    <p style={{ fontSize: 13, fontWeight: 700 }}>{v.title}</p>
+                <div key={v.id ?? idx} style={{ padding: "10px 12px", borderBottom: `1px solid ${C.border2}`, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ fontSize: 13, fontWeight: 700, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v.title}</p>
                     <code style={{ fontSize: 11, color: C.tx3 }}>{v.code}</code>
                   </div>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: v.isUsed ? C.tx4 : C.green }}>
-                    {v.isUsed ? "USED" : "ACTIVE"}
-                  </span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: v.isUsed ? C.tx4 : C.green }}>
+                      {v.isUsed ? "USED" : "ACTIVE"}
+                    </span>
+                    {canCancelVoucher && (
+                      <button
+                        onClick={() => handleDeleteVoucher(v)}
+                        disabled={deletingVoucherId === v.id}
+                        title="Hapus voucher"
+                        style={{ width: 26, height: 26, borderRadius: 6, border: "1px solid #FECACA", background: "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: C.red, opacity: deletingVoucherId === v.id ? 0.5 : 1, flexShrink: 0 }}
+                      >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
+                        </svg>
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))
             : <p style={{ padding: "20px", textAlign: "center", fontSize: 12, color: C.tx3 }}>No vouchers.</p>

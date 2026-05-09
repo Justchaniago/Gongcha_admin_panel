@@ -1,7 +1,14 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback, useTransition, createContext, useContext } from "react";
+import { useRouter } from "next/navigation";
 import { C, font } from "@/lib/design-tokens";
+
+// ── Refresh context ──────────────────────────────────────────────────────────
+const RefreshCtx = createContext<{ isPending: boolean; triggerRefresh: (cb?: () => void) => void }>({
+  isPending: false,
+  triggerRefresh: () => {},
+});
 
 type ButtonVariant = "primary" | "blue" | "ghost" | "danger" | "warning" | "secondary";
 type ButtonSize = "sm" | "md" | "lg";
@@ -54,6 +61,26 @@ const buttonSizes: Record<ButtonSize, { height: number; padding: string; fontSiz
   lg: { height: 42, padding: "0 22px", fontSize: 13.5, borderRadius: 11 },
 };
 
+const skeletonCss = `
+@keyframes gcShimmerSweep {
+  0%   { transform: translateX(-100%) }
+  100% { transform: translateX(100%) }
+}
+.gc-shimmer-sweep::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    105deg,
+    transparent 35%,
+    rgba(255,255,255,0.55) 50%,
+    transparent 65%
+  );
+  animation: gcShimmerSweep 1.6s ease-in-out infinite;
+  pointer-events: none;
+}
+`;
+
 export function GcPage({
   children,
   maxWidth = 1400,
@@ -63,20 +90,52 @@ export function GcPage({
   maxWidth?: number;
   style?: React.CSSProperties;
 }) {
+  const router = useRouter();
+  const [, startTransition] = useTransition();
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const SKELETON_DURATION = 3000;
+
+  const triggerRefresh = useCallback((cb?: () => void) => {
+    setIsRefreshing(true);
+    if (cb) {
+      cb();
+    } else {
+      startTransition(() => { router.refresh(); });
+    }
+    setTimeout(() => setIsRefreshing(false), SKELETON_DURATION);
+  }, [router, startTransition]);
+
   return (
-    <div
-      style={{
-        padding: "clamp(16px, 3vw, 28px) clamp(16px, 3.2vw, 32px) 48px",
-        maxWidth,
-        minHeight: "100vh",
-        fontFamily: font,
-        WebkitFontSmoothing: "antialiased",
-        position: "relative",
-        ...style,
-      }}
-    >
-      {children}
-    </div>
+    <RefreshCtx.Provider value={{ isPending: isRefreshing, triggerRefresh }}>
+      <style>{skeletonCss}</style>
+      <div
+        style={{
+          padding: "clamp(16px, 3vw, 28px) clamp(16px, 3.2vw, 32px) 48px",
+          maxWidth,
+          minHeight: "100vh",
+          fontFamily: font,
+          WebkitFontSmoothing: "antialiased",
+          position: "relative",
+          ...style,
+        }}
+      >
+        <div
+          className={isRefreshing ? "gc-shimmer-sweep" : undefined}
+          style={{
+            position: "relative",
+            overflow: "hidden",
+            transition: "filter .25s ease, opacity .25s ease",
+            filter: isRefreshing ? "grayscale(1) blur(3px) brightness(1.04)" : "none",
+            opacity: isRefreshing ? 0.55 : 1,
+            pointerEvents: isRefreshing ? "none" : undefined,
+            userSelect: isRefreshing ? "none" : undefined,
+          }}
+        >
+          {children}
+        </div>
+      </div>
+    </RefreshCtx.Provider>
   );
 }
 
@@ -86,13 +145,21 @@ export function GcPageHeader({
   description,
   meta,
   actions,
+  onRefresh,
 }: {
   eyebrow?: string;
   title: string;
   description?: React.ReactNode;
   meta?: React.ReactNode;
   actions?: React.ReactNode;
+  onRefresh?: () => void;
 }) {
+  const { isPending, triggerRefresh } = useContext(RefreshCtx);
+
+  const handleRefresh = useCallback(() => {
+    triggerRefresh(onRefresh);
+  }, [onRefresh, triggerRefresh]);
+
   return (
     <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, marginBottom: 24, flexWrap: "wrap" }}>
       <div style={{ maxWidth: 720 }}>
@@ -113,11 +180,25 @@ export function GcPageHeader({
           </div>
         )}
       </div>
-      {actions && (
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          {actions}
-        </div>
-      )}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        {actions}
+        <button
+          onClick={handleRefresh}
+          title="Refresh"
+          style={{ width: 36, height: 36, borderRadius: 10, border: `1px solid ${C.border}`, background: C.white, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: C.tx3, flexShrink: 0, transition: "border-color .15s, color .15s" }}
+          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.borderColor = C.blue; (e.currentTarget as HTMLButtonElement).style.color = C.blue; }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.borderColor = C.border; (e.currentTarget as HTMLButtonElement).style.color = C.tx3; }}
+        >
+          <svg
+            width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"
+            style={{ transition: "transform .7s ease", transform: isPending ? "rotate(360deg)" : "rotate(0deg)" }}
+          >
+            <polyline points="23 4 23 10 17 10" />
+            <polyline points="1 20 1 14 7 14" />
+            <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
+          </svg>
+        </button>
+      </div>
     </div>
   );
 }

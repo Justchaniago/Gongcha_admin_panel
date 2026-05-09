@@ -8,7 +8,7 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   X, LayoutDashboard, Receipt, Users, Store,
-  Bell, Settings, LogOut, ChevronRight, Coffee, FolderOpen, Ticket
+  Bell, Settings, LogOut, ChevronRight, Coffee, FolderOpen, Ticket, Megaphone
 } from "lucide-react";
 import { auth } from "@/lib/firebaseClient";
 import { signOut } from "firebase/auth";
@@ -24,15 +24,16 @@ export const useMobileSidebar = () => useContext(MobileSidebarContext);
 const NO_SIDEBAR_ROUTES = ["/login", "/register", "/forgot-password", "/unauthorized"];
 
 const NAV = [
-  { href: "/dashboard",     label: "Dashboard",  superAdminOnly: false, icon: LayoutDashboard },
-  { href: "/stores",        label: "Outlets",    superAdminOnly: false, icon: Store },
-  { href: "/transactions",  label: "Transaksi",  superAdminOnly: false, icon: Receipt },
-  { href: "/menus",         label: "Menu",       superAdminOnly: false, icon: Coffee },
-  { href: "/assets",        label: "Assets",     superAdminOnly: true,  icon: FolderOpen },
-  { href: "/admin-users",   label: "Member",     superAdminOnly: true,  icon: Users },
-  { href: "/rewards",       label: "Rewards",    superAdminOnly: false, icon: Ticket },
-  { href: "/notifications", label: "Notifikasi", superAdminOnly: true,  icon: Bell },
-  { href: "/settings",      label: "Settings",   superAdminOnly: true,  icon: Settings },
+  { href: "/dashboard",     label: "Dashboard",  superAdminOnly: false, allowedProfiles: [],                      icon: LayoutDashboard },
+  { href: "/stores",        label: "Outlets",    superAdminOnly: false, allowedProfiles: [],                      icon: Store },
+  { href: "/transactions",  label: "Transaksi",  superAdminOnly: false, allowedProfiles: [],                      icon: Receipt },
+  { href: "/menus",         label: "Menu",       superAdminOnly: false, allowedProfiles: [],                      icon: Coffee },
+  { href: "/assets",        label: "Assets",     superAdminOnly: true,  allowedProfiles: [],                      icon: FolderOpen },
+  { href: "/admin-users",   label: "Member",     superAdminOnly: true,  allowedProfiles: [],                      icon: Users },
+  { href: "/rewards",       label: "Rewards",    superAdminOnly: false, allowedProfiles: [],                      icon: Ticket },
+  { href: "/promotions",    label: "Promosi",    superAdminOnly: false, allowedProfiles: ["MARKETING", "ROOT"],   icon: Megaphone },
+  { href: "/notifications", label: "Notifikasi", superAdminOnly: true,  allowedProfiles: [],                      icon: Bell },
+  { href: "/settings",      label: "Settings",   superAdminOnly: true,  allowedProfiles: [],                      icon: Settings },
 ];
 
 const T = {
@@ -59,8 +60,16 @@ const MobileDrawer = ({ open, onClose, userName, role, router, logout }: any) =>
 
   // handleLogout removed, using logout from AuthContext
 
+  const { user: authUser } = useAuth();
   const isSuperAdmin = role === "SUPER_ADMIN";
-  const visibleNavItems = NAV.filter((item) => !item.superAdminOnly || isSuperAdmin);
+  const visibleNavItems = NAV.filter((item) => {
+    if (isSuperAdmin) return true;
+    if (item.superAdminOnly) return false;
+    if (item.allowedProfiles.length > 0) {
+      return item.allowedProfiles.includes(authUser?.accessProfile ?? "");
+    }
+    return true;
+  });
 
   return (
     <AnimatePresence>

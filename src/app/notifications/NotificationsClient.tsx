@@ -5,19 +5,12 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import NotificationsDesktop from "./NotificationsDesktop";
 import NotificationsMobile from "./NotificationsMobile";
 
-export default function NotificationsClient(props: any) {
+export default function NotificationsClient() {
   const [mounted, setMounted] = useState(false);
   const isMobile = useIsMobile();
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  useEffect(() => { setMounted(true); }, []);
 
   if (!mounted) return null;
-
-  if (isMobile) {
-    return <NotificationsMobile {...props} />;
-  }
-
-  return <NotificationsDesktop {...props} />;
+  return isMobile ? <NotificationsMobile /> : <NotificationsDesktop />;
 }

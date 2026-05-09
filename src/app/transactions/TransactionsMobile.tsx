@@ -6,13 +6,13 @@ import { useMobileSidebar } from "@/components/layout/AdminShell";
 import { useAuth } from "@/context/AuthContext";
 import { motion, AnimatePresence, useMotionValue, useTransform, animate } from "framer-motion";
 import {
-  Tx, fmtRp, fmtDate, getAmount, getReceiptNumber,
+  Tx, TxStatus, fmtRp, fmtDate, getAmount, getReceiptNumber,
   getStoreLabel, getUserRef, parseCSV, extractPosData,
 } from "./tx-helpers";
 import {
   LayoutList, Clock, FileText, Upload,
   CheckCircle2, XCircle, Activity, Search, X, Menu,
-  Download, RefreshCw, Trash2, ChevronRight, AlertCircle,
+  Download, RefreshCw, Trash2, ChevronRight, AlertCircle, Eye,
 } from "lucide-react";
 
 // ── DESIGN TOKENS (identical to DashboardMobile) ───────────────────────────
@@ -44,6 +44,8 @@ const T = {
 type SyncStatus   = "idle" | "loading" | "live" | "error";
 type FilterStatus = "all" | "PENDING" | "COMPLETED" | "CANCELLED" | "REFUNDED";
 type TabId        = "summary" | "queue" | "history" | "csv";
+type CsvMatch     = { tx: Tx; posData: { receiptNumber: string; amount: number; date: string } };
+type CsvMismatch  = CsvMatch & { reasons: string[] };
 
 interface Props { initialTransactions?: Tx[]; initialRole: string; }
 
@@ -117,6 +119,85 @@ const ConfirmSheet = ({ title, message, confirmLabel, danger, onConfirm, onClose
   </AnimatePresence>
 );
 
+// ── REVIEW SHEET ───────────────────────────────────────────────────────────
+const ReviewSheet = ({ tx, onApprove, onConfirmReject, onClose, loading }: {
+  tx: Tx; onApprove: () => void; onConfirmReject: () => void; onClose: () => void; loading: boolean;
+}) => {
+  const reasons = tx.reason ? tx.reason.split(" | ") : [];
+  return (
+    <AnimatePresence>
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+        style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(0,0,0,.32)", backdropFilter: "blur(4px)" }}
+        onClick={() => !loading && onClose()} />
+      <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} transition={{ type: "spring", stiffness: 360, damping: 36 }}
+        style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 61, background: T.surface, borderRadius: "24px 24px 0 0", padding: "16px 20px 48px", maxHeight: "80dvh", overflowY: "auto" }}>
+        <div style={{ width: 36, height: 4, borderRadius: 99, background: T.border2, margin: "0 auto 20px" }} />
+
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 16 }}>
+          <div style={{ width: 36, height: 36, borderRadius: 10, background: T.amberL, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <Eye size={18} color={T.amber} strokeWidth={2} />
+          </div>
+          <div>
+            <p style={{ fontSize: 15, fontWeight: 800, color: T.tx1, marginBottom: 2 }}>Manual Review</p>
+            <p style={{ fontSize: 12, color: T.tx3 }}>{tx.memberName} · {getReceiptNumber(tx) || tx.docId}</p>
+          </div>
+        </div>
+
+        {/* TX details */}
+        <div style={{ background: T.bg, borderRadius: 12, padding: "12px 14px", marginBottom: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+          {[
+            { label: "Amount",  value: fmtRp(getAmount(tx)) },
+            { label: "Points",  value: `${tx.potentialPoints ?? 0} pts` },
+            { label: "Store",   value: getStoreLabel(tx) !== "-" ? getStoreLabel(tx) : "—" },
+            { label: "Date",    value: fmtDate(tx.createdAt) },
+          ].map(({ label, value }) => (
+            <div key={label}>
+              <p style={{ fontSize: 9, fontWeight: 700, color: T.tx4, textTransform: "uppercase", letterSpacing: ".1em", marginBottom: 2 }}>{label}</p>
+              <p style={{ fontSize: 12, fontWeight: 700, color: T.tx1 }}>{value}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* Rejection reason */}
+        {reasons.length > 0 && (
+          <div style={{ background: T.redL, border: `1px solid ${T.redB}`, borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
+            <p style={{ fontSize: 10, fontWeight: 700, color: T.red, marginBottom: 4 }}>Rejection reason</p>
+            {reasons.map((r, i) => (
+              <p key={i} style={{ fontSize: 12, color: T.red, lineHeight: 1.5 }}>· {r}</p>
+            ))}
+          </div>
+        )}
+
+        {/* Warning */}
+        <div style={{ background: T.amberL, border: `1px solid ${T.amberB}`, borderRadius: 10, padding: "8px 12px", marginBottom: 16, display: "flex", alignItems: "flex-start", gap: 8 }}>
+          <AlertCircle size={13} color={T.amber} style={{ flexShrink: 0, marginTop: 1 }} />
+          <p style={{ fontSize: 11, color: T.amber, lineHeight: 1.4 }}>One-time review only — cannot be changed after this action.</p>
+        </div>
+
+        {/* Actions */}
+        <div style={{ display: "flex", gap: 10 }}>
+          <button onClick={onClose} disabled={loading}
+            style={{ flex: 1, padding: 13, borderRadius: 12, border: `1px solid ${T.border2}`, background: "transparent", fontSize: 13, fontWeight: 700, color: T.tx2, cursor: "pointer" }}>
+            Cancel
+          </button>
+          <button onClick={onConfirmReject} disabled={loading}
+            style={{ flex: 1, padding: 13, borderRadius: 12, border: "none", background: T.redL, fontSize: 12, fontWeight: 800, color: T.red, cursor: loading ? "default" : "pointer", opacity: loading ? .7 : 1 }}>
+            Keep Rejected
+          </button>
+          <button onClick={onApprove} disabled={loading}
+            style={{ flex: 2, padding: 13, borderRadius: 12, border: "none", background: T.green, fontSize: 13, fontWeight: 800, color: "#fff", cursor: loading ? "default" : "pointer", opacity: loading ? .7 : 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+            {loading
+              ? <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: .9, ease: "linear" }}><Activity size={13} color="#fff" /></motion.div>
+              : <CheckCircle2 size={13} strokeWidth={2.5} />}
+            {loading ? "Processing…" : "Approve"}
+          </button>
+        </div>
+      </motion.div>
+    </AnimatePresence>
+  );
+};
+
 // ── QUEUE CARD ─────────────────────────────────────────────────────────────
 const QueueCard = ({ tx, onVerify, onReject, loadingId, isAdmin, onDelete }: { tx: Tx; onVerify: (tx: Tx) => void; onReject: (tx: Tx) => void; loadingId: string | null; isAdmin: boolean; onDelete?: (tx: Tx) => void }) => {
   const busy   = loadingId === tx.docId;
@@ -187,20 +268,23 @@ export default function TransactionsMobile({ initialTransactions = [], initialRo
   const { openDrawer }  = useMobileSidebar();
   const isAdmin         = can("transaction.delete") || initialRole === "admin" || initialRole === "SUPER_ADMIN";
 
-  const [tab,         setTab]         = useState<TabId>("summary");
-  const [txs,         setTxs]         = useState<Tx[]>(initialTransactions);
-  const [syncStatus,  setSync]        = useState<SyncStatus>("idle");
-  const [loadingId,   setLoadingId]   = useState<string | null>(null);
-  const [search,      setSearch]      = useState("");
-  const [filterSt,    setFilterSt]    = useState<FilterStatus>("all");
-  const [toast,       setToast]       = useState<{ msg: string; type: "success" | "error" } | null>(null);
-  const [confirm,     setConfirm]     = useState<{ title: string; message: string; confirmLabel: string; danger?: boolean; onConfirm: () => Promise<void> } | null>(null);
-  const [confirmBusy, setConfirmBusy] = useState(false);
-  const [searchOpen,  setSearchOpen]  = useState(false);
-  const [csvFile,     setCsvFile]     = useState("");
-  const [csvMatched,  setCsvMatched]  = useState<Array<{ tx: Tx; posData: { receiptNumber: string; amount: number; date: string } }>>([]);
-  const [csvUnmatched, setCsvUnmatched] = useState(0);
-  const [csvLoading,  setCsvLoading]  = useState(false);
+  const [tab,           setTab]           = useState<TabId>("summary");
+  const [txs,           setTxs]           = useState<Tx[]>(initialTransactions);
+  const [syncStatus,    setSync]          = useState<SyncStatus>("idle");
+  const [loadingId,     setLoadingId]     = useState<string | null>(null);
+  const [search,        setSearch]        = useState("");
+  const [filterSt,      setFilterSt]      = useState<FilterStatus>("all");
+  const [toast,         setToast]         = useState<{ msg: string; type: "success" | "error" } | null>(null);
+  const [confirm,       setConfirm]       = useState<{ title: string; message: string; confirmLabel: string; danger?: boolean; onConfirm: () => Promise<void> } | null>(null);
+  const [confirmBusy,   setConfirmBusy]   = useState(false);
+  const [searchOpen,    setSearchOpen]    = useState(false);
+  const [csvFile,       setCsvFile]       = useState("");
+  const [csvMatched,    setCsvMatched]    = useState<CsvMatch[]>([]);
+  const [csvMismatched, setCsvMismatched] = useState<CsvMismatch[]>([]);
+  const [csvUnmatched,  setCsvUnmatched]  = useState(0);
+  const [csvLoading,    setCsvLoading]    = useState(false);
+  const [reviewTx,      setReviewTx]      = useState<Tx | null>(null);
+  const [reviewLoading, setReviewLoading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const showToast = useCallback((msg: string, type: "success" | "error" = "success") => setToast({ msg, type }), []);
@@ -240,6 +324,7 @@ export default function TransactionsMobile({ initialTransactions = [], initialRo
     if (!res.ok) throw new Error(data.message ?? "Delete failed");
     return data;
   }
+
   async function handleAction(tx: Tx, action: "verify" | "reject") {
     setLoadingId(tx.docId);
     try {
@@ -247,19 +332,73 @@ export default function TransactionsMobile({ initialTransactions = [], initialRo
       const data = await res.json();
       if (!res.ok) throw new Error(data.message ?? "Failed");
       showToast(action === "verify" ? `Verified! Released ${tx.potentialPoints ?? 0} pending pts for ${tx.memberName}` : "Transaction rejected.", action === "verify" ? "success" : "error");
-      await fetchTxs();
+      const newStatus: TxStatus = action === "verify" ? "COMPLETED" : "CANCELLED";
+      setTxs(prev => prev.map(t => t.docPath === tx.docPath
+        ? { ...t, status: newStatus, ...(action === "verify" ? { verifiedAt: new Date().toISOString() } : {}) }
+        : t));
     } catch (e: any) { showToast(e.message ?? "Failed", "error"); }
     finally { setLoadingId(null); }
   }
+
   function askVerifyAll() {
     if (!pending.length) return;
-    setConfirm({ title: "Verify All Pending?", message: `Verify ${pending.length} transactions and release ${totalPts.toLocaleString("id")} pending pts to members. This cannot be undone.`, confirmLabel: `Verify ${pending.length} Transactions`,
-      onConfirm: async () => { const res = await fetch("/api/transactions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ docPaths: pending.map(t => t.docPath), action: "verify" }) }); const data = await res.json(); if (!res.ok) throw new Error(data.message ?? "Failed"); showToast(`${data.successCount} transactions verified and pending points released!`); await fetchTxs(); } });
+    const pendingSnapshot = [...pending];
+    setConfirm({
+      title: "Verify All Pending?",
+      message: `Verify ${pending.length} transactions and release ${totalPts.toLocaleString("id")} pending pts to members. This cannot be undone.`,
+      confirmLabel: `Verify ${pending.length} Transactions`,
+      onConfirm: async () => {
+        const res = await fetch("/api/transactions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ docPaths: pendingSnapshot.map(t => t.docPath), action: "verify" }) });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.message ?? "Failed");
+        showToast(`${data.successCount} transactions verified and pending points released!`);
+        const paths = new Set(pendingSnapshot.map(t => t.docPath));
+        const now = new Date().toISOString();
+        setTxs(prev => prev.map(t => paths.has(t.docPath) ? { ...t, status: "COMPLETED" as TxStatus, verifiedAt: now } : t));
+      },
+    });
   }
+
   function askDelete(tx: Tx) {
-    setConfirm({ title: "Delete Transaction?", message: `${getReceiptNumber(tx) || tx.docId} will be permanently deleted.`, confirmLabel: "Delete", danger: true,
-      onConfirm: async () => { const data = await deleteApi([tx.docPath]); if (!data.successCount) throw new Error("Not deleted."); showToast("Transaction deleted."); await fetchTxs(); } });
+    setConfirm({
+      title: "Delete Transaction?",
+      message: `${getReceiptNumber(tx) || tx.docId} will be permanently deleted.`,
+      confirmLabel: "Delete",
+      danger: true,
+      onConfirm: async () => {
+        const data = await deleteApi([tx.docPath]);
+        if (!data.successCount) throw new Error("Not deleted.");
+        showToast("Transaction deleted.");
+        setTxs(prev => prev.filter(t => t.docPath !== tx.docPath));
+      },
+    });
   }
+
+  async function handleManualReview(action: "approve" | "confirm_reject") {
+    if (!reviewTx) return;
+    setReviewLoading(true);
+    try {
+      const res = await fetch("/api/transactions/review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ docPath: reviewTx.docPath, action }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message ?? "Review failed");
+      showToast(action === "approve" ? "Transaction approved!" : "Rejection confirmed.");
+      setTxs(prev => prev.map(t => t.docPath === reviewTx.docPath
+        ? {
+            ...t,
+            status: (action === "approve" ? "COMPLETED" : "CANCELLED") as TxStatus,
+            manualReviewDone: true,
+            ...(action === "approve" ? { verifiedAt: new Date().toISOString() } : {}),
+          }
+        : t));
+      setReviewTx(null);
+    } catch (e: any) { showToast(e.message ?? "Review failed", "error"); }
+    finally { setReviewLoading(false); }
+  }
+
   async function runConfirm() {
     if (!confirm) return;
     setConfirmBusy(true);
@@ -275,21 +414,52 @@ export default function TransactionsMobile({ initialTransactions = [], initialRo
     const reader = new FileReader();
     reader.onload = e => {
       const rows = parseCSV(e.target?.result as string);
-      const matched: typeof csvMatched = []; let unmatched = 0;
-      rows.forEach(row => { const posData = extractPosData(row); if (!posData) { unmatched++; return; } const found = pending.find(tx => getReceiptNumber(tx).toLowerCase() === posData.receiptNumber.toLowerCase()); if (found) matched.push({ tx: found, posData }); else unmatched++; });
-      setCsvMatched(matched); setCsvUnmatched(unmatched);
+      const matched: CsvMatch[] = [];
+      const mismatched: CsvMismatch[] = [];
+      let unmatched = 0;
+      rows.forEach(row => {
+        const posData = extractPosData(row);
+        if (!posData) { unmatched++; return; }
+        const found = pending.find(tx => getReceiptNumber(tx).toLowerCase() === posData.receiptNumber.toLowerCase());
+        if (!found) { unmatched++; return; }
+        const reasons: string[] = [];
+        const txAmount = getAmount(found);
+        if (Math.abs(txAmount - posData.amount) > 0.01) reasons.push(`Amount: DB ${fmtRp(txAmount)} vs POS ${fmtRp(posData.amount)}`);
+        const txDate = found.createdAt ? found.createdAt.slice(0, 10) : null;
+        if (txDate && txDate !== posData.date) reasons.push(`Date: DB ${txDate} vs POS ${posData.date}`);
+        if (reasons.length > 0) {
+          mismatched.push({ tx: found, posData, reasons });
+        } else {
+          matched.push({ tx: found, posData });
+        }
+      });
+      setCsvMatched(matched);
+      setCsvMismatched(mismatched);
+      setCsvUnmatched(unmatched);
     };
     reader.readAsText(file);
   }
+
   async function runCsvVerify() {
-    if (!csvMatched.length) return;
+    const allItems = [...csvMatched, ...csvMismatched];
+    if (!allItems.length) return;
     setCsvLoading(true); let ok = 0, bad = 0;
-    for (const { posData } of csvMatched) {
-      try { const res = await fetch("/api/transactions/verify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ receiptNumber: posData.receiptNumber, posAmount: posData.amount, posDate: posData.date }) }); const data = await res.json(); if (res.ok && data.status === "COMPLETED") ok++; else bad++; } catch { bad++; }
+    for (const { posData } of allItems) {
+      try {
+        const res = await fetch("/api/transactions/verify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ receiptNumber: posData.receiptNumber, posAmount: posData.amount, posDate: posData.date }) });
+        const data = await res.json();
+        if (res.ok && data.status === "COMPLETED") ok++; else bad++;
+      } catch { bad++; }
     }
-    setCsvLoading(false); showToast(`${ok} verified, ${bad} flagged for review`, ok > 0 ? "success" : "error");
-    setCsvFile(""); setCsvMatched([]); setCsvUnmatched(0); await fetchTxs();
+    setCsvLoading(false);
+    const msg = csvMismatched.length > 0
+      ? `${ok} verified, ${bad} flagged — mismatched auto-rejected, review in history`
+      : `${ok} verified, ${bad} flagged for review`;
+    showToast(msg, ok > 0 ? "success" : "error");
+    setCsvFile(""); setCsvMatched([]); setCsvMismatched([]); setCsvUnmatched(0);
+    await fetchTxs();
   }
+
   function handleExport() {
     const headers = ["docId","receiptNumber","memberName","userId","storeName","totalAmount","potentialPoints","status","createdAt","verifiedAt"];
     const rows = filtered.map(tx => [tx.docId, getReceiptNumber(tx), tx.memberName, getUserRef(tx), getStoreLabel(tx), getAmount(tx), tx.potentialPoints ?? 0, tx.status, tx.createdAt ?? "", tx.verifiedAt ?? ""]);
@@ -482,30 +652,47 @@ export default function TransactionsMobile({ initialTransactions = [], initialRo
                 <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.r16, overflow: "hidden" }}>
                   {filtered.length === 0 ? (
                     <div style={{ padding: "40px 0", textAlign: "center" }}><p style={{ fontSize: 12, color: T.tx4 }}>{search ? `No results for "${search}"` : "No transactions found"}</p></div>
-                  ) : filtered.map((tx, i) => (
-                    <motion.div key={tx.docId} initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * .02 }}
-                      style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", borderBottom: i < filtered.length - 1 ? `1px solid ${T.border}` : "none" }}>
-                      <div style={{ width: 34, height: 34, borderRadius: "50%", background: "#F9FAFB", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                        <span style={{ fontSize: 11, fontWeight: 800, color: T.tx3 }}>{(tx.memberName || "?")[0].toUpperCase()}</span>
-                      </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <p style={{ fontSize: 12, fontWeight: 600, color: T.tx1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{tx.memberName}</p>
-                        <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 3, flexWrap: "wrap" as const }}>
-                          <Chip status={tx.status} />
-                          <span style={{ fontSize: 9, color: T.tx4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 80 }}>{getStoreLabel(tx) !== "-" ? getStoreLabel(tx) : getReceiptNumber(tx)}</span>
+                  ) : filtered.map((tx, i) => {
+                    const canReview = tx.status === "CANCELLED" && tx.needsManualReview && !tx.manualReviewDone;
+                    const reviewed  = tx.status === "CANCELLED" && tx.manualReviewDone;
+                    return (
+                      <motion.div key={tx.docId} initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * .02 }}
+                        style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", borderBottom: i < filtered.length - 1 ? `1px solid ${T.border}` : "none" }}>
+                        <div style={{ width: 34, height: 34, borderRadius: "50%", background: "#F9FAFB", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                          <span style={{ fontSize: 11, fontWeight: 800, color: T.tx3 }}>{(tx.memberName || "?")[0].toUpperCase()}</span>
                         </div>
-                      </div>
-                      <div style={{ textAlign: "right", flexShrink: 0 }}>
-                        <p style={{ fontSize: 12, fontWeight: 800, color: tx.type === "redeem" ? "#7C3AED" : T.tx1 }}>{tx.type === "redeem" ? "Redeem" : fmtRp(getAmount(tx))}</p>
-                        <p style={{ fontSize: 9, color: T.tx4, marginTop: 2 }}>{fmtDate(tx.createdAt)}</p>
-                      </div>
-                      {isAdmin && tx.status === "PENDING" && (
-                        <button onClick={() => askDelete(tx)} style={{ width: 26, height: 26, borderRadius: 8, border: `1px solid ${T.border2}`, background: "transparent", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}>
-                          <Trash2 size={11} color={T.tx4} />
-                        </button>
-                      )}
-                    </motion.div>
-                  ))}
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <p style={{ fontSize: 12, fontWeight: 600, color: T.tx1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{tx.memberName}</p>
+                          <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 3, flexWrap: "wrap" as const }}>
+                            <Chip status={tx.status} />
+                            <span style={{ fontSize: 9, color: T.tx4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 80 }}>{getStoreLabel(tx) !== "-" ? getStoreLabel(tx) : getReceiptNumber(tx)}</span>
+                          </div>
+                        </div>
+                        <div style={{ textAlign: "right", flexShrink: 0 }}>
+                          <p style={{ fontSize: 12, fontWeight: 800, color: tx.type === "redeem" ? "#7C3AED" : T.tx1 }}>{tx.type === "redeem" ? "Redeem" : fmtRp(getAmount(tx))}</p>
+                          <p style={{ fontSize: 9, color: T.tx4, marginTop: 2 }}>{fmtDate(tx.createdAt)}</p>
+                        </div>
+                        {/* Action buttons */}
+                        {isAdmin && tx.status === "PENDING" && (
+                          <button onClick={() => askDelete(tx)} style={{ width: 26, height: 26, borderRadius: 8, border: `1px solid ${T.border2}`, background: "transparent", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}>
+                            <Trash2 size={11} color={T.tx4} />
+                          </button>
+                        )}
+                        {canReview && (
+                          <button onClick={() => setReviewTx(tx)}
+                            style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 4, padding: "5px 8px", borderRadius: 8, border: `1px solid ${T.amberB}`, background: T.amberL, cursor: "pointer" }}>
+                            <Eye size={11} color={T.amber} />
+                            <span style={{ fontSize: 10, fontWeight: 700, color: T.amber }}>Review</span>
+                          </button>
+                        )}
+                        {reviewed && (
+                          <span style={{ flexShrink: 0, fontSize: 9, fontWeight: 700, color: T.tx4, background: T.bg, border: `1px solid ${T.border2}`, borderRadius: 6, padding: "3px 7px" }}>
+                            Reviewed
+                          </span>
+                        )}
+                      </motion.div>
+                    );
+                  })}
                 </div>
                 {filtered.length > 0 && <p style={{ fontSize: 10, color: T.tx4, textAlign: "center", marginTop: 8 }}>Showing {filtered.length} transactions</p>}
               </div>
@@ -529,19 +716,39 @@ export default function TransactionsMobile({ initialTransactions = [], initialRo
                     <input ref={fileRef} type="file" accept=".csv" style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; if (f) processCSV(f); }} />
                   </div>
                   {csvFile && (
-                    <div style={{ marginTop: 12 }}>
-                      <div style={{ padding: "10px 12px", borderRadius: 10, background: csvMatched.length > 0 ? T.greenL : T.amberL, border: `1px solid ${csvMatched.length > 0 ? T.greenB : T.amberB}`, marginBottom: csvUnmatched > 0 ? 8 : 0 }}>
-                        <p style={{ fontSize: 12, fontWeight: 700, color: csvMatched.length > 0 ? T.green : T.amber }}>
-                          {csvMatched.length > 0 ? `${csvMatched.length} transactions matched` : "No matches found"}
-                        </p>
-                      </div>
-                      {csvUnmatched > 0 && <p style={{ fontSize: 11, color: T.tx4 }}>{csvUnmatched} rows unmatched.</p>}
+                    <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 6 }}>
+                      {csvMatched.length > 0 && (
+                        <div style={{ padding: "10px 12px", borderRadius: 10, background: T.greenL, border: `1px solid ${T.greenB}` }}>
+                          <p style={{ fontSize: 12, fontWeight: 700, color: T.green }}>
+                            {csvMatched.length} transaction{csvMatched.length !== 1 ? "s" : ""} matched
+                          </p>
+                        </div>
+                      )}
+                      {csvMismatched.length > 0 && (
+                        <div style={{ padding: "10px 12px", borderRadius: 10, background: T.redL, border: `1px solid ${T.redB}` }}>
+                          <p style={{ fontSize: 12, fontWeight: 700, color: T.red, marginBottom: 6 }}>
+                            {csvMismatched.length} mismatch — will be auto-rejected
+                          </p>
+                          {csvMismatched.map((m, i) => (
+                            <div key={i} style={{ marginBottom: i < csvMismatched.length - 1 ? 8 : 0, paddingBottom: i < csvMismatched.length - 1 ? 8 : 0, borderBottom: i < csvMismatched.length - 1 ? `1px solid ${T.redB}` : "none" }}>
+                              <p style={{ fontSize: 11, fontWeight: 600, color: T.red }}>{getReceiptNumber(m.tx) || m.tx.docId}</p>
+                              {m.reasons.map((r, j) => <p key={j} style={{ fontSize: 10, color: T.red, opacity: .8 }}>· {r}</p>)}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {csvMatched.length === 0 && csvMismatched.length === 0 && (
+                        <div style={{ padding: "10px 12px", borderRadius: 10, background: T.amberL, border: `1px solid ${T.amberB}` }}>
+                          <p style={{ fontSize: 12, fontWeight: 700, color: T.amber }}>No matches found</p>
+                        </div>
+                      )}
+                      {csvUnmatched > 0 && <p style={{ fontSize: 11, color: T.tx4 }}>{csvUnmatched} rows unmatched (not in pending queue).</p>}
                     </div>
                   )}
-                  <button onClick={runCsvVerify} disabled={!csvMatched.length || csvLoading}
-                    style={{ width: "100%", padding: "13px 0", borderRadius: 12, border: "none", marginTop: 12, background: !csvMatched.length ? "#F3F4F6" : T.green, color: !csvMatched.length ? T.tx4 : "#fff", fontSize: 13, fontWeight: 800, cursor: !csvMatched.length ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-                    {csvLoading ? <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: .9, ease: "linear" }}><Activity size={14} color="#fff" /></motion.div> : <CheckCircle2 size={14} color={!csvMatched.length ? T.tx4 : "#fff"} />}
-                    {csvLoading ? "Verifying…" : csvMatched.length > 0 ? `Verify ${csvMatched.length} vs POS Data` : "Verify & Match POS"}
+                  <button onClick={runCsvVerify} disabled={(!csvMatched.length && !csvMismatched.length) || csvLoading}
+                    style={{ width: "100%", padding: "13px 0", borderRadius: 12, border: "none", marginTop: 12, background: (!csvMatched.length && !csvMismatched.length) ? "#F3F4F6" : T.green, color: (!csvMatched.length && !csvMismatched.length) ? T.tx4 : "#fff", fontSize: 13, fontWeight: 800, cursor: (!csvMatched.length && !csvMismatched.length) ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                    {csvLoading ? <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: .9, ease: "linear" }}><Activity size={14} color="#fff" /></motion.div> : <CheckCircle2 size={14} color={(!csvMatched.length && !csvMismatched.length) ? T.tx4 : "#fff"} />}
+                    {csvLoading ? "Verifying…" : (csvMatched.length + csvMismatched.length) > 0 ? `Process ${csvMatched.length + csvMismatched.length} transactions` : "Verify & Match POS"}
                   </button>
                 </motion.div>
                 {/* Format hint */}
@@ -620,6 +827,7 @@ export default function TransactionsMobile({ initialTransactions = [], initialRo
         {toast && <MToast key="toast" msg={toast.msg} type={toast.type} onDone={() => setToast(null)} />}
       </AnimatePresence>
       {confirm && <ConfirmSheet title={confirm.title} message={confirm.message} confirmLabel={confirm.confirmLabel} danger={confirm.danger} onConfirm={runConfirm} onClose={() => !confirmBusy && setConfirm(null)} loading={confirmBusy} />}
+      {reviewTx && <ReviewSheet tx={reviewTx} onApprove={() => handleManualReview("approve")} onConfirmReject={() => handleManualReview("confirm_reject")} onClose={() => !reviewLoading && setReviewTx(null)} loading={reviewLoading} />}
     </div>
   );
 }

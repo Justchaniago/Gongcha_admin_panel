@@ -9,7 +9,7 @@ import type { AccessState } from "./activityLogShared";
 
 // ── Keylog constants — HANYA ada di client bundle, tidak pernah dikirim ke server ──
 // Untuk mengubah keylog: update nilai di sini dan redeploy.
-const KEYLOG_READ   = "adminlog_auth";
+const KEYLOG_READ   = "admin123";
 const KEYLOG_MANAGE = "Chaniago123";
 
 // ── Design tokens untuk gate UI ───────────────────────────────────────────────
