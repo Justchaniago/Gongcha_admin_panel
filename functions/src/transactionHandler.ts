@@ -22,11 +22,19 @@ export async function handleEarnTransaction(
   } = req;
 
   // Validate request
-  if (!receiptNumber || !storeId || !memberId || !staffId || totalAmount <= 0) {
+  if (!receiptNumber?.trim() || !storeId?.trim() || !memberId?.trim() || !staffId?.trim() || totalAmount <= 0) {
     return {
       success: false,
       error: 'Invalid request parameters',
       code: 'INVALID_PARAMS',
+    };
+  }
+
+  if (totalAmount < 1000 || totalAmount > 10_000_000) {
+    return {
+      success: false,
+      error: `totalAmount out of range: ${totalAmount}. Must be between 1000 and 10000000`,
+      code: 'INVALID_AMOUNT',
     };
   }
 
@@ -175,7 +183,7 @@ export async function handleRedeemTransaction(
   } = req;
 
   // Validate request
-  if (!receiptNumber || !storeId || !memberId || !staffId || !voucherCode) {
+  if (!receiptNumber?.trim() || !storeId?.trim() || !memberId?.trim() || !staffId?.trim() || !voucherCode?.trim()) {
     return {
       success: false,
       error: 'Invalid request parameters',

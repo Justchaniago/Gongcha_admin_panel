@@ -50,6 +50,22 @@ export const monitorProductionBot = functions
     }
   });
 
+async function checkOrphanTransactions(): Promise<number> {
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const snap = await getDb()
+      .collection('transactions')
+      .where('type', '==', 'earn')
+      .where('createdAt', '>=', today)
+      .get();
+    return snap.docs.filter(d => !d.data().memberId).length;
+  } catch (err) {
+    console.error('[MONITOR] checkOrphanTransactions error:', err);
+    return 0;
+  }
+}
+
 // Gather all monitoring data
 async function gatherMonitoringData(): Promise<MonitoringReport> {
   const timestamp = new Date().toISOString();
@@ -97,11 +113,14 @@ async function gatherMonitoringData(): Promise<MonitoringReport> {
   // 3. Calculate error rate
   const errorRate = totalRequests > 0 ? (errorCount / totalRequests) * 100 : 0;
 
-  // 4. Determine overall status
+  // 4. Check orphan transactions (earn without memberId)
+  const orphanCount = await checkOrphanTransactions();
+
+  // 5. Determine overall status
   let overallStatus: 'HEALTHY' | 'WARNING' | 'CRITICAL' = 'HEALTHY';
   if (apiHealth !== 200) overallStatus = 'CRITICAL';
   else if (errorRate > 5) overallStatus = 'CRITICAL';
-  else if (errorRate > 1) overallStatus = 'WARNING';
+  else if (errorRate > 1 || orphanCount > 0) overallStatus = 'WARNING';
 
   const statusEmoji = {
     HEALTHY: '🟢',
@@ -119,6 +138,7 @@ Response Time: ${apiResponseTime}ms ${apiResponseTime < 500 ? '✅' : '⚠️'}
 Requests (1h): ${totalRequests}
 Errors: ${errorCount}
 
+${orphanCount > 0 ? `⚠️ Orphan Transactions (no memberId): ${orphanCount} today` : '✅ No orphan transactions'}
 ${recentErrors.length > 0 ? `Recent Errors:\n${recentErrors.slice(0, 3).join('\n')}` : 'Last Errors: None'}
 
 Status: ${overallStatus === 'HEALTHY' ? '✅ All systems healthy' : '⚠️ Check logs immediately'}`;
