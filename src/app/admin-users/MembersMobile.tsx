@@ -8,6 +8,7 @@ import {
   createAccountAction, updateAccountAction,
   deleteAccountAction, updatePointsAction,
 } from "@/actions/userStaffActions";
+import { FastApiAdminGateway } from "@/lib/api/FastApiAdminGateway";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Menu as MenuIcon, Search, X, Plus, ChevronRight,
@@ -294,7 +295,8 @@ function MemberDetailSheet({ user, onClose, onEdit, onDeleted, showToast }: { us
     if (isNaN(pts) || isNaN(pending) || isNaN(xp) || pts < 0 || pending < 0 || xp < 0) return;
     setPtLoading(true);
     try {
-      await updatePointsAction(localUser.uid, pts, pending, xp);
+      const delta = pts - (localUser.currentPoints ?? 0);
+      await FastApiAdminGateway.adjustMemberPoints(localUser.uid, delta, "Manual adjustment via Next.js Mobile Admin Console");
       setLocalUser({ ...localUser, currentPoints: pts, pendingPoints: pending, lifetimePoints: xp });
       showToast("Points updated!", "success");
       setEditPoints(false);
@@ -757,26 +759,21 @@ export default function MembersMobile({ initialUsers = [], initialStaff = [] }: 
     if (!reset && (loading || !hasMore)) return;
     setLoading(true);
     try {
-      const { sortBy: sortByParam, dir } = resolveSort(sortBy, sortOrder);
-      const params = new URLSearchParams({ sortBy: sortByParam, sortOrder: dir, pageSize: String(PAGE_SIZE) });
-      if (tierFilter !== "All") params.set("tier", tierFilter);
-      if (search.trim()) params.set("search", search.trim());
-      if (reset) {
-        lastIdRef.current = null;
-        params.set("includeStats", "true");
-      } else if (lastIdRef.current) {
-        params.set("afterId", lastIdRef.current);
-      }
-
-      const res = await fetch(`/api/members?${params}`);
-      if (!res.ok) throw new Error("Failed to fetch");
-      const data = await res.json();
-
-      const newUsers: UserWithUid[] = data.users ?? [];
-      lastIdRef.current = newUsers[newUsers.length - 1]?.uid ?? null;
-      setHasMore(data.hasMore ?? false);
-      setUsers(prev => reset ? newUsers : [...prev, ...newUsers]);
-      if (data.stats) setStats(prev => ({ ...prev, ...data.stats }));
+      const fetchedMembers = await FastApiAdminGateway.getMembers(search.trim() || undefined, 1, 100);
+      const newUsers: UserWithUid[] = fetchedMembers.map((m: any) => ({
+        uid: m.id,
+        name: m.display_name,
+        displayName: m.display_name,
+        currentPoints: m.points_balance,
+        pendingPoints: 0,
+        lifetimePoints: m.points_balance,
+        tier: m.points_balance >= 1600 ? "Platinum" : m.points_balance >= 800 ? "Gold" : m.points_balance >= 100 ? "Silver" : "BRONZE",
+        createdAt: m.created_at,
+        email: m.email || "",
+        phone: m.phone_number || "",
+      }));
+      setHasMore(false);
+      setUsers(reset ? newUsers : [...users, ...newUsers]);
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
   // eslint-disable-next-line react-hooks/exhaustive-deps
