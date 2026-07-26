@@ -11,6 +11,7 @@ import {
   deleteAccountAction,
   updatePointsAction
 } from "@/actions/userStaffActions";
+import { FastApiAdminGateway } from "@/lib/api/FastApiAdminGateway";
 
 import InjectVoucherModalForMember from "./InjectVoucherModalForMember";
 
@@ -377,7 +378,8 @@ function EditPointsModal({ user, onClose, onSaved, toast, confirm }: any) {
       onConfirm: async () => {
         setLoading(true); setError("");
         try {
-          await updatePointsAction(user.uid, pointsNum, pendingNum, lifetimeNum);
+          const delta = pointsNum - (user.currentPoints ?? 0);
+          await FastApiAdminGateway.adjustMemberPoints(user.uid, delta, "Manual adjustment via Next.js Admin Console");
           toast(`Poin ${user.name} berhasil diperbarui.`, "success");
           onSaved({ currentPoints: pointsNum, pendingPoints: pendingNum, lifetimePoints: lifetimeNum });
           onClose();
@@ -1160,25 +1162,21 @@ export default function MembersDesktop({ initialUsers = [], initialStaff = [] }:
     setLoading(true);
     setUsersSync("connecting");
     try {
-      const params = new URLSearchParams({ sortBy, sortOrder, pageSize: String(PAGE_SIZE) });
-      if (tierF !== "All") params.set("tier", tierF);
-      if (search.trim()) params.set("search", search.trim());
-      if (reset) {
-        lastIdRef.current = null;
-        params.set("includeStats", "true");
-      } else if (lastIdRef.current) {
-        params.set("afterId", lastIdRef.current);
-      }
-
-      const res = await fetch(`/api/members?${params}`);
-      if (!res.ok) throw new Error("Failed to fetch members");
-      const data = await res.json();
-
-      const newUsers: UserWithUid[] = data.users ?? [];
-      lastIdRef.current = newUsers[newUsers.length - 1]?.uid ?? null;
-      setHasMore(data.hasMore ?? false);
-      setUsers(prev => reset ? newUsers : [...prev, ...newUsers]);
-      if (data.stats) setStats(prev => ({ ...prev, ...data.stats }));
+      const fetchedMembers = await FastApiAdminGateway.getMembers(search.trim() || undefined, 1, 100);
+      const newUsers: UserWithUid[] = fetchedMembers.map((m: any) => ({
+        uid: m.id,
+        name: m.display_name,
+        displayName: m.display_name,
+        currentPoints: m.points_balance,
+        pendingPoints: 0,
+        lifetimePoints: m.points_balance,
+        tier: (m.tier as any) || (m.points_balance >= 1000 ? "Platinum" : m.points_balance >= 500 ? "Gold" : "Silver"),
+        createdAt: m.created_at,
+        email: m.email || "",
+        phone: m.phone_number || "",
+      }));
+      setHasMore(false);
+      setUsers(reset ? newUsers : [...users, ...newUsers]);
       setUsersSync("live");
     } catch (e) {
       console.error("loadUsers error:", e);
