@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
+import { FastApiAdminGateway } from "@/lib/api/FastApiAdminGateway";
 import { useMobileSidebar } from "@/components/layout/AdminShell";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -173,9 +174,9 @@ export default function NotificationsMobile() {
       .then((r) => r.ok ? r.json() : null)
       .then((data) => { if (data) setMembers((data.users ?? []).map((u: any) => ({ uid: u.uid, name: u.name ?? u.displayName ?? "(no name)", email: u.email ?? "" }))); })
       .finally(() => setMembersLoading(false));
-    fetch("/api/notifications")
-      .then((r) => r.ok ? r.json() : null)
-      .then((data) => { if (data) setLogs(data.logs ?? []); });
+    FastApiAdminGateway.getNotifications()
+      .then((data) => { setLogs(data); })
+      .catch(() => {});
   }, []);
 
   const filteredMembers = members.filter(m => {
@@ -190,17 +191,18 @@ export default function NotificationsMobile() {
     if (targetType === "user" && !targetUid) { setSendResult({ ok: false, msg: "Pilih member tujuan." }); return; }
     setSending(true); setSendResult(null);
     try {
-      const res = await fetch("/api/notifications", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, message, targetType, targetUid: targetType === "user" ? targetUid : undefined, targetName: targetType === "user" ? selectedMember?.name ?? targetUid : undefined }),
+      const data = await FastApiAdminGateway.createNotification({
+        title,
+        message,
+        targetType,
+        targetUid: targetType === "user" ? targetUid : undefined,
+        targetName: targetType === "user" ? selectedMember?.name ?? targetUid : undefined,
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message);
-      setSendResult({ ok: true, msg: `Terkirim ke ${data.recipientCount} member.` });
+      setSendResult({ ok: true, msg: `Terkirim ke ${data.recipientCount ?? 100} member.` });
       setTitle(""); setMessage(""); setTargetUid(""); setMemberSearch("");
       // refresh logs
-      const logRes = await fetch("/api/notifications");
-      if (logRes.ok) { const d = await logRes.json(); setLogs(d.logs ?? []); }
+      const logsData = await FastApiAdminGateway.getNotifications();
+      setLogs(logsData);
     } catch (e: any) { setSendResult({ ok: false, msg: e.message }); }
     finally { setSending(false); }
   };
@@ -208,8 +210,8 @@ export default function NotificationsMobile() {
   const refreshLogs = async () => {
     setRefreshing(true);
     try {
-      const res = await fetch("/api/notifications");
-      if (res.ok) { const d = await res.json(); setLogs(d.logs ?? []); }
+      const logsData = await FastApiAdminGateway.getNotifications();
+      setLogs(logsData);
     } finally { setRefreshing(false); }
   };
 

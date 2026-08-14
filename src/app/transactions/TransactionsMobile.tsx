@@ -9,6 +9,7 @@ import {
   Tx, TxStatus, fmtRp, fmtDate, getAmount, getReceiptNumber,
   getStoreLabel, getUserRef, parseCSV, extractPosData,
 } from "./tx-helpers";
+import { FastApiAdminGateway } from "@/lib/api/FastApiAdminGateway";
 import {
   LayoutList, Clock, FileText, Upload,
   CheckCircle2, XCircle, Activity, Search, X, Menu,
@@ -293,9 +294,23 @@ export default function TransactionsMobile({ initialTransactions = [], initialRo
   const fetchTxs = useCallback(async () => {
     setSync("loading");
     try {
-      const res = await fetch("/api/transactions");
-      if (!res.ok) throw new Error((await res.json()).message ?? "Failed");
-      setTxs(await res.json());
+      const fetchedTxs = await FastApiAdminGateway.getTransactions();
+      setTxs(fetchedTxs.map((t: any) => ({
+        docId: t.id,
+        docPath: `transactions/${t.id}`,
+        id: t.id,
+        transactionId: t.id,
+        receiptNumber: t.external_order_id,
+        storeId: t.source_system,
+        storeName: t.source_system,
+        totalAmount: (t.total_minor || 0) / 100,
+        amount: (t.total_minor || 0) / 100,
+        memberId: t.member_id,
+        userId: t.member_id,
+        memberName: t.member_id ? `Member ${t.member_id.substring(0, 8)}` : "Guest",
+        status: t.status,
+        createdAt: t.occurred_at,
+      } as any)));
       setSync("live");
     } catch (e: any) { setSync("error"); showToast(e.message ?? "Failed to load", "error"); }
   }, [showToast]);
@@ -592,38 +607,15 @@ export default function TransactionsMobile({ initialTransactions = [], initialRo
             {/* QUEUE */}
             {tab === "queue" && (
               <div>
-                <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }}
-                  style={{ display: "flex", alignItems: "center", gap: 10, background: T.blueL, border: `1px solid #BFDBFE`, borderRadius: 12, padding: "10px 12px", marginBottom: 12 }}>
-                  <XCircle size={12} color={T.red} strokeWidth={2.5} />
-                  <span style={{ fontSize: 10, fontWeight: 700, color: T.blueD }}>Swipe left to reject</span>
-                  <span style={{ color: T.border2 }}>·</span>
-                  <CheckCircle2 size={12} color={T.green} strokeWidth={2.5} />
-                  <span style={{ fontSize: 10, fontWeight: 700, color: T.blueD }}>Swipe right to verify</span>
-                </motion.div>
-                {pending.length > 0 && (
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                    <p style={{ fontSize: 12, fontWeight: 700, color: T.tx1 }}>{pending.length} transaction{pending.length !== 1 ? "s" : ""} pending</p>
-                    <button onClick={askVerifyAll} style={{ fontSize: 10, fontWeight: 700, color: T.green, background: T.greenL, border: `1px solid ${T.greenB}`, borderRadius: 99, padding: "4px 10px", cursor: "pointer" }}>Verify All</button>
+                <div style={{ background: T.blueL, border: `1px solid #BFDBFE`, borderRadius: T.r16, padding: 16, marginBottom: 12 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+                    <span style={{ fontSize: 18 }}>⚡</span>
+                    <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: T.blueD }}>Real-Time ESB Active</p>
                   </div>
-                )}
-                <AnimatePresence mode="popLayout">
-                  {pending.length > 0 ? (
-                    pending.map((tx, i) => (
-                      <motion.div key={tx.docId} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, height: 0 }} transition={{ delay: i * .04 }}>
-                        <QueueCard tx={tx} onVerify={t => handleAction(t, "verify")} onReject={t => handleAction(t, "reject")} loadingId={loadingId} isAdmin={isAdmin} onDelete={isAdmin ? askDelete : undefined} />
-                      </motion.div>
-                    ))
-                  ) : (
-                    <motion.div key="empty" initial={{ opacity: 0, scale: .97 }} animate={{ opacity: 1, scale: 1 }}
-                      style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "48px 0", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.r16 }}>
-                      <div style={{ width: 44, height: 44, borderRadius: "50%", background: T.greenL, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 10 }}>
-                        <CheckCircle2 size={22} color={T.green} strokeWidth={2} />
-                      </div>
-                      <p style={{ fontSize: 14, fontWeight: 700, color: T.tx1 }}>All clear</p>
-                      <p style={{ fontSize: 11, color: T.tx4, marginTop: 4, textAlign: "center", padding: "0 24px" }}>No pending transactions to verify.</p>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+                  <p style={{ margin: 0, fontSize: 11, color: T.tx2, lineHeight: 1.4 }}>
+                    Transactions are verified automatically in real-time at the POS. Manual queue verification is disabled.
+                  </p>
+                </div>
               </div>
             )}
 

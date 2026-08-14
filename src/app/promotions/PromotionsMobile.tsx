@@ -1,11 +1,9 @@
 "use client";
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
-import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from "firebase/storage";
-import { db, storage } from "@/lib/firebaseClient";
 import { Promotion, promotionConverter, PromotionType } from "@/types/firestore";
 import { useAuth } from "@/context/AuthContext";
 import { useMobileSidebar } from "@/components/layout/AdminShell";
+import { FastApiAdminGateway } from "@/lib/api/FastApiAdminGateway";
 import { Menu as MenuIcon, Plus, X, ChevronUp, ChevronDown, Edit3, Trash2, CheckCircle2, XCircle, Activity } from "lucide-react";
 
 const T = {
@@ -56,9 +54,28 @@ export default function PromotionsMobile() {
     setTimeout(() => setToast(null), 3200);
   }, []);
 
+  const loadPromotions = async () => {
+    try {
+      const fetchedPromos = await FastApiAdminGateway.getPromotions();
+      setPromos(fetchedPromos.map((p: any) => ({
+        id: p.id || p.code || "promo-" + Math.random(),
+        code: p.code,
+        title: p.title,
+        subtitle: p.subtitle || "",
+        imageUrl: p.image_url || "",
+        isActive: p.is_active !== false,
+        type: p.banner_type === "modal_ad" ? "modal_ad" : "carousel",
+        order: 0,
+      } as any)));
+      setSyncOk(true);
+    } catch (err) {
+      console.warn("PromotionsMobile getPromotions:", err);
+      setSyncOk(false);
+    }
+  };
+
   useEffect(() => {
-    const q = query(collection(db, "promotions").withConverter(promotionConverter), orderBy("order", "asc"));
-    return onSnapshot(q, (snap) => { setPromos(snap.docs.map((d) => d.data())); setSyncOk(true); }, () => setSyncOk(false));
+    loadPromotions();
   }, []);
 
   const filtered = promos.filter((p) => p.type === activeTab);
@@ -87,11 +104,20 @@ export default function PromotionsMobile() {
 
   const handleDelete = async (promo: Promotion) => {
     setBusy(promo.id);
-    const r = await fetch(`/api/promotions/${promo.id}`, { method: "DELETE" });
-    if (r.ok) {
-      if (promo.storagePath) { try { await deleteObject(ref(storage, promo.storagePath)); } catch { /* best-effort */ } }
+    try {
+      await FastApiAdminGateway.deletePromotion(promo.id);
+      if (promo.storagePath) {
+        try {
+          await fetch("/api/assets", {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ target: "asset", path: promo.storagePath, confirmName: "delete", acknowledged: true }),
+          });
+        } catch { /* best-effort */ }
+      }
       pushToast(`"${promo.title}" dihapus.`);
-    } else {
+    } catch {
       pushToast("Gagal menghapus.", false);
     }
     setBusy(null);
@@ -234,16 +260,33 @@ function PromoFormSheet({
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setUploadErr(null); setUploadPct(0);
+    setUploadErr(null); setUploadPct(10);
     try {
       const blob = await compressToWebP(file);
-      const path = `promotions/${tab}/${Date.now()}_${file.name.replace(/\.[^.]+$/, "")}.webp`;
-      const task = uploadBytesResumable(ref(storage, path), blob);
-      task.on("state_changed",
-        (s) => setUploadPct(Math.round(s.bytesTransferred / s.totalBytes * 100)),
-        (e) => { setUploadErr(e.message); setUploadPct(null); },
-        async () => { const url = await getDownloadURL(task.snapshot.ref); setImageUrl(url); setStoragePath(path); setUploadPct(null); },
-      );
+      const fileName = `${Date.now()}_${file.name.replace(/\.[^.]+$/, "")}.webp`;
+
+      setUploadPct(50);
+      const formData = new FormData();
+      formData.append("action", "upload");
+      formData.append("root", "promotions");
+      formData.append("folder", tab);
+      formData.append("file", blob, fileName);
+      formData.append("fileName", fileName);
+
+      const res = await fetch("/api/assets", {
+        method: "POST",
+        credentials: "include",
+        body: formData,
+      });
+
+      setUploadPct(90);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.message ?? "Failed to upload image.");
+
+      setImageUrl(data.asset.url);
+      setStoragePath(`promotions/${tab}/${fileName}`);
+      setUploadPct(100);
+      setTimeout(() => setUploadPct(null), 400);
     } catch (e: any) { setUploadErr(e.message); setUploadPct(null); }
   };
 
@@ -253,12 +296,17 @@ function PromoFormSheet({
     if (!imageUrl) { setErr("Upload gambar terlebih dahulu."); return; }
     setSaving(true);
     try {
-      const payload = { title: title.trim(), imageUrl, storagePath, isActive, type: tab };
-      const url = isEdit ? `/api/promotions/${editing!.id}` : "/api/promotions";
-      const method = isEdit ? "PATCH" : "POST";
-      const r = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(isEdit ? payload : { ...payload, order: 9999 }) });
-      const body = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(body.message ?? "Gagal menyimpan.");
+      const payload: Record<string, unknown> = {
+        code: isEdit ? editing!.id : "promo_" + title.toLowerCase().replace(/[^a-z0-9]/g, "_"),
+        title: title.trim(),
+        subtitle: "",
+        image_url: imageUrl,
+        banner_type: tab === "modal_ad" ? "modal_ad" : "carousel",
+        active: isActive,
+      };
+
+      await FastApiAdminGateway.createPromotion(payload as any);
+
       onSaved(isEdit ? `"${title.trim()}" diperbarui.` : `"${title.trim()}" ditambahkan.`);
       onClose();
     } catch (e: any) {

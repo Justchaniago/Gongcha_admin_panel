@@ -42,7 +42,7 @@ type AssetItem   = { root: string; name: string; path: string; fullPath: string;
 type AssetFolder = { root: string; name: string; path: string; fullPath: string; };
 type AssetListing = { availableRoots: { name: string }[]; currentRoot: string; currentFolder: string; breadcrumb: { label: string; path: string }[]; folders: AssetFolder[]; assets: AssetItem[]; };
 
-const EMPTY: AssetListing = { availableRoots: [{ name: "products" }, { name: "rewards" }], currentRoot: "products", currentFolder: "", breadcrumb: [{ label: "products", path: "" }], folders: [], assets: [] };
+const EMPTY: AssetListing = { availableRoots: [{ name: "products" }, { name: "promotions" }, { name: "rewards" }, { name: "stores" }, { name: "general" }], currentRoot: "products", currentFolder: "", breadcrumb: [{ label: "products", path: "" }], folders: [], assets: [] };
 
 function formatBytes(b: number) {
   if (!b || b <= 0) return "0 B";

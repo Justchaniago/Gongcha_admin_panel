@@ -3,10 +3,8 @@
 
 import { useState, useMemo, useEffect, useCallback } from "react";
 import dynamic from "next/dynamic";
-import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
-import { db } from "@/lib/firebaseClient";
 import { Store, storeConverter } from "@/types/firestore";
-import { createStore, updateStore, deleteStore } from "@/actions/storeActions";
+import { FastApiAdminGateway } from "@/lib/api/FastApiAdminGateway";
 import { useAuth } from "@/context/AuthContext";
 import { GcButton, GcEmptyState, GcFieldLabel, GcInput, GcModalShell, GcPage, GcPageHeader, GcPanel, GcSelect, GcTextarea, GcToast } from "@/components/ui/gc";
 
@@ -110,7 +108,7 @@ function DeleteModal({ store, onClose, onDeleted }: { store: StoreWithId; onClos
   async function confirm() {
     setLoading(true); setError('');
     try {
-      await deleteStore(store.id); // Memanggil Server Action
+      await FastApiAdminGateway.deleteStore(store.id); // Memanggil Server Action
       onDeleted(`"${store.name}" successfully deleted.`);
       onClose();
     } catch (e: any) { setError(e.message); setLoading(false); }
@@ -196,20 +194,17 @@ function StoreModal({ store, onClose, onSaved }: {
     setLoading(true); setError('');
     try {
       const payload = {
+        store_id: isNew ? "store_" + form.name.toLowerCase().replace(/[^a-z0-9]/g, "_") : store!.id,
         name: form.name.trim(),
         address: form.address.trim(),
-        latitude: form.latitude !== '' ? form.latitude : null,
-        longitude: form.longitude !== '' ? form.longitude : null,
-        openHours: form.openHours.trim(),
-        statusOverride: form.statusOverride,
-        isActive: form.isActive,
-      };
+        phone: "+62812345678",
+        operating_hours: form.openHours.trim(),
+        is_open: form.statusOverride === "open" && form.isActive,
+        latitude: form.latitude !== '' ? Number(form.latitude) : -6.200000,
+        longitude: form.longitude !== '' ? Number(form.longitude) : 106.816666,
+      } as any;
 
-      if (isNew) {
-        await createStore(payload);
-      } else {
-        await updateStore(store!.id, payload);
-      }
+      await FastApiAdminGateway.createStore(payload);
 
       onSaved(isNew ? `Outlet "${form.name}" successfully added!` : `"${form.name}" successfully updated.`);
       onClose();
@@ -398,26 +393,40 @@ export default function StoresClient({ initialStores = [], showAddTrigger }: { i
 
   const showToast = useCallback((msg: string, type: 'success'|'error' = 'success') => setToast({ msg, type }), []);
 
-  // ── Realtime onSnapshot ─────────────────────────────────────────────────────
-  useEffect(() => {
-    if (loading) {
-      setSyncStatus("connecting");
-      return;
+  const loadStores = useCallback(async () => {
+    setSyncStatus("connecting");
+    try {
+      const fetchedStores = await FastApiAdminGateway.getStores();
+      setStores(fetchedStores.map((s: any) => ({
+        id: s.id || s.store_id || "store-" + Math.random(),
+        name: s.name,
+        address: s.address,
+        location: {
+          latitude: s.latitude ?? -6.200000,
+          longitude: s.longitude ?? 106.816666,
+        },
+        operationalHours: s.operating_hours ? {
+          open: s.operating_hours.split(" - ")[0] || "09:00",
+          close: s.operating_hours.split(" - ")[1] || "21:00",
+        } : { open: "09:00", close: "21:00" },
+        isForceClosed: !s.is_open,
+        isActive: s.is_open,
+      } as any)));
+      setSyncStatus("live");
+    } catch (err) {
+      console.error("[stores getStores]", err);
+      setSyncStatus("error");
     }
+  }, []);
 
+  useEffect(() => {
+    if (loading) return;
     if (!user) {
       setSyncStatus("error");
       return;
     }
-
-    const storesRef = collection(db, "stores").withConverter(storeConverter);
-    const q = query(storesRef, orderBy("name"));
-    const unsub = onSnapshot(q,
-      snap => { setStores(snap.docs.map(d => d.data())); setSyncStatus("live"); },
-      err  => { console.error("[stores onSnapshot]", err); setSyncStatus("error"); }
-    );
-    return () => unsub();
-  }, [loading, user]);
+    loadStores();
+  }, [loading, user, loadStores]);
 
   const filtered = useMemo(() => stores.filter(s => {
     const q  = search.toLowerCase();

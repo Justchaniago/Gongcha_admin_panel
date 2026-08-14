@@ -47,6 +47,8 @@ export interface MenuItem {
   category: string;
   is_popular: boolean;
   is_new: boolean;
+  image_url?: string;
+  imageUrl?: string;
 }
 
 export interface PromotionItem {

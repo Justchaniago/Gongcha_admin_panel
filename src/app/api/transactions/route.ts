@@ -14,24 +14,25 @@ export async function GET(req: NextRequest) {
     }
 
     const data = await res.json();
-    const txs = (data.transactions ?? []).map((t: any) => ({
+    const rawList = Array.isArray(data) ? data : (data.transactions ?? []);
+    const txs = rawList.map((t: any) => ({
       docId: t.id,
       docPath: `transactions/${t.id}`,
-      receiptNumber: t.order_number,
-      transactionId: t.order_number,
-      memberName: t.member_id,
+      receiptNumber: t.external_order_id || t.id,
+      transactionId: t.external_order_id || t.id,
+      memberName: t.member_id || "Member",
       userId: t.member_id,
       uid: t.member_id,
       memberId: t.member_id,
-      totalAmount: t.total_amount,
-      amount: t.total_amount,
-      status: t.status,
-      createdAt: t.created_at,
+      totalAmount: t.total_minor ? t.total_minor / 100 : (t.total_amount ?? 0),
+      amount: t.total_minor ? t.total_minor / 100 : (t.total_amount ?? 0),
+      status: String(t.status || "COMPLETED").toUpperCase(),
+      createdAt: t.occurred_at || t.created_at || new Date().toISOString(),
     }));
 
     return NextResponse.json(txs);
   } catch (err: unknown) {
-    console.error("[transactions-api] error:", err);
+    console.error("[transactions-api] error:", err instanceof Error ? err.message : String(err));
     return NextResponse.json([]);
   }
 }

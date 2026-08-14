@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
+import { FastApiAdminGateway } from "@/lib/api/FastApiAdminGateway";
 import { useMobileSidebar } from "@/components/layout/AdminShell";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -38,13 +39,14 @@ const T = {
 } as const;
 
 interface Settings {
-  pointsPerThousand:  number;
+  spendingPerLeaf:    number;
   minimumTransaction: number;
   pointsExpiry:       string;
   tiers: {
-    silver:   { minPoints: number; bonus: string; label: string };
-    gold:     { minPoints: number; bonus: string; label: string };
-    platinum: { minPoints: number; bonus: string; label: string };
+    lover:      { minLeaves: number; bonus: string; label: string };
+    master:     { minLeaves: number; bonus: string; label: string };
+    ambassador: { minLeaves: number; bonus: string; label: string };
+    legend:     { minLeaves: number; bonus: string; label: string };
   };
   notifications: { email: boolean; push: boolean; weekly: boolean };
   updatedAt: string | null;
@@ -52,11 +54,12 @@ interface Settings {
 }
 
 const DEFAULTS: Settings = {
-  pointsPerThousand: 10, minimumTransaction: 25000, pointsExpiry: "12_months",
+  spendingPerLeaf: 10000, minimumTransaction: 10000, pointsExpiry: "12_months",
   tiers: {
-    silver:   { minPoints: 0,     bonus: "0%",  label: "Silver"   },
-    gold:     { minPoints: 10000, bonus: "10%", label: "Gold"     },
-    platinum: { minPoints: 50000, bonus: "25%", label: "Platinum" },
+    lover:      { minLeaves: 0,    bonus: "0%",  label: "Gong cha Lover" },
+    master:     { minLeaves: 100,  bonus: "10%", label: "Gong cha Master" },
+    ambassador: { minLeaves: 800,  bonus: "20%", label: "Gong cha Ambassador" },
+    legend:     { minLeaves: 1600, bonus: "30%", label: "Gong cha Legend" },
   },
   notifications: { email: true, push: true, weekly: false },
   updatedAt: null, updatedBy: null,
@@ -151,9 +154,8 @@ export default function SettingsMobile() {
   const loadSettings = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/settings");
-      if (!res.ok) throw new Error();
-      setSettings(await res.json());
+      const data = await FastApiAdminGateway.getSettings();
+      setSettings(data);
     } catch { /* use defaults */ }
     finally { setLoading(false); }
   }, []);
@@ -184,19 +186,13 @@ export default function SettingsMobile() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      const res = await fetch("/api/settings", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          pointsPerThousand: settings.pointsPerThousand,
-          minimumTransaction: settings.minimumTransaction,
-          pointsExpiry: settings.pointsExpiry,
-          tiers: settings.tiers,
-          notifications: settings.notifications,
-        }),
+      const data = await FastApiAdminGateway.updateSettings({
+        spendingPerLeaf: settings.spendingPerLeaf,
+        minimumTransaction: settings.minimumTransaction,
+        pointsExpiry: settings.pointsExpiry,
+        tiers: settings.tiers,
+        notifications: settings.notifications,
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message);
       setSettings(data);
       setDirty(false);
       showToast("Settings saved!", "success");
@@ -221,16 +217,17 @@ export default function SettingsMobile() {
 
   const SECTIONS = [
     ...(canReadActivityLog ? [{ id: "activity" as const, icon: History, label: "Activity Log", sub: "Developer audit trail", color: T.navy2, bg: "#E5E7EB" }] : []),
-    { id: "points" as const, icon: Zap, label: "Points Configuration", sub: `${settings.pointsPerThousand} pts / Rp 1.000`, color: T.blue, bg: T.blueL },
-    { id: "tiers"  as const, icon: Shield, label: "Member Tier Config", sub: "Silver · Gold · Platinum", color: T.purple, bg: T.purpleL },
-    { id: "notifications" as const, icon: Bell, label: "Admin Notifications", sub: `${Object.values(settings.notifications).filter(Boolean).length} active`, color: T.green, bg: T.greenL },
+    { id: "points" as const, icon: Zap, label: "Leaves Configuration", sub: `1 Leaf / Rp ${(settings.spendingPerLeaf || 10000).toLocaleString()}`, color: T.green, bg: T.greenL },
+    { id: "tiers"  as const, icon: Shield, label: "Member Tier Config", sub: "Lover · Master · Ambassador · Legend", color: T.purple, bg: T.purpleL },
+    { id: "notifications" as const, icon: Bell, label: "Admin Notifications", sub: `${Object.values(settings.notifications).filter(Boolean).length} active`, color: T.navy2, bg: "#E5E7EB" },
     { id: "danger" as const, icon: AlertTriangle, label: "Danger Zone", sub: "Irreversible actions", color: T.red, bg: T.redL },
   ];
 
   const tierList = [
-    { key: "silver"   as const, icon: "🥈", color: "#475569" },
-    { key: "gold"     as const, icon: "🥇", color: "#D97706" },
-    { key: "platinum" as const, icon: "💎", color: T.purple  },
+    { key: "lover"      as const, icon: "🍵", color: "#10B981" },
+    { key: "master"     as const, icon: "🥈", color: "#64748B" },
+    { key: "ambassador" as const, icon: "🥇", color: "#D97706" },
+    { key: "legend"     as const, icon: "👑", color: T.purple  },
   ];
 
   return (
@@ -304,15 +301,15 @@ export default function SettingsMobile() {
         </div>
       </div>
 
-      {/* ── POINTS SHEET ── */}
-      <BottomSheet isOpen={activeSheet === "points"} onClose={() => setSheet(null)} title="Points Configuration">
-        <Field label="Points per Rp 1.000" hint="Setiap Rp 1.000 transaksi = X poin">
-          <input type="number" min={1} value={settings.pointsPerThousand} onChange={e => update("pointsPerThousand", Number(e.target.value))} style={inputStyle} />
+      {/* ── LEAVES SHEET ── */}
+      <BottomSheet isOpen={activeSheet === "points"} onClose={() => setSheet(null)} title="Leaves Configuration">
+        <Field label="Spending per 1 Leaf (Rp)" hint="Setiap Rp 10.000 transaksi = 1 Leaf">
+          <input type="number" min={1000} step={1000} value={settings.spendingPerLeaf ?? 10000} onChange={e => update("spendingPerLeaf", Number(e.target.value))} style={inputStyle} />
         </Field>
-        <Field label="Minimum Transaction (Rp)" hint="Transaksi di bawah ini tidak mendapat poin">
+        <Field label="Minimum Transaction (Rp)" hint="Transaksi di bawah ini tidak mendapat Leaves">
           <input type="number" min={0} step={1000} value={settings.minimumTransaction} onChange={e => update("minimumTransaction", Number(e.target.value))} style={inputStyle} />
         </Field>
-        <Field label="Points Validity">
+        <Field label="Leaves Validity">
           <select value={settings.pointsExpiry} onChange={e => update("pointsExpiry", e.target.value)} style={{ ...inputStyle, appearance: "none" as const }}>
             <option value="3_months">3 Months</option>
             <option value="6_months">6 Months</option>
@@ -324,12 +321,12 @@ export default function SettingsMobile() {
         {/* Preview */}
         <div style={{ padding: "12px 14px", borderRadius: 12, background: T.blueL, border: "1px solid #C7D2FE", marginBottom: 20 }}>
           <p style={{ fontSize: 12, fontWeight: 700, color: T.blueD, marginBottom: 4 }}>Preview</p>
-          <p style={{ fontSize: 12, color: T.tx2 }}>Rp 50.000 → <strong>{Math.floor(50000 / 1000) * settings.pointsPerThousand} points</strong></p>
+          <p style={{ fontSize: 12, color: T.tx2 }}>Rp 50.000 → <strong>{Math.floor(50000 / (settings.spendingPerLeaf || 10000))} Leaves</strong></p>
         </div>
         <button onClick={() => { handleSave(); setSheet(null); }} disabled={saving}
           style={{ width: "100%", padding: 16, background: T.navy2, color: "#fff", border: "none", borderRadius: 14, fontWeight: 800, fontSize: 14, cursor: "pointer" }}
         >
-          Save Points Config
+          Save Leaves Config
         </button>
       </BottomSheet>
 
@@ -339,17 +336,17 @@ export default function SettingsMobile() {
           <div key={key} style={{ marginBottom: 14, padding: 14, borderRadius: 12, background: T.bg, border: `1px solid ${T.border2}` }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
               <span style={{ fontSize: 18 }}>{icon}</span>
-              <p style={{ fontSize: 13, fontWeight: 800, color }}>{settings.tiers[key].label}</p>
+              <p style={{ fontSize: 13, fontWeight: 800, color }}>{settings.tiers[key]?.label || key}</p>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <div>
-                <label style={{ display: "block", fontSize: 9, fontWeight: 700, color: T.tx4, textTransform: "uppercase" as const, letterSpacing: ".12em", marginBottom: 5 }}>Min. Lifetime Pts</label>
-                <input type="number" min={0} value={settings.tiers[key].minPoints} onChange={e => updateTier(key, "minPoints", Number(e.target.value))}
+                <label style={{ display: "block", fontSize: 9, fontWeight: 700, color: T.tx4, textTransform: "uppercase" as const, letterSpacing: ".12em", marginBottom: 5 }}>Min. Leaves</label>
+                <input type="number" min={0} value={settings.tiers[key]?.minLeaves ?? 0} onChange={e => updateTier(key, "minLeaves", Number(e.target.value))}
                   style={{ ...inputStyle, fontSize: 13 }} />
               </div>
               <div>
-                <label style={{ display: "block", fontSize: 9, fontWeight: 700, color: T.tx4, textTransform: "uppercase" as const, letterSpacing: ".12em", marginBottom: 5 }}>Bonus Points</label>
-                <input type="text" value={settings.tiers[key].bonus} onChange={e => updateTier(key, "bonus", e.target.value)} placeholder="10%"
+                <label style={{ display: "block", fontSize: 9, fontWeight: 700, color: T.tx4, textTransform: "uppercase" as const, letterSpacing: ".12em", marginBottom: 5 }}>Bonus Multiplier</label>
+                <input type="text" value={settings.tiers[key]?.bonus ?? "0%"} onChange={e => updateTier(key, "bonus", e.target.value)} placeholder="10%"
                   style={{ ...inputStyle, fontSize: 13 }} />
               </div>
             </div>

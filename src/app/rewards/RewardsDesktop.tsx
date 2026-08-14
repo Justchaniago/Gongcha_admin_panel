@@ -5,12 +5,9 @@ import { GcPage, GcPageHeader, GcPanel, GcEmptyState, GcFieldLabel, GcToast, GcM
 import { useAuth } from "@/context/AuthContext";
 import AiDescPanel from "@/components/AiDescPanel";
 
-// Firebase/Firestore imports
-import { ref, uploadBytesResumable, getDownloadURL, listAll } from "firebase/storage";
-import { storage } from "@/lib/firebaseClient";
-import { db } from "@/lib/firebaseClient";
-import { Reward, rewardConverter } from "@/types/firestore";
-import { query, collection, orderBy, onSnapshot } from "firebase/firestore";
+import { Reward } from "@/types/firestore";
+import { FastApiAdminGateway } from "@/lib/api/FastApiAdminGateway";
+
 
 type SyncStatus = "connecting" | "live" | "error";
 
@@ -184,31 +181,51 @@ function RewardModal({ reward, onClose, onSaved, onDeleteRequest }: { reward:Rew
     const file = e.target.files?.[0];
     if (!file) return;
     if (file.size > 15 * 1024 * 1024) { setError("Ukuran gambar asli maksimal 15MB."); return; }
-    setError(''); setProcessingImage(true);
+    setError(''); setProcessingImage(true); setUploadProgress(10);
     try {
       const compressedBlob = await compressImageToWebP(file, 800, 800, 0.8);
-      const fileName = `rewards/${Date.now()}_${Math.random().toString(36).substring(2, 8)}.webp`;
-      const storageRef = ref(storage, fileName);
-      const uploadTask = uploadBytesResumable(storageRef, compressedBlob);
-      setUploadProgress(0); setProcessingImage(false);
-      uploadTask.on("state_changed",
-        (snapshot) => { setUploadProgress((snapshot.bytesTransferred / snapshot.totalBytes) * 100); },
-        (err) => { setError("Failed to upload image: " + err.message); setUploadProgress(null); },
-        async () => { const url = await getDownloadURL(uploadTask.snapshot.ref); setForm(p => ({ ...p, imageUrl: url })); setUploadProgress(null); }
-      );
-    } catch (err: any) { setError(err.message || "Failed to process image"); setProcessingImage(false); }
+      const fileName = `${Date.now()}_${Math.random().toString(36).substring(2, 8)}.webp`;
+
+      setUploadProgress(40);
+      const formData = new FormData();
+      formData.append("action", "upload");
+      formData.append("root", "rewards");
+      formData.append("file", compressedBlob, fileName);
+      formData.append("fileName", fileName);
+
+      const res = await fetch("/api/assets", {
+        method: "POST",
+        credentials: "include",
+        body: formData,
+      });
+
+      setUploadProgress(80);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.message ?? "Failed to upload image to GCloud Storage.");
+
+      if (data?.asset?.url) setForm(p => ({ ...p, imageUrl: data.asset.url }));
+      setUploadProgress(100);
+      setTimeout(() => setUploadProgress(null), 400);
+    } catch (err: any) { setError(err.message || "Failed to process image"); setUploadProgress(null); }
+    finally { setProcessingImage(false); }
   };
 
   const loadStorageLibrary = useCallback(async () => {
     if (libraryLoading) return;
     setLibraryLoading(true);
     try {
-      const rootRef = ref(storage, 'rewards');
-      const listing = await listAll(rootRef);
-      const ordered = [...listing.items].reverse().slice(0, 48);
-      const resolved = await Promise.all(ordered.map(async (itemRef) => ({ path: itemRef.fullPath, name: itemRef.name, url: await getDownloadURL(itemRef) })));
+      const res = await fetch('/api/assets?root=rewards', { cache: 'no-store', credentials: 'include' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.message ?? 'Failed to load rewards library.');
+
+      const resolved = (data.assets || []).map((item: any) => ({
+        path: item.fullPath,
+        name: item.name,
+        url: item.url,
+      }));
       setLibraryImages(resolved);
-    } catch (err: any) { console.error(err); } finally { setLibraryLoading(false); }
+    } catch (err: any) { console.error(err); }
+    finally { setLibraryLoading(false); }
   }, [libraryLoading]);
 
   const toggleStorageLibrary = useCallback(async () => {
@@ -225,12 +242,16 @@ function RewardModal({ reward, onClose, onSaved, onDeleteRequest }: { reward:Rew
     
     setLoading(true); setError('');
     try {
-      const method = isNew ? 'POST' : 'PATCH';
-      const url    = isNew ? '/api/rewards' : `/api/rewards/${reward!.id}`;
-      // 🔥 PAYLOAD: Kirim isRedeemable ke API
-      const payload = { ...(isNew ? { rewardId: form.rewardId.trim() } : {}), title: form.title.trim(), description: form.description.trim(), pointsrequired: form.pointsrequired !== '' ? Number(form.pointsrequired) : 0, isActive: form.isActive, isRedeemable: form.isRedeemable, imageUrl: form.imageUrl.trim(), category: form.category || 'Beverage' };
-      const r = await fetch(url, { method, headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) });
-      if (!r.ok) throw new Error((await r.json().catch(()=>({}))).message ?? 'Failed to save.');
+      const payload = {
+        rewardId: isNew ? form.rewardId.trim() : reward!.id,
+        title: form.title.trim(),
+        description: form.description.trim(),
+        pointsrequired: form.pointsrequired !== '' ? Number(form.pointsrequired) : 0,
+        isActive: form.isActive,
+        imageUrl: form.imageUrl.trim(),
+        category: form.category || 'Beverage',
+      };
+      await FastApiAdminGateway.createReward(payload);
       onSaved(isNew ? `Reward "${form.title}" successfully added!` : `"${form.title}" successfully updated.`);
       onClose();
     } catch (e:any) { setError(e.message); setLoading(false); }
@@ -456,31 +477,34 @@ export default function RewardsClient({ initialRewards = [], showAddTrigger }: {
 
   const showToast = useCallback((msg:string, type:'success'|'error'='success') => setToast({msg,type}), []);
 
-  useEffect(() => {
-    if (loading) {
-      setSyncStatus("connecting");
-      return;
+  const loadRewards = useCallback(async () => {
+    setSyncStatus("connecting");
+    try {
+      const fetched = await FastApiAdminGateway.getRewards();
+      setRewards(fetched.map((r: any) => ({
+        id: r.id || r.code,
+        title: r.title,
+        description: r.description || "",
+        pointsrequired: r.pointsrequired ?? r.points_required ?? 0,
+        isActive: r.isActive ?? r.is_active ?? true,
+        imageUrl: r.imageUrl || r.image_url || "",
+        category: r.category || "Beverage",
+      } as any)));
+      setSyncStatus("live");
+    } catch (err) {
+      console.error("[rewards getRewards]", err);
+      setSyncStatus("error");
     }
+  }, []);
 
+  useEffect(() => {
+    if (loading) return;
     if (!user) {
       setSyncStatus("error");
       return;
     }
-
-    const q = query(collection(db, "rewards_catalog").withConverter(rewardConverter), orderBy("title"));
-    const unsub = onSnapshot(
-      q,
-      (snap) => {
-        setRewards(snap.docs.map((d) => d.data() as Reward));
-        setSyncStatus("live");
-      },
-      (err) => {
-        console.error(err);
-        setSyncStatus("error");
-      }
-    );
-    return () => unsub();
-  }, [loading, user]);
+    loadRewards();
+  }, [loading, user, loadRewards]);
 
   const filtered = useMemo(() => rewards.filter(r => {
     const q = search.toLowerCase();

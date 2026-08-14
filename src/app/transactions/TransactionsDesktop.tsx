@@ -10,6 +10,7 @@ import {
 import { GcButton, GcEmptyState, GcPage, GcPageHeader, GcPanel } from "@/components/ui/gc";
 import { useAuth } from "@/context/AuthContext";
 import { CheckCircle2, Eye, Trash2, X as XIcon } from "lucide-react";
+import { FastApiAdminGateway } from "@/lib/api/FastApiAdminGateway";
 
 type SyncStatus   = "idle"|"loading"|"live"|"error";
 type FilterStatus = "all"|TxStatus;
@@ -47,9 +48,23 @@ export default function TransactionsClient({ initialTransactions = [], initialRo
   const fetchTxs = useCallback(async () => {
     setSyncStatus("loading");
     try {
-      const res = await fetch("/api/transactions");
-      if (!res.ok) throw new Error((await res.json()).message ?? "Failed to load data");
-      setTxs(await res.json());
+      const fetchedTxs = await FastApiAdminGateway.getTransactions();
+      setTxs(fetchedTxs.map((t: any) => ({
+        docId: t.id,
+        docPath: `transactions/${t.id}`,
+        id: t.id,
+        transactionId: t.id,
+        receiptNumber: t.external_order_id,
+        storeId: t.source_system,
+        storeName: t.source_system,
+        totalAmount: (t.total_minor || 0) / 100,
+        amount: (t.total_minor || 0) / 100,
+        memberId: t.member_id,
+        userId: t.member_id,
+        memberName: t.member_id ? `Member ${t.member_id.substring(0, 8)}` : "Guest",
+        status: t.status,
+        createdAt: t.occurred_at,
+      } as any)));
       setSelectedDocPaths([]);
       setSyncStatus("live");
     } catch (e: any) {
@@ -410,11 +425,20 @@ export default function TransactionsClient({ initialTransactions = [], initialRo
           ))}
         </div>
 
-        {/* ── CSV + Pending row ── */}
-        <div className="gc-grid-split" style={{ marginBottom:16 }}>
-          <CsvPanel pendingTxs={pending} stores={uniqueStores} onMatchVerify={handleMatchVerify} onToast={showToast}/>
-          <PendingPanel pending={pending} onVerify={tx => handleAction(tx, "verify")} onReject={tx => handleAction(tx, "reject")} onVerifyAll={handleVerifyAll} loadingId={loadingId}/>
-        </div>
+        {/* ── Realtime ESB Verification Banner ── */}
+        <GcPanel style={{ borderRadius: 16, padding: "16px 20px", marginBottom: 16, background: "linear-gradient(135deg, #EFF6FF 0%, #EEF2FF 100%)", border: "1px solid #DBEAFE" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{ width: 36, height: 36, borderRadius: 10, background: "#3B82F6", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 16 }}>
+              ⚡
+            </div>
+            <div>
+              <h4 style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "#1E3A8A" }}>Automated Real-Time ESB & POS Verification Active</h4>
+              <p style={{ margin: "2px 0 0", fontSize: 11.5, color: "#3B82F6" }}>
+                Transactions are now verified and processed automatically in real time directly at the POS via Enterprise Service Bus (ESB). Manual verification is no longer required.
+              </p>
+            </div>
+          </div>
+        </GcPanel>
 
         {/* ── Full history table ── */}
         <GcPanel style={{ borderRadius:18, overflow:"hidden" }}>

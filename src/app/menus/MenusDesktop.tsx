@@ -1,11 +1,8 @@
 "use client";
 
 import { useState, useMemo, useEffect, useCallback } from "react";
-import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
-import { ref, uploadBytesResumable, getDownloadURL, listAll } from "firebase/storage";
-import { db, storage } from "@/lib/firebaseClient";
 import { Product, productConverter } from "@/types/firestore";
-import { createMenu, updateMenu, deleteMenu } from "@/actions/menuActions";
+import { FastApiAdminGateway } from "@/lib/api/FastApiAdminGateway";
 import { useAuth } from "@/context/AuthContext";
 import { GcButton, GcEmptyState, GcFieldLabel, GcInput, GcModalShell, GcPage, GcPageHeader, GcPanel, GcSelect, GcTextarea, GcToast } from "@/components/ui/gc";
 import AiDescPanel from "@/components/AiDescPanel";
@@ -126,7 +123,7 @@ function DeleteModal({ menu, onClose, onDeleted }: { menu: ProductWithId; onClos
   async function confirm() {
     setLoading(true); setError('');
     try {
-      await deleteMenu(menu.id);
+      await FastApiAdminGateway.deleteMenu(menu.id);
       onDeleted(`"${menu.name}" successfully archived.`);
       onClose();
     } catch (e: any) { setError(e.message); setLoading(false); }
@@ -212,34 +209,39 @@ function MenuModal({ menu, onClose, onSaved }: {
 
     setError('');
     setProcessingImage(true);
+    setUploadProgress(10);
 
     try {
       const compressedBlob = await compressImageToWebP(file, 800, 800, 0.8);
       const productId = generateProductId(form.name || menu?.name || "product");
-      const fileName = `products/${productId || Date.now().toString()}.webp`;
-      const storageRef = ref(storage, fileName);
+      const fileName = `${productId || Date.now().toString()}.webp`;
 
-      const uploadTask = uploadBytesResumable(storageRef, compressedBlob);
-      setUploadProgress(0);
-      setProcessingImage(false);
+      setUploadProgress(40);
+      const formData = new FormData();
+      formData.append("action", "upload");
+      formData.append("root", "products");
+      formData.append("file", compressedBlob, fileName);
+      formData.append("fileName", fileName);
 
-      uploadTask.on("state_changed",
-        (snapshot) => {
-          const prog = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-          setUploadProgress(prog);
-        },
-        (err) => {
-          setError("Failed to upload image: " + err.message);
-          setUploadProgress(null);
-        },
-        async () => {
-          const url = await getDownloadURL(uploadTask.snapshot.ref);
-          setForm(p => ({ ...p, imageUrl: url }));
-          setUploadProgress(null);
-        }
-      );
+      const res = await fetch("/api/assets", {
+        method: "POST",
+        credentials: "include",
+        body: formData,
+      });
+
+      setUploadProgress(80);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.message ?? "Failed to upload image to GCloud Storage.");
+
+      if (data?.asset?.url) {
+        setForm(p => ({ ...p, imageUrl: data.asset.url }));
+      }
+      setUploadProgress(100);
+      setTimeout(() => setUploadProgress(null), 500);
     } catch (err: any) {
       setError(err.message || "Failed to process image");
+      setUploadProgress(null);
+    } finally {
       setProcessingImage(false);
     }
   };
@@ -250,41 +252,23 @@ function MenuModal({ menu, onClose, onSaved }: {
     setLibraryLoading(true);
 
     try {
-      const folders = ['product', 'products'];
-      const listed = await Promise.all(
-        folders.map(async (folder) => {
-          try {
-            const listing = await listAll(ref(storage, folder));
-            return listing.items;
-          } catch {
-            return [];
-          }
-        })
-      );
-
-      const merged = listed.flat();
-      const seen = new Set<string>();
-      const unique = merged.filter((item) => {
-        if (seen.has(item.fullPath)) return false;
-        seen.add(item.fullPath);
-        return true;
+      const res = await fetch('/api/assets?root=products', {
+        cache: 'no-store',
+        credentials: 'include',
       });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.message ?? 'Failed to load storage gallery.');
 
-      const ordered = [...unique].reverse().slice(0, 60);
-      const resolved = await Promise.all(
-        ordered.map(async (itemRef) => ({
-          path: itemRef.fullPath,
-          name: itemRef.name,
-          url: await getDownloadURL(itemRef),
-        }))
-      );
+      const resolved = (data.assets || []).map((item: any) => ({
+        path: item.fullPath,
+        name: item.name,
+        url: item.url,
+      }));
 
       setLibraryImages(resolved);
-      if (resolved.length === 0) setLibraryError('No images found in /product or /products folder.');
+      if (resolved.length === 0) setLibraryError('No images found in GCloud Storage products folder.');
     } catch (err: any) {
-      setLibraryError(err?.code === 'storage/unauthorized'
-        ? 'Storage access denied. Please check Firebase Storage rules.'
-        : (err?.message ?? 'Failed to load storage gallery.'));
+      setLibraryError(err?.message ?? 'Failed to load storage gallery.');
     } finally {
       setLibraryLoading(false);
     }
@@ -305,22 +289,22 @@ function MenuModal({ menu, onClose, onSaved }: {
 
     setLoading(true); setError('');
     try {
+      const menuCode = isNew ? "item_" + form.name.toLowerCase().replace(/[^a-z0-9]/g, "_") : ((menu as any)?.code || menu!.id);
       const payload = {
+        item_id: menuCode,
+        code: menuCode,
         name: form.name.trim(),
-        basePrice: Number(form.basePrice),
-        category: form.category,
-        imageUrl: form.imageUrl.trim(),
+        price: Number(form.basePrice),
         description: form.description.trim(),
-        isAvailable: form.isAvailable,
-        isHotAvailable: form.isHotAvailable,
-        isLargeAvailable: form.isLargeAvailable,
-      };
+        category_id: "00000000-0000-0000-0000-000000000000",
+        is_popular: false,
+        is_new: false,
+        is_active: form.isAvailable,
+        imageUrl: form.imageUrl,
+        image_url: form.imageUrl,
+      } as any;
 
-      if (isNew) {
-        await createMenu(payload);
-      } else {
-        await updateMenu(menu!.id, payload);
-      }
+      await FastApiAdminGateway.createMenu(payload);
 
       onSaved('Berhasil menyimpan menu.');
       onClose();
@@ -469,7 +453,7 @@ function MenuModal({ menu, onClose, onSaved }: {
               {showLibrary && (
                 <div style={{ marginTop: 10, border: `1px solid ${C.border}`, borderRadius: 11, background: C.white, overflow: 'hidden' }}>
                   <div style={{ padding: '9px 11px', borderBottom: `1px solid ${C.border2}`, fontSize: 11.5, fontWeight: 700, color: C.tx2 }}>
-                    Firebase Storage /product (+ /products) ({libraryImages.length})
+                    GCloud Storage /products ({libraryImages.length})
                   </div>
 
                   {libraryLoading ? (
@@ -674,24 +658,37 @@ export default function MenusClient({ initialMenus = [], showAddTrigger }: { ini
 
   const showToast = useCallback((msg: string, type: 'success'|'error' = 'success') => setToast({ msg, type }), []);
 
-  useEffect(() => {
-    if (loading) {
-      setSyncStatus("connecting");
-      return;
+  const loadMenus = useCallback(async () => {
+    setSyncStatus("connecting");
+    try {
+      const fetchedMenus = await FastApiAdminGateway.getMenus();
+      setMenus(fetchedMenus.map((m: any) => ({
+        id: m.id || m.code || "menu-" + Math.random(),
+        code: m.code,
+        name: m.name,
+        description: m.description || "",
+        basePrice: (m.price_minor || 0) / 100,
+        category: m.category || "Drinks",
+        imageUrl: m.image_url || "",
+        isAvailable: m.is_active !== false,
+        isHotAvailable: true,
+        isLargeAvailable: true,
+      } as any)));
+      setSyncStatus("live");
+    } catch (err) {
+      console.error("[menus getMenus]", err);
+      setSyncStatus("error");
     }
+  }, []);
 
+  useEffect(() => {
+    if (loading) return;
     if (!user) {
       setSyncStatus("error");
       return;
     }
-
-    const q = query(collection(db, "products").withConverter(productConverter), orderBy("name"));
-    const unsub = onSnapshot(q,
-      snap => { setMenus(snap.docs.map(d => d.data())); setSyncStatus("live"); },
-      err => { console.error("[products onSnapshot]", err); setSyncStatus("error"); }
-    );
-    return () => unsub();
-  }, [loading, user]);
+    loadMenus();
+  }, [loading, user, loadMenus]);
 
   const filtered = useMemo(() => menus.filter(m => {
     const q = search.toLowerCase();

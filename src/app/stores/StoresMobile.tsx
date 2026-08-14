@@ -2,10 +2,8 @@
 
 import React, { useState, useMemo, useEffect } from "react";
 import dynamic from "next/dynamic";
-import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
-import { db } from "@/lib/firebaseClient";
 import { Store, storeConverter } from "@/types/firestore";
-import { createStore, updateStore, deleteStore } from "@/actions/storeActions";
+import { FastApiAdminGateway } from "@/lib/api/FastApiAdminGateway";
 import { useAuth } from "@/context/AuthContext";
 import { useMobileSidebar } from "@/components/layout/AdminShell";
 import { motion, AnimatePresence } from "framer-motion";
@@ -170,17 +168,32 @@ export default function StoresMobile({
     openHours: "", statusOverride: "open", isActive: true,
   });
 
-  // Firestore real-time
+  const loadStores = async () => {
+    try {
+      const fetchedStores = await FastApiAdminGateway.getStores();
+      setStores(fetchedStores.map((s: any) => ({
+        id: s.id || s.store_id || "store-" + Math.random(),
+        name: s.name,
+        address: s.address,
+        location: {
+          latitude: s.latitude ?? -6.200000,
+          longitude: s.longitude ?? 106.816666,
+        },
+        operationalHours: s.operating_hours ? {
+          open: s.operating_hours.split(" - ")[0] || "09:00",
+          close: s.operating_hours.split(" - ")[1] || "21:00",
+        } : { open: "09:00", close: "21:00" },
+        isForceClosed: !s.is_open,
+        isActive: s.is_open,
+      } as any)));
+    } catch (err) {
+      console.warn("StoresMobile getStores:", err);
+    }
+  };
+
   useEffect(() => {
     if (loading || !user) return;
-
-    const q    = query(collection(db, "stores").withConverter(storeConverter), orderBy("name"));
-    const unsub = onSnapshot(
-      q,
-      snap => setStores(snap.docs.map(d => d.data())),
-      err => console.warn("StoresMobile listener:", err),
-    );
-    return () => unsub();
+    loadStores();
   }, [loading, user]);
 
   const filtered = useMemo(() => stores.filter(s => {
@@ -214,18 +227,19 @@ export default function StoresMobile({
     setFormLoading(true);
     try {
       const payload = {
+        store_id: formStore === "new" ? "store_" + formData.name.toLowerCase().replace(/[^a-z0-9]/g, "_") : (formStore as StoreWithId).id,
         name:           formData.name.trim(),
         address:        formData.address.trim(),
-        latitude:       formData.latitude  !== "" ? formData.latitude  : null,
-        longitude:      formData.longitude !== "" ? formData.longitude : null,
-        openHours:      formData.openHours.trim(),
-        statusOverride: formData.statusOverride,
-        isActive:       formData.isActive,
-      };
-      if (formStore === "new") await createStore(payload);
-      else await updateStore((formStore as StoreWithId).id, payload);
+        phone: "+62812345678",
+        operating_hours: formData.openHours.trim(),
+        is_open: formData.statusOverride === "open" && formData.isActive,
+        latitude: formData.latitude !== "" ? Number(formData.latitude) : -6.200000,
+        longitude: formData.longitude !== "" ? Number(formData.longitude) : 106.816666,
+      } as any;
+      await FastApiAdminGateway.createStore(payload);
       setFormStore(null);
       setSelectedStore(null);
+      loadStores();
     } catch (e: any) { alert(e.message); }
     finally { setFormLoading(false); }
   };
@@ -234,7 +248,7 @@ export default function StoresMobile({
     if (!deleteConfirm) return;
     setFormLoading(true);
     try {
-      await deleteStore(deleteConfirm.id);
+      await FastApiAdminGateway.deleteStore(deleteConfirm.id);
       setDeleteConfirm(null);
       setSelectedStore(null);
     } catch (e: any) { alert(e.message); }

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import UnauthorizedOverlay from "@/components/ui/UnauthorizedOverlay";
 import { useAuth } from "@/context/AuthContext";
 import { GcButton, GcPage, GcPageHeader } from "@/components/ui/gc";
+import { FastApiAdminGateway } from "@/lib/api/FastApiAdminGateway";
 
 const font = "Inter, system-ui, sans-serif";
 const C = {
@@ -19,13 +20,14 @@ const C = {
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface Settings {
-  pointsPerThousand:  number;
+  spendingPerLeaf:    number;
   minimumTransaction: number;
   pointsExpiry:       string;
   tiers: {
-    silver:   { minPoints: number; bonus: string; label: string };
-    gold:     { minPoints: number; bonus: string; label: string };
-    platinum: { minPoints: number; bonus: string; label: string };
+    lover:      { minLeaves: number; bonus: string; label: string };
+    master:     { minLeaves: number; bonus: string; label: string };
+    ambassador: { minLeaves: number; bonus: string; label: string };
+    legend:     { minLeaves: number; bonus: string; label: string };
   };
   notifications: { email: boolean; push: boolean; weekly: boolean };
   updatedAt: string | null;
@@ -33,13 +35,14 @@ interface Settings {
 }
 
 const DEFAULTS: Settings = {
-  pointsPerThousand:  10,
-  minimumTransaction: 25000,
+  spendingPerLeaf:    10000,
+  minimumTransaction: 10000,
   pointsExpiry:       "12_months",
   tiers: {
-    silver:   { minPoints: 0,     bonus: "0%",  label: "Silver" },
-    gold:     { minPoints: 10000, bonus: "10%", label: "Gold" },
-    platinum: { minPoints: 50000, bonus: "25%", label: "Platinum" },
+    lover:      { minLeaves: 0,    bonus: "0%",  label: "Gong cha Lover" },
+    master:     { minLeaves: 100,  bonus: "10%", label: "Gong cha Master" },
+    ambassador: { minLeaves: 800,  bonus: "20%", label: "Gong cha Ambassador" },
+    legend:     { minLeaves: 1600, bonus: "30%", label: "Gong cha Legend" },
   },
   notifications: { email: true, push: true, weekly: false },
   updatedAt: null,
@@ -137,14 +140,8 @@ export default function SettingsPage() {
   const loadSettings = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/settings");
-      if (res.status === 403) {
-        setUnauthorized(true);
-        setLoading(false);
-        return;
-      }
-      if (!res.ok) throw new Error((await res.json()).message ?? "Failed to load settings");
-      setSettings(await res.json());
+      const data = await FastApiAdminGateway.getSettings();
+      setSettings(data);
     } catch (e: any) {
       showToast(e.message ?? "Failed to load settings", "error");
     } finally {
@@ -177,19 +174,13 @@ export default function SettingsPage() {
   async function handleSave() {
     setSaving(true);
     try {
-      const res = await fetch("/api/settings", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          pointsPerThousand:  settings.pointsPerThousand,
-          minimumTransaction: settings.minimumTransaction,
-          pointsExpiry:       settings.pointsExpiry,
-          tiers:              settings.tiers,
-          notifications:      settings.notifications,
-        }),
+      const data = await FastApiAdminGateway.updateSettings({
+        spendingPerLeaf:  settings.spendingPerLeaf,
+        minimumTransaction: settings.minimumTransaction,
+        pointsExpiry:       settings.pointsExpiry,
+        tiers:              settings.tiers,
+        notifications:      settings.notifications,
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message ?? "Failed to save");
       setSettings(data);
       setDirty(false);
       showToast("✓ Settings saved successfully!", "success");
@@ -225,9 +216,10 @@ export default function SettingsPage() {
   }
 
   const tierList = [
-    { key: "silver"   as const, icon: "🥈", color: "#64748B" },
-    { key: "gold"     as const, icon: "🥇", color: "#D97706" },
-    { key: "platinum" as const, icon: "💎", color: "#7C3AED" },
+    { key: "lover"      as const, icon: "🍵", color: "#10B981" },
+    { key: "master"     as const, icon: "🥈", color: "#64748B" },
+    { key: "ambassador" as const, icon: "🥇", color: "#D97706" },
+    { key: "legend"     as const, icon: "👑", color: "#7C3AED" },
   ];
 
   if (unauthorized) {
@@ -272,17 +264,17 @@ export default function SettingsPage() {
 
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
 
-          {/* ── Point Config ── */}
-          <Card title="💎 Points Configuration">
-            <Field label="Points per Rp 1,000" hint="Every Rp 1,000 transaction = X points">
+          {/* ── Leaves Config ── */}
+          <Card title="🍃 Leaves Earning Configuration">
+            <Field label="Spending per 1 Leaf (Rp)" hint="Default: Rp 10,000 = 1 Leaf">
               <input
-                type="number" min={1} max={1000}
-                value={settings.pointsPerThousand}
-                onChange={e => update("pointsPerThousand", Number(e.target.value))}
+                type="number" min={1000} step={1000}
+                value={settings.spendingPerLeaf ?? 10000}
+                onChange={e => update("spendingPerLeaf", Number(e.target.value))}
                 style={inputStyle}
               />
             </Field>
-            <Field label="Minimum Transaction (Rp)" hint="Transactions below this amount do not earn points">
+            <Field label="Minimum Transaction (Rp)" hint="Transactions below this amount do not earn Leaves">
               <input
                 type="number" min={0} step={1000}
                 value={settings.minimumTransaction}
@@ -290,7 +282,7 @@ export default function SettingsPage() {
                 style={inputStyle}
               />
             </Field>
-            <Field label="Points Validity">
+            <Field label="Leaves Validity">
               <select
                 value={settings.pointsExpiry}
                 onChange={e => update("pointsExpiry", e.target.value)}
@@ -306,7 +298,7 @@ export default function SettingsPage() {
             <div style={{ padding:"12px 14px", borderRadius:10, background:C.blueL, border:`1px solid #C7D2FE` }}>
               <p style={{ fontSize:12, fontWeight:700, color:C.blue, margin:0 }}>Calculation Preview</p>
               <p style={{ fontSize:11.5, color:C.tx2, marginTop:4, marginBottom:0 }}>
-                Transaction Rp 50,000 → <strong>{Math.floor(50000 / 1000) * settings.pointsPerThousand} points</strong>
+                Transaction Rp 50,000 → <strong>{Math.floor(50000 / (settings.spendingPerLeaf || 10000))} Leaves</strong>
               </p>
               <p style={{ fontSize:11.5, color:C.tx2, marginTop:2, marginBottom:0 }}>
                 Minimum transaction: <strong>Rp {settings.minimumTransaction.toLocaleString("en-US")}</strong>
@@ -320,23 +312,23 @@ export default function SettingsPage() {
               <div key={key} style={{ marginBottom:16, padding:14, borderRadius:12, border:`1px solid ${C.border}`, background:C.bg }}>
                 <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10 }}>
                   <span style={{ fontSize:18 }}>{icon}</span>
-                  <p style={{ fontSize:13, fontWeight:800, color, margin:0 }}>{settings.tiers[key].label}</p>
+                  <p style={{ fontSize:13, fontWeight:800, color, margin:0 }}>{settings.tiers[key]?.label || key}</p>
                 </div>
                 <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
                   <div>
-                    <label style={{ fontSize:11, fontWeight:600, color:C.tx2, display:"block", marginBottom:4 }}>Min. Lifetime Points</label>
+                    <label style={{ fontSize:11, fontWeight:600, color:C.tx2, display:"block", marginBottom:4 }}>Min. Qualifying Leaves</label>
                     <input
                       type="number" min={0}
-                      value={settings.tiers[key].minPoints}
-                      onChange={e => updateTier(key, "minPoints", Number(e.target.value))}
+                      value={settings.tiers[key]?.minLeaves ?? 0}
+                      onChange={e => updateTier(key, "minLeaves", Number(e.target.value))}
                       style={{ ...inputStyle, height:34, fontSize:12.5 }}
                     />
                   </div>
                   <div>
-                    <label style={{ fontSize:11, fontWeight:600, color:C.tx2, display:"block", marginBottom:4 }}>Bonus Points</label>
+                    <label style={{ fontSize:11, fontWeight:600, color:C.tx2, display:"block", marginBottom:4 }}>Bonus Multiplier</label>
                     <input
                       type="text"
-                      value={settings.tiers[key].bonus}
+                      value={settings.tiers[key]?.bonus ?? "0%"}
                       onChange={e => updateTier(key, "bonus", e.target.value)}
                       placeholder="e.g. 10%"
                       style={{ ...inputStyle, height:34, fontSize:12.5 }}

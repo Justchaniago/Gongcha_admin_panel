@@ -1,10 +1,9 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { collection, query, where, getDocs, orderBy } from "firebase/firestore";
-import { db } from "@/lib/firebaseClient";
 import { GcModalShell, GcButton, GcSelect, GcFieldLabel, GcInput } from "@/components/ui/gc";
-import { Reward, rewardConverter } from "@/types/firestore";
+import { Reward } from "@/types/firestore";
+import { FastApiAdminGateway } from "@/lib/api/FastApiAdminGateway";
 
 interface InjectVoucherModalProps {
   uid: string;
@@ -32,15 +31,18 @@ export default function InjectVoucherModalForMember({ uid, memberName: nameProp 
     async function initData() {
       try {
         setFetchingData(true);
-        // Fetch active reward catalog
-        const q = query(
-          collection(db, "rewards_catalog").withConverter(rewardConverter),
-          where("isActive", "==", true),
-          orderBy("title", "asc")
-        );
-        
-        const snap = await getDocs(q);
-        const list = snap.docs.map(d => d.data());
+        const fetched = await FastApiAdminGateway.getRewards();
+        const list = fetched
+          .filter((r: any) => (r.isActive ?? r.is_active) !== false)
+          .map((r: any) => ({
+            id: r.id || r.code,
+            title: r.title,
+            description: r.description || "",
+            pointsrequired: r.pointsrequired ?? r.points_required ?? 0,
+            isActive: true,
+            imageUrl: r.imageUrl || r.image_url || "",
+          } as any));
+
         setAvailableRewards(list);
         
         if (list.length > 0) {
@@ -48,14 +50,13 @@ export default function InjectVoucherModalForMember({ uid, memberName: nameProp 
           setSelectedRewardId(first.id);
           setVoucherTitle(first.title);
           setVoucherCode(generateCode());
-          // Set default expiry 30 hari ke depan
           const d = new Date();
           d.setDate(d.getDate() + 30);
           setExpiresAt(d.toISOString().split('T')[0]);
         }
       } catch (err: any) {
         console.error("Error init data:", err);
-        setError("Gagal memuat data. Periksa koneksi atau index Firestore.");
+        setError("Gagal memuat data rewards.");
       } finally {
         setFetchingData(false);
       }

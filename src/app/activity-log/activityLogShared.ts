@@ -1,5 +1,4 @@
-// ─── Shared types, constants, dan pure helpers ───────────────────────────────
-// Tidak ada React import — murni types dan logic yang dipakai Desktop + Mobile.
+import { FastApiAdminGateway } from "@/lib/api/FastApiAdminGateway";
 
 export type AccessState = {
   authenticated: boolean;
@@ -179,15 +178,20 @@ export async function fetchLogs(opts: {
   action?: string; search?: string; includeDeleted?: boolean;
   cursor?: string | null; canManage?: boolean;
 }): Promise<{ logs: LogItem[]; nextCursor: string | null }> {
-  const params = new URLSearchParams();
-  if (opts.action) params.set("action", opts.action);
-  if (opts.search?.trim()) params.set("search", opts.search.trim());
-  if (opts.includeDeleted && opts.canManage) params.set("includeDeleted", "1");
-  if (opts.cursor) params.set("cursor", opts.cursor);
-  const res = await fetch(`/api/activity-logs?${params}`, { cache: "no-store" });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.message ?? "Gagal memuat log");
-  return { logs: data.logs ?? [], nextCursor: data.nextCursor ?? null };
+  try {
+    const rawLogs = await FastApiAdminGateway.getActivityLogs();
+    let logs: LogItem[] = rawLogs;
+    if (opts.action) {
+      logs = logs.filter(l => l.action === opts.action);
+    }
+    if (opts.search?.trim()) {
+      const q = opts.search.trim().toLowerCase();
+      logs = logs.filter(l => l.summary.toLowerCase().includes(q) || l.actorName.toLowerCase().includes(q) || l.targetId.toLowerCase().includes(q));
+    }
+    return { logs, nextCursor: null };
+  } catch {
+    return { logs: [], nextCursor: null };
+  }
 }
 
 export async function createNote(summary: string, note: string): Promise<void> {

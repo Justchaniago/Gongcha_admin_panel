@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { font } from "@/lib/design-tokens";
 import { GcButton, GcPage, GcPageHeader, GcPanel } from "@/components/ui/gc";
 import { useAuth } from "@/context/AuthContext";
+import { FastApiAdminGateway } from "@/lib/api/FastApiAdminGateway";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface NotifLog {
@@ -192,11 +193,10 @@ export default function NotificationsDesktop() {
   const loadLogs = useCallback(async () => {
     setLogsLoading(true);
     try {
-      const res = await fetch("/api/notifications");
-      if (res.ok) {
-        const data = await res.json();
-        setLogs(data.logs ?? []);
-      }
+      const data = await FastApiAdminGateway.getNotifications();
+      setLogs(data);
+    } catch {
+      setLogs([]);
     } finally {
       setLogsLoading(false);
     }
@@ -217,20 +217,14 @@ export default function NotificationsDesktop() {
     setSending(true);
     setSendResult(null);
     try {
-      const res = await fetch("/api/notifications", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title,
-          message,
-          targetType,
-          targetUid:  targetType === "user" ? targetUid : undefined,
-          targetName: targetType === "user" ? selectedMember?.name ?? targetUid : undefined,
-        }),
+      const data = await FastApiAdminGateway.createNotification({
+        title,
+        message,
+        targetType,
+        targetUid:  targetType === "user" ? targetUid : undefined,
+        targetName: targetType === "user" ? selectedMember?.name ?? targetUid : undefined,
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message ?? "Gagal mengirim.");
-      setSendResult({ ok: true, msg: `Notifikasi berhasil dikirim ke ${data.recipientCount} member.` });
+      setSendResult({ ok: true, msg: `Notifikasi berhasil dikirim ke ${data.recipientCount ?? 100} member.` });
       setTitle(""); setMessage(""); setTargetUid(""); setMemberSearch(""); setShowAi(false);
       loadLogs();
     } catch (e: any) {

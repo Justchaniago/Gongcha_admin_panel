@@ -6,6 +6,8 @@ import { useMobileSidebar } from "@/components/layout/AdminShell";
 // Note: collection, query, orderBy, onSnapshot, where, limit removed — now using polling /api/transactions
 import { useAuth } from "@/context/AuthContext";
 import type { DailyStat } from "@/types/firestore";
+import { FastApiAdminGateway } from "@/lib/api/FastApiAdminGateway";
+import { DashboardStats } from "@/lib/api/types";
 import { motion, AnimatePresence, useMotionValue, useTransform, animate } from "framer-motion";
 import {
   Menu, LayoutDashboard, Clock, Receipt, BarChart2,
@@ -39,7 +41,7 @@ interface Transaction {
   userId?: string | null;
   memberId?: string | null;
 }
-interface MemberSummary { total: number; tiers: { Platinum: number; Gold: number; Silver: number }; }
+interface MemberSummary { total: number; tiers: { Legend: number; Ambassador: number; Master: number; Lover: number }; }
 interface StoreItem { uid?: string; id?: string; name: string; isActive: boolean; }
 
 // ── HELPERS ────────────────────────────────────────────────────────────────
@@ -331,11 +333,13 @@ export default function DashboardMobile({ initialRole, initialTransactions, init
   const [tab,        setTab]        = useState<TabId>("overview");
   const [stores,        setStores]        = useState<StoreItem[]>(initialStores);
   const [memberSummary, setMemberSummary] = useState<MemberSummary>(() => {
-    const tiers = { Platinum: 0, Gold: 0, Silver: 0 };
+    const tiers = { Legend: 0, Ambassador: 0, Master: 0, Lover: 0 };
     initialUsers.forEach((m: any) => {
-      if (m.tier === "Platinum") tiers.Platinum++;
-      else if (m.tier === "Gold") tiers.Gold++;
-      else if (m.tier === "Silver") tiers.Silver++;
+      const tier = String(m.tier || "").toUpperCase();
+      if (tier.includes("LEGEND")) tiers.Legend++;
+      else if (tier.includes("AMBASSADOR")) tiers.Ambassador++;
+      else if (tier.includes("MASTER")) tiers.Master++;
+      else tiers.Lover++;
     });
     return { total: initialUsers.length, tiers };
   });
@@ -415,6 +419,8 @@ export default function DashboardMobile({ initialRole, initialTransactions, init
     };
   }, [assignedId, authLoading, dfrom, dto, isAdmin, mode, user]);
 
+  const [gatewayStats, setGatewayStats] = useState<DashboardStats | null>(null);
+
   // ── Dashboard API polling (daily stats + members + stores) ─────────────────
   useEffect(() => {
     if (authLoading || !user) {
@@ -431,22 +437,36 @@ export default function DashboardMobile({ initialRole, initialTransactions, init
 
     const fetchDashboard = async () => {
       try {
-        const today = todayStr();
-        const params = new URLSearchParams({ storeId });
-        if (mode === "range" && dfrom && dto) {
-          params.set("from", dfrom);
-          params.set("to", dto);
-        } else {
-          params.set("from", today);
-          params.set("to", today);
-        }
-        const res = await fetch(`/api/dashboard?${params}`);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
+        const [statsData, storesData, membersData] = await Promise.all([
+          FastApiAdminGateway.getDashboardStats().catch(() => null),
+          FastApiAdminGateway.getStores().catch(() => []),
+          FastApiAdminGateway.getMembers().catch(() => []),
+        ]);
+
         if (cancelled) return;
-        setDailyStats(data.dailyStats ?? []);
-        setStores(data.stores ?? []);
-        setMemberSummary(data.memberSummary ?? { total: 0, tiers: { Platinum: 0, Gold: 0, Silver: 0 } });
+
+        if (storesData && Array.isArray(storesData)) {
+          setStores(storesData.map((s: any) => ({
+            uid: s.id,
+            id: s.id,
+            name: s.name,
+            isActive: s.is_active ?? true,
+          })));
+        }
+        if (membersData && Array.isArray(membersData)) {
+          const tiers = { Legend: 0, Ambassador: 0, Master: 0, Lover: 0 };
+          membersData.forEach((m: any) => {
+            const tier = String(m.tier || "").toUpperCase();
+            if (tier.includes("LEGEND")) tiers.Legend++;
+            else if (tier.includes("AMBASSADOR")) tiers.Ambassador++;
+            else if (tier.includes("MASTER")) tiers.Master++;
+            else tiers.Lover++;
+          });
+          setMemberSummary({ total: membersData.length, tiers });
+        }
+        if (statsData) {
+          setGatewayStats(statsData);
+        }
       } catch {
         if (!cancelled) setDailyStats([]);
       }
@@ -484,8 +504,8 @@ export default function DashboardMobile({ initialRole, initialTransactions, init
 
   const revenueFromStats  = dailyStats.reduce((s, d) => s + asNumber(d.totalRevenue), 0);
   const totalTrxFromStats = dailyStats.reduce((s, d) => s + asNumber(d.totalTransactions), 0);
-  const revenue           = revenueFromStats > 0 ? revenueFromStats : fallbackRevenue;
-  const totalTrx          = totalTrxFromStats > 0 ? totalTrxFromStats : fallbackTransactionCount;
+  const revenue           = gatewayStats?.total_revenue_today ?? (revenueFromStats > 0 ? revenueFromStats : fallbackRevenue);
+  const totalTrx          = gatewayStats?.total_transactions_today ?? (totalTrxFromStats > 0 ? totalTrxFromStats : fallbackTransactionCount);
   const claimsCount = windowedTx.filter(t => t.status === "PENDING").length + windowedTx.filter(t => t.status === "CANCELLED").length;
   const totalXP     = windowedTx.filter(t => t.status === "COMPLETED").reduce((s, t) => s + (t.potentialPoints ?? 0), 0);
   const avgTrx      = windowedTx.length ? Math.round(windowedTx.reduce((s, t) => s + t.amount, 0) / windowedTx.length) : 0;
@@ -697,24 +717,13 @@ export default function DashboardMobile({ initialRole, initialTransactions, init
                   </div>
                 ) : (
                   <AnimatePresence mode="popLayout">
-                    {pendingQueue.length > 0 ? (
-                      <>
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                          <p style={{ fontSize: 12, fontWeight: 700, color: T.tx1 }}>{pendingQueue.length} transaction{pendingQueue.length !== 1 ? "s" : ""} awaiting</p>
-                          <span style={{ fontSize: 9, fontWeight: 800, padding: "2px 7px", borderRadius: 99, background: T.amberL, color: T.amber, border: `1px solid ${T.amberB}` }}>FIFO</span>
-                        </div>
-                        {pendingQueue.map((tx, i) => <QueueCard key={tx.id} tx={tx} idx={i} onApprove={handleApprove} onReject={handleReject} />)}
-                      </>
-                    ) : (
-                      <motion.div key="empty" initial={{ opacity: 0, scale: .97 }} animate={{ opacity: 1, scale: 1 }}
-                        style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "48px 0", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.r16 }}>
-                        <div style={{ width: 44, height: 44, borderRadius: "50%", background: T.greenL, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 10 }}>
-                          <CheckCircle2 size={22} color={T.green} strokeWidth={2} />
-                        </div>
-                        <p style={{ fontSize: 14, fontWeight: 700, color: T.tx1 }}>All clear</p>
-                        <p style={{ fontSize: 11, color: T.tx4, marginTop: 4, textAlign: "center", padding: "0 24px" }}>No transactions awaiting verification.</p>
-                      </motion.div>
-                    )}
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "32px 16px", background: T.blueL, border: `1px solid #BFDBFE`, borderRadius: T.r16 }}>
+                    <div style={{ width: 44, height: 44, borderRadius: "50%", background: "#3B82F6", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 10, fontSize: 20 }}>
+                      ⚡
+                    </div>
+                    <p style={{ fontSize: 14, fontWeight: 700, color: T.blueD, margin: 0 }}>Real-Time Verification Active</p>
+                    <p style={{ fontSize: 11, color: T.tx2, marginTop: 4, textAlign: "center" }}>Transactions are automatically verified and settled at POS via ESB.</p>
+                  </div>
                   </AnimatePresence>
                 )}
               </div>
@@ -768,7 +777,7 @@ export default function DashboardMobile({ initialRole, initialTransactions, init
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
                   {[
-                    { label: mode === "range" && dfrom && dto ? "XP (range)" : "XP Issued",    value: `${cXP.toLocaleString()}`, sub: "pts", color: "#7C3AED", bg: "#F5F3FF" },
+                    { label: mode === "range" && dfrom && dto ? "Leaves (range)" : "Leaves Issued", value: `${cXP.toLocaleString()}`, sub: "leaves", color: "#10B981", bg: "#ECFDF5" },
                     { label: mode === "range" && dfrom && dto ? "Trx (range)" : "Transactions", value: String(cTrx),              sub: "trx", color: T.green,   bg: T.greenL },
                     { label: mode === "range" && dfrom && dto ? "Avg (range)" : "Avg. Value",   value: `Rp ${cAvg.toLocaleString("id-ID")}`, sub: "", color: T.amber, bg: T.amberL },
                   ].map((k, i) => (
@@ -808,14 +817,16 @@ export default function DashboardMobile({ initialRole, initialTransactions, init
                     {isAdmin && <button onClick={() => router.push("/admin-users")} style={{ fontSize: 10, fontWeight: 700, color: T.blue, background: T.blueL, border: "none", borderRadius: 99, padding: "4px 10px", cursor: "pointer" }}>View all</button>}
                   </div>
                   {[
-                    { label: "Platinum", color: "#5B21B6", bg: "#F5F3FF", border: "#DDD6FE", count: tierCounts.Platinum },
-                    { label: "Gold",     color: "#92400E", bg: "#FFFBEB", border: "#FDE68A", count: tierCounts.Gold     },
-                    { label: "Silver",   color: "#475569", bg: "#F8FAFC", border: "#E2E8F0", count: tierCounts.Silver   },
-                  ].map((t, i) => {
-                    const pct = memberSummary.total ? Math.round(t.count / memberSummary.total * 100) : 0;
+                    { label: "Gong cha Legend",     color: "#5B21B6", bg: "#F5F3FF", border: "#DDD6FE", count: tierCounts?.Legend },
+                    { label: "Gong cha Ambassador", color: "#92400E", bg: "#FFFBEB", border: "#FDE68A", count: tierCounts?.Ambassador },
+                    { label: "Gong cha Master",     color: "#475569", bg: "#F8FAFC", border: "#E2E8F0", count: tierCounts?.Master },
+                    { label: "Gong cha Lover",      color: "#047857", bg: "#ECFDF5", border: "#A7F3D0", count: tierCounts?.Lover },
+                  ].map((t, i, arr) => {
+                    const count = t.count ?? 0;
+                    const pct = memberSummary.total ? Math.round(count / memberSummary.total * 100) : 0;
                     return (
                       <motion.div key={t.label} initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: .2 + i * .06 }}
-                        style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "9px 12px", borderRadius: 10, background: t.bg, border: `1px solid ${t.border}`, marginBottom: i < 2 ? 6 : 0 }}>
+                        style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "9px 12px", borderRadius: 10, background: t.bg, border: `1px solid ${t.border}`, marginBottom: i < arr.length - 1 ? 6 : 0 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <span style={{ width: 7, height: 7, borderRadius: "50%", background: t.color, display: "block" }} />
                           <span style={{ fontSize: 13, fontWeight: 700, color: t.color }}>{t.label}</span>
@@ -825,7 +836,7 @@ export default function DashboardMobile({ initialRole, initialTransactions, init
                             <motion.div initial={{ width: 0 }} animate={{ width: `${pct}%` }} transition={{ duration: 0.6, delay: .3 + i * .08 }}
                               style={{ height: "100%", borderRadius: 99, background: t.color }} />
                           </div>
-                          <span style={{ fontSize: 13, fontWeight: 800, color: t.color }}>{t.count.toLocaleString()}</span>
+                          <span style={{ fontSize: 13, fontWeight: 800, color: t.color }}>{count.toLocaleString()}</span>
                           <span style={{ fontSize: 10, color: t.color, opacity: .45 }}>{pct}%</span>
                         </div>
                       </motion.div>

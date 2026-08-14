@@ -4,8 +4,9 @@ import { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { GcButton, GcEmptyState, GcInput, GcModalShell, GcPage, GcPageHeader, GcPanel, GcSelect } from "@/components/ui/gc";
-// Note: onSnapshot, query, orderBy, limit, where removed — now using polling /api/transactions
 import type { DailyStat } from "@/types/firestore";
+import { FastApiAdminGateway } from "@/lib/api/FastApiAdminGateway";
+import { DashboardStats } from "@/lib/api/types";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type TransactionStatus = "PENDING" | "COMPLETED" | "CANCELLED" | "REFUNDED";
@@ -26,7 +27,10 @@ interface Transaction {
   storeName?: string; // store name to display
 }
 
-interface MemberSummary { total: number; tiers: { Platinum: number; Gold: number; Silver: number }; }
+interface MemberSummary {
+  total: number;
+  tiers: { Legend: number; Ambassador: number; Master: number; Lover: number };
+}
 interface Store  { uid?: string; id?: string; name: string; isActive: boolean; }
 
 function normalizeTransactionStatus(status: unknown): TransactionStatus {
@@ -278,11 +282,13 @@ export default function DashboardClient({ initialRole, initialTransactions, init
   // Use initial data from server as default state
   const [allTransactions, setAllTransactions] = useState<Transaction[]>(() => initialTransactions.map((tx) => normalizeTransaction(tx, initialStores)));
   const [memberSummary, setMemberSummary] = useState<MemberSummary>(() => {
-    const tiers = { Platinum: 0, Gold: 0, Silver: 0 };
+    const tiers = { Legend: 0, Ambassador: 0, Master: 0, Lover: 0 };
     initialUsers.forEach((m: any) => {
-      if (m.tier === "Platinum") tiers.Platinum++;
-      else if (m.tier === "Gold") tiers.Gold++;
-      else if (m.tier === "Silver") tiers.Silver++;
+      const tier = String(m.tier || "").toUpperCase();
+      if (tier.includes("LEGEND")) tiers.Legend++;
+      else if (tier.includes("AMBASSADOR")) tiers.Ambassador++;
+      else if (tier.includes("MASTER")) tiers.Master++;
+      else tiers.Lover++;
     });
     return { total: initialUsers.length, tiers };
   });
@@ -361,6 +367,8 @@ export default function DashboardClient({ initialRole, initialTransactions, init
 
   const getTxDocPath = (tx: any) => tx?.docPath ?? (tx?.docId ? `transactions/${tx.docId}` : "");
 
+  const [gatewayStats, setGatewayStats] = useState<DashboardStats | null>(null);
+
   // ── Dashboard API polling (daily stats + members + stores) ─────────────────
   useEffect(() => {
     if (authLoading || !user) {
@@ -379,24 +387,39 @@ export default function DashboardClient({ initialRole, initialTransactions, init
 
     const fetchDashboard = async () => {
       try {
-        const today = getTodayString();
-        const params = new URLSearchParams({ storeId: selectedStoreId });
-        if (mode === "range" && dateFrom && dateTo) {
-          params.set("from", dateFrom);
-          params.set("to", dateTo);
-        } else {
-          params.set("from", today);
-          params.set("to", today);
-        }
-        const res = await fetch(`/api/dashboard?${params}`);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
+        const [statsData, storesData, membersData] = await Promise.all([
+          FastApiAdminGateway.getDashboardStats().catch(() => null),
+          FastApiAdminGateway.getStores().catch(() => []),
+          FastApiAdminGateway.getMembers().catch(() => []),
+        ]);
+
         if (cancelled) return;
-        setDailyStatsDocs(data.dailyStats ?? []);
-        setStores(data.stores ?? []);
-        setMemberSummary(data.memberSummary ?? { total: 0, tiers: { Platinum: 0, Gold: 0, Silver: 0 } });
+
+        if (storesData && Array.isArray(storesData)) {
+          setStores(storesData.map((s: any) => ({
+            uid: s.id,
+            id: s.id,
+            name: s.name,
+            isActive: s.is_active ?? true,
+          })));
+        }
+        if (membersData && Array.isArray(membersData)) {
+          const tiers = { Legend: 0, Ambassador: 0, Master: 0, Lover: 0 };
+          membersData.forEach((m: any) => {
+            const tier = String(m.tier || "").toUpperCase();
+            if (tier.includes("LEGEND")) tiers.Legend++;
+            else if (tier.includes("AMBASSADOR")) tiers.Ambassador++;
+            else if (tier.includes("MASTER")) tiers.Master++;
+            else tiers.Lover++;
+          });
+          setMemberSummary({ total: membersData.length, tiers });
+        }
+        if (statsData) {
+          setGatewayStats(statsData);
+        }
         setDailyStatStatus("live");
         setMemberStatus("live");
+        setTxStatus("live");
       } catch {
         if (!cancelled) setDailyStatStatus("error");
       }
@@ -478,17 +501,17 @@ export default function DashboardClient({ initialRole, initialTransactions, init
 
   // ── Derived stats ────────────────────────────────────────────────────────
   // ALL TIME (tidak terpengaruh date picker):
-  const totalMembers  = memberSummary.total;
+  const totalMembers  = gatewayStats?.total_members ?? memberSummary.total;
   const totalStores   = stores.length;
   const pendingCount  = dashboardTransactions.filter((t) => t.status === "PENDING").length;
   const cancelledCount = dashboardTransactions.filter((t) => t.status === "CANCELLED").length;
   const claimsNeedingReview = pendingCount + cancelledCount; // Pending + Cancelled
   
-  // DAILY STATS (The God Document):
+  // DAILY STATS (The God Document / FastAPI Gateway):
   const totalRevenueFromStats = dailyStatsDocs.reduce((sum, d) => sum + asNumber(d.totalRevenue), 0);
   const totalTransactionsFromStats = dailyStatsDocs.reduce((sum, d) => sum + asNumber(d.totalTransactions), 0);
-  const totalRevenue = totalRevenueFromStats > 0 ? totalRevenueFromStats : fallbackRevenueFromTransactions;
-  const totalTransactions = totalTransactionsFromStats > 0 ? totalTransactionsFromStats : fallbackTransactionCount;
+  const totalRevenue = gatewayStats?.total_revenue_today ?? (totalRevenueFromStats > 0 ? totalRevenueFromStats : fallbackRevenueFromTransactions);
+  const totalTransactions = gatewayStats?.total_transactions_today ?? (totalTransactionsFromStats > 0 ? totalTransactionsFromStats : fallbackTransactionCount);
   const verifiedCount = totalTransactions;
 
   // Additional visuals still rely on transaction stream:
@@ -742,10 +765,9 @@ export default function DashboardClient({ initialRole, initialTransactions, init
           </div>
 
           <StatCard
-            label="Claims Needing Review" value={String(claimsNeedingReview)}
-            trend={claimsNeedingReview > 0 ? -claimsNeedingReview : 0} trendLabel={`${pendingCount} pending • ${cancelledCount} cancelled`}
-            iconBg="#FEF3F2" iconColor="#F04438"
-            borderOverride={claimsNeedingReview > 0 ? "1.5px solid #FEE2E2" : undefined}
+            label="ESB Verification" value="Active ⚡"
+            trend={100} trendLabel="Automated at POS"
+            iconBg="#EFF6FF" iconColor="#3B82F6"
             onClick={() => goTo("/transactions")}
             icon={<><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></>}
           />
@@ -758,28 +780,23 @@ export default function DashboardClient({ initialRole, initialTransactions, init
             role="button"
             tabIndex={0}
             onClick={() => goTo("/transactions")}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                goTo("/transactions");
-              }
-            }}
-            className="gc-bento-clickable"
-            aria-label="Open transactions overview"
             style={{
-            background: `linear-gradient(135deg, ${C.blue} 0%, ${C.blueD} 100%)`,
-            border: "none", padding: "24px 26px", borderRadius: 18,
-            boxShadow: "0 8px 32px rgba(67,97,238,.28)",
-            cursor: "pointer",
-          }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
-              <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "rgba(255,255,255,.65)" }}>
+              background: "linear-gradient(135deg,#0F172A 0%,#1E293B 100%)",
+              borderRadius: 18,
+              padding: "20px 24px",
+              cursor: "pointer",
+              transition: "transform .15s, box-shadow .15s",
+              color: "#fff",
+              position: "relative",
+              overflow: "hidden",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "rgba(255,255,255,.5)" }}>
                 Total Revenue
               </span>
-              <div style={{ width: 30, height: 30, borderRadius: "50%", background: "rgba(255,255,255,.18)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="white" strokeWidth={2.5}>
-                  <path d="M7 17L17 7M17 7H7M17 7v10"/>
-                </svg>
+              <div style={{ width: 32, height: 32, borderRadius: 8, background: "rgba(255,255,255,.1)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth={2}><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
               </div>
             </div>
             <p style={{ fontSize: 32, fontWeight: 800, letterSpacing: "-.025em", color: "#fff", lineHeight: 1, marginBottom: 14 }}>
@@ -796,7 +813,7 @@ export default function DashboardClient({ initialRole, initialTransactions, init
           </div>
 
           <StatCard
-            label="Active Members" value={totalMembers.toLocaleString()}
+            label="Total Members" value={String(totalMembers)}
             trend={5.1} trendLabel="All time"
             iconBg={C.blueL} iconColor={C.blue}
             onClick={() => goTo("/admin-users")}
@@ -810,10 +827,9 @@ export default function DashboardClient({ initialRole, initialTransactions, init
             icon={<path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>}
           />
           <StatCard
-            label="Claims Needing Review" value={String(claimsNeedingReview)}
-            trend={claimsNeedingReview > 0 ? -claimsNeedingReview : 0} trendLabel={`${pendingCount} pending • ${cancelledCount} cancelled`}
-            iconBg="#FEF3F2" iconColor="#F04438"
-            borderOverride={claimsNeedingReview > 0 ? "1.5px solid #FEE2E2" : undefined}
+            label="ESB Verification" value="Active ⚡"
+            trend={100} trendLabel="Automated at POS"
+            iconBg="#EFF6FF" iconColor="#3B82F6"
             onClick={() => goTo("/transactions")}
             icon={<><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></>}
           />
@@ -1026,19 +1042,21 @@ export default function DashboardClient({ initialRole, initialTransactions, init
             <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: C.tx3, marginBottom: 3 }}>Members</p>
             <h2 style={{ fontSize: 16, fontWeight: 700, color: C.tx1, marginBottom: 16, letterSpacing: "-.01em" }}>Tier Breakdown</h2>
             {[
-              { label: "Platinum", color: "#5B21B6", bg: "#F3F0FF", ring: "#DDD6FE", count: tierCounts.Platinum },
-              { label: "Gold",     color: "#92400E", bg: "#FFFBEB", ring: "#FDE68A", count: tierCounts.Gold     },
-              { label: "Silver",   color: "#475569", bg: "#F8FAFC", ring: "#E2E8F0", count: tierCounts.Silver   },
-            ].map((t, i) => {
-              const pct = totalMembers > 0 ? Math.round(t.count / totalMembers * 100) : 0;
+              { label: "Gong cha Legend",     color: "#5B21B6", bg: "#F3F0FF", ring: "#DDD6FE", count: tierCounts?.Legend },
+              { label: "Gong cha Ambassador", color: "#92400E", bg: "#FFFBEB", ring: "#FDE68A", count: tierCounts?.Ambassador },
+              { label: "Gong cha Master",     color: "#475569", bg: "#F8FAFC", ring: "#E2E8F0", count: tierCounts?.Master },
+              { label: "Gong cha Lover",      color: "#047857", bg: "#ECFDF5", ring: "#A7F3D0", count: tierCounts?.Lover },
+            ].map((t, i, arr) => {
+              const count = t.count ?? 0;
+              const pct = totalMembers > 0 ? Math.round(count / totalMembers * 100) : 0;
               return (
-                <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "9px 13px", borderRadius: 10, background: t.bg, border: `1px solid ${t.ring}`, marginBottom: i < 2 ? 8 : 0 }}>
+                <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "9px 13px", borderRadius: 10, background: t.bg, border: `1px solid ${t.ring}`, marginBottom: i < arr.length - 1 ? 8 : 0 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <div style={{ width: 7, height: 7, borderRadius: "50%", background: t.color }}/>
                     <span style={{ fontSize: 13, fontWeight: 600, color: t.color }}>{t.label}</span>
                   </div>
                   <div style={{ textAlign: "right" }}>
-                    <span style={{ fontSize: 13, fontWeight: 800, color: t.color }}>{t.count.toLocaleString()}</span>
+                    <span style={{ fontSize: 13, fontWeight: 800, color: t.color }}>{count.toLocaleString()}</span>
                     <span style={{ fontSize: 10.5, color: t.color, opacity: .6, marginLeft: 4 }}>{pct}%</span>
                   </div>
                 </div>

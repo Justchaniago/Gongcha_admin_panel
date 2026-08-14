@@ -65,7 +65,7 @@ export const adminUserConverter: FirestoreDataConverter<AdminUser> = {
 // ============================================================================
 // 2. USERS & NOTIFICATIONS (Ekosistem Customer) - Collection: 'users'
 // ============================================================================
-export type UserTier = "BRONZE" | "SILVER" | "GOLD" | "Silver" | "Gold" | "Platinum";
+export type UserTier = "LOVER" | "MASTER" | "AMBASSADOR" | "LEGEND" | "Lover" | "Master" | "Ambassador" | "Legend" | "BRONZE" | "SILVER" | "GOLD" | "Platinum";
 export type UserRole = "member" | "admin";
 export type StaffRole = "cashier" | "store_manager" | "admin";
 
@@ -135,7 +135,7 @@ export const userConverter: FirestoreDataConverter<User> = {
       photoURL: data.photoURL || "",
       points: currentPoints,
       xp: lifetimePoints,
-      tier: (data.tier || "Silver") as UserTier,
+      tier: (data.tier || "Lover") as UserTier,
       vouchers: data.vouchers || data.activeVouchers || [],
       joinedDate: data.joinedDate || data.joinDate || "",
       currentPoints,

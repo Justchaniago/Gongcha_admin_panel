@@ -6,11 +6,9 @@ import {
   GcToast, GcModalShell, GcButton, GcInput,
 } from "@/components/ui/gc";
 import { useAuth } from "@/context/AuthContext";
-import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from "firebase/storage";
-import { storage } from "@/lib/firebaseClient";
 import { db } from "@/lib/firebaseClient";
 import { Promotion, promotionConverter, PromotionType } from "@/types/firestore";
-import { query, collection, orderBy, onSnapshot } from "firebase/firestore";
+import { FastApiAdminGateway } from "@/lib/api/FastApiAdminGateway";
 import { C as baseC } from "../../lib/design-tokens";
 
 const C = { ...baseC, border2: "#E5E7EB", bgSub: "#F3F4F6", blueMid: "#2563EB", blueHov: "#2563EB", bluePale: "#DBEAFE" };
@@ -88,12 +86,17 @@ function DeleteModal({ promo, onClose, onDeleted }: { promo: Promotion; onClose:
   const confirm = async () => {
     setLoading(true);
     try {
-      const r = await fetch(`/api/promotions/${promo.id}`, { method: "DELETE" });
-      const body = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(body.message ?? "Gagal menghapus.");
+      await FastApiAdminGateway.deletePromotion(promo.id);
 
       if (promo.storagePath) {
-        try { await deleteObject(ref(storage, promo.storagePath)); } catch { /* storage cleanup best-effort */ }
+        try {
+          await fetch("/api/assets", {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ target: "asset", path: promo.storagePath, confirmName: "delete", acknowledged: true }),
+          });
+        } catch { /* storage cleanup best-effort */ }
       }
 
       onDeleted(`"${promo.title}" berhasil dihapus.`);
@@ -159,22 +162,32 @@ function PromoFormModal({
   const handleFile = async (file: File) => {
     if (!file.type.startsWith("image/")) { setUploadError("File harus berupa gambar."); return; }
     setUploadError(null);
-    setUploadProgress(0);
+    setUploadProgress(10);
     try {
       const compressed = await compressImageToWebP(file);
-      const fileName = `promotions/${tab}/${Date.now()}_${file.name.replace(/\.[^.]+$/, "")}.webp`;
-      const storageRef = ref(storage, fileName);
-      const task = uploadBytesResumable(storageRef, compressed);
-      task.on(
-        "state_changed",
-        (snap) => setUploadProgress(Math.round((snap.bytesTransferred / snap.totalBytes) * 100)),
-        (err) => { setUploadError(err.message); setUploadProgress(null); },
-        async () => {
-          const url = await getDownloadURL(task.snapshot.ref);
-          setForm((p) => ({ ...p, imageUrl: url, storagePath: fileName }));
-          setUploadProgress(null);
-        },
-      );
+      const fileName = `${Date.now()}_${file.name.replace(/\.[^.]+$/, "")}.webp`;
+
+      setUploadProgress(50);
+      const formData = new FormData();
+      formData.append("action", "upload");
+      formData.append("root", "promotions");
+      formData.append("folder", tab);
+      formData.append("file", compressed, fileName);
+      formData.append("fileName", fileName);
+
+      const res = await fetch("/api/assets", {
+        method: "POST",
+        credentials: "include",
+        body: formData,
+      });
+
+      setUploadProgress(90);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.message ?? "Failed to upload image to GCloud Storage.");
+
+      setForm((p) => ({ ...p, imageUrl: data.asset.url, storagePath: `promotions/${tab}/${fileName}` }));
+      setUploadProgress(100);
+      setTimeout(() => setUploadProgress(null), 400);
     } catch (err: any) {
       setUploadError(err.message);
       setUploadProgress(null);
@@ -201,30 +214,15 @@ function PromoFormModal({
     setSaving(true);
     try {
       const payload: Record<string, unknown> = {
+        code: isEdit ? editing!.id : "promo_" + form.title.toLowerCase().replace(/[^a-z0-9]/g, "_"),
         title: form.title.trim(),
-        imageUrl: form.imageUrl,
-        storagePath: form.storagePath,
-        isActive: form.isActive,
-        type: tab,
+        subtitle: "",
+        image_url: form.imageUrl,
+        banner_type: tab === "modal_ad" ? "modal_ad" : "carousel",
+        active: form.isActive,
       };
 
-      if (isEdit) {
-        const r = await fetch(`/api/promotions/${editing!.id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        const body = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(body.message ?? "Gagal menyimpan.");
-      } else {
-        const r = await fetch("/api/promotions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...payload, order: 9999 }),
-        });
-        const body = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(body.message ?? "Gagal menyimpan.");
-      }
+      await FastApiAdminGateway.createPromotion(payload as any);
 
       onSaved(isEdit ? `"${form.title}" diperbarui.` : `"${form.title}" ditambahkan.`);
       onClose();
@@ -380,16 +378,30 @@ export default function PromotionsDesktop() {
     setToast({ msg, type });
   }, []);
 
-  // Realtime listener
-  useEffect(() => {
-    const q = query(collection(db, "promotions").withConverter(promotionConverter), orderBy("order", "asc"));
-    const unsub = onSnapshot(
-      q,
-      (snap) => { setPromos(snap.docs.map((d) => d.data())); setSyncStatus("live"); },
-      () => setSyncStatus("error"),
-    );
-    return unsub;
+  const loadPromotions = useCallback(async () => {
+    setSyncStatus("connecting");
+    try {
+      const fetchedPromos = await FastApiAdminGateway.getPromotions();
+      setPromos(fetchedPromos.map((p: any) => ({
+        id: p.id || p.code || "promo-" + Math.random(),
+        code: p.code,
+        title: p.title,
+        subtitle: p.subtitle || "",
+        imageUrl: p.image_url || "",
+        isActive: p.is_active !== false,
+        type: p.banner_type === "modal_ad" ? "modal_ad" : "carousel",
+        order: 0,
+      } as any)));
+      setSyncStatus("live");
+    } catch (err) {
+      console.error("[promos getPromotions]", err);
+      setSyncStatus("error");
+    }
   }, []);
+
+  useEffect(() => {
+    loadPromotions();
+  }, [loadPromotions]);
 
   const filtered = promos.filter((p) => p.type === activeTab);
 

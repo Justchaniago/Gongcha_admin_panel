@@ -2,12 +2,9 @@
 
 import React, { useState, useMemo, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
-import { ref, getDownloadURL, listAll } from "firebase/storage";
-import { db, storage } from "@/lib/firebaseClient";
 import { useAuth } from "@/context/AuthContext";
 import { useMobileSidebar } from "@/components/layout/AdminShell";
-import { createMenu, updateMenu, deleteMenu } from "@/actions/menuActions";
+import { FastApiAdminGateway } from "@/lib/api/FastApiAdminGateway";
 import {
   Menu as MenuIcon, Search, Coffee, Plus, X,
   ChevronRight, Edit3, Trash2, CheckCircle2, XCircle,
@@ -156,33 +153,23 @@ function StoragePickerSheet({
     setLoading(true);
     setError("");
     try {
-      const folders = ["product", "products"];
-      const listed  = await Promise.all(
-        folders.map(async folder => {
-          try { return (await listAll(ref(storage, folder))).items; }
-          catch { return []; }
-        }),
-      );
-      const merged = listed.flat();
-      const seen   = new Set<string>();
-      const unique = merged.filter(item => {
-        if (seen.has(item.fullPath)) return false;
-        seen.add(item.fullPath);
-        return true;
+      const res = await fetch("/api/assets?root=products", {
+        cache: "no-store",
+        credentials: "include",
       });
-      const resolved = await Promise.all(
-        [...unique].reverse().slice(0, 80).map(async itemRef => ({
-          path: itemRef.fullPath,
-          name: itemRef.name,
-          url:  await getDownloadURL(itemRef),
-        })),
-      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.message ?? "Failed to load storage gallery.");
+
+      const resolved = (data.assets || []).map((item: any) => ({
+        path: item.fullPath,
+        name: item.name,
+        url: item.url,
+      }));
+
       setImages(resolved);
-      if (resolved.length === 0) setError("No images found in /product or /products.");
+      if (resolved.length === 0) setError("No images found in GCloud Storage products folder.");
     } catch (e: any) {
-      setError(e?.code === "storage/unauthorized"
-        ? "Storage access denied. Check Firebase rules."
-        : e?.message ?? "Failed to load gallery.");
+      setError(e?.message ?? "Failed to load gallery.");
     } finally {
       setLoading(false);
     }
@@ -216,9 +203,9 @@ function StoragePickerSheet({
             {/* Header */}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 20px 12px", borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
               <div>
-                <p style={{ fontSize: 15, fontWeight: 800, color: T.tx1 }}>Firebase Storage</p>
+                <p style={{ fontSize: 15, fontWeight: 800, color: T.tx1 }}>GCloud Storage</p>
                 <p style={{ fontSize: 10, color: T.tx4, marginTop: 2 }}>
-                  {images.length > 0 ? `${images.length} images · /product & /products` : "Loading…"}
+                  {images.length > 0 ? `${images.length} images · products folder` : "Loading…"}
                 </p>
               </div>
               <div style={{ display: "flex", gap: 8 }}>
@@ -355,16 +342,29 @@ export default function MenusMobile({
     imageUrl: "", isAvailable: true, isHotAvailable: false, isLargeAvailable: true,
   });
 
-  // Firestore real-time
+  const loadMenus = async () => {
+    try {
+      const fetchedMenus = await FastApiAdminGateway.getMenus();
+      setMenus(fetchedMenus.map((m: any) => ({
+        id: m.id || m.code || "menu-" + Math.random(),
+        code: m.code,
+        name: m.name,
+        description: m.description || "",
+        basePrice: (m.price_minor || 0) / 100,
+        category: m.category || "Drinks",
+        imageUrl: m.image_url || "",
+        isAvailable: m.is_active !== false,
+        isHotAvailable: true,
+        isLargeAvailable: true,
+      } as any)));
+    } catch (err) {
+      console.warn("MenusMobile getMenus:", err);
+    }
+  };
+
   useEffect(() => {
     if (loading || !user) return;
-
-    const q = query(collection(db, "products"), orderBy("name"));
-    const unsub = onSnapshot(q,
-      snap => setMenus(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
-      err  => console.warn("MenusMobile listener:", err),
-    );
-    return () => unsub();
+    loadMenus();
   }, [loading, user]);
 
   const allCats = useMemo<string[]>(() => {
@@ -409,20 +409,24 @@ export default function MenusMobile({
     if (!formData.price || isNaN(Number(formData.price))) return alert("Harga harus berupa angka");
     setFormLoading(true);
     try {
+      const menuCode = formMenu === "new" ? "item_" + formData.name.toLowerCase().replace(/[^a-z0-9]/g, "_") : ((formMenu as any)?.code || formMenu.id);
       const payload = {
+        item_id: menuCode,
+        code: menuCode,
         name:             formData.name.trim(),
-        category:         formData.category,
-        basePrice:        Number(formData.price),
+        price:            Number(formData.price),
         description:      formData.description.trim(),
-        imageUrl:         formData.imageUrl.trim(),
-        isAvailable:      formData.isAvailable,
-        isHotAvailable:   formData.isHotAvailable,
-        isLargeAvailable: formData.isLargeAvailable,
-      };
-      if (formMenu === "new") await createMenu(payload);
-      else await updateMenu(formMenu.id, payload);
+        category_id: "00000000-0000-0000-0000-000000000000",
+        is_popular: false,
+        is_new: false,
+        is_active:      formData.isAvailable,
+        imageUrl:       formData.imageUrl,
+        image_url:      formData.imageUrl,
+      } as any;
+      await FastApiAdminGateway.createMenu(payload);
       setFormMenu(null);
       setSelectedMenu(null);
+      loadMenus();
     } catch (e: any) { alert(e.message); }
     finally { setFormLoading(false); }
   };
@@ -431,7 +435,7 @@ export default function MenusMobile({
     if (!deleteConfirm) return;
     setFormLoading(true);
     try {
-      await deleteMenu(deleteConfirm.id);
+      await FastApiAdminGateway.deleteMenu(deleteConfirm.id);
       setDeleteConfirm(null);
       setSelectedMenu(null);
     } catch (e: any) { alert(e.message); }
@@ -440,7 +444,7 @@ export default function MenusMobile({
 
   const toggleAvailability = useCallback(async (m: any) => {
     if (!canManage) return;
-    try { await updateMenu(m.id, { isAvailable: !m.isAvailable }); }
+    try { await FastApiAdminGateway.updateMenu(m.id, { is_active: !m.isAvailable } as any); }
     catch { alert("Gagal update status"); }
   }, [canManage]);
 
@@ -752,7 +756,7 @@ export default function MenusMobile({
               style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, width: "100%", padding: "11px 0", borderRadius: 12, border: `1px solid ${T.border2}`, background: T.bg, color: T.tx2, fontSize: 12, fontWeight: 700, cursor: "pointer" }}
             >
               <FolderOpen size={14} color={T.tx3} />
-              Choose from Firebase Storage
+              Choose from GCloud Storage
             </button>
           </div>
 

@@ -81,7 +81,7 @@ const C = {
 } as const;
 
 const EMPTY_LISTING: AssetListing = {
-  availableRoots: [{ name: "products" }, { name: "rewards" }],
+  availableRoots: [{ name: "products" }, { name: "promotions" }, { name: "rewards" }, { name: "stores" }, { name: "general" }],
   currentRoot: "products",
   currentFolder: "",
   currentFullPath: "products",

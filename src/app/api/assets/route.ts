@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const DEFAULT_ROOT = "products";
-const KNOWN_ROOTS = ["products", "rewards"] as const;
+const KNOWN_ROOTS = ["products", "promotions", "rewards", "stores", "general"] as const;
 const SIGNED_URL_TTL_MS = 1000 * 60 * 60;
 
 type RootRecord = {

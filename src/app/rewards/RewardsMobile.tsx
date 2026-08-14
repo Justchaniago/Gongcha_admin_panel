@@ -2,10 +2,8 @@
 
 import React, { useState, useMemo, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
-import { ref, uploadBytesResumable, getDownloadURL, listAll } from "firebase/storage";
-import { db, storage } from "@/lib/firebaseClient";
-import { Reward, rewardConverter } from "@/types/firestore";
+import { Reward } from "@/types/firestore";
+import { FastApiAdminGateway } from "@/lib/api/FastApiAdminGateway";
 import { useAuth } from "@/context/AuthContext";
 import { useMobileSidebar } from "@/components/layout/AdminShell";
 import {
@@ -114,11 +112,11 @@ function StoragePickerSheet({ isOpen, currentUrl, onConfirm, onClose }: { isOpen
   const load = async () => {
     setLoading(true);
     try {
-      const listing = await listAll(ref(storage, "rewards"));
-      const resolved = await Promise.all(
-        [...listing.items].reverse().slice(0, 80).map(async r => ({ path: r.fullPath, name: r.name, url: await getDownloadURL(r) }))
-      );
-      setImages(resolved);
+      const res = await fetch("/api/assets?root=rewards", { cache: "no-store", credentials: "include" });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data?.assets) {
+        setImages(data.assets.map((item: any) => ({ path: item.fullPath, name: item.name, url: item.url })));
+      }
     } catch { /* ignore */ }
     finally { setLoading(false); }
   };
@@ -136,7 +134,7 @@ function StoragePickerSheet({ isOpen, currentUrl, onConfirm, onClose }: { isOpen
             <div style={{ width: 36, height: 4, background: T.border2, borderRadius: 10, margin: "16px auto 0", flexShrink: 0 }} />
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 20px 12px", borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
               <div>
-                <p style={{ fontSize: 15, fontWeight: 800, color: T.tx1 }}>Firebase Storage /rewards</p>
+                <p style={{ fontSize: 15, fontWeight: 800, color: T.tx1 }}>GCloud Storage /rewards</p>
                 <p style={{ fontSize: 10, color: T.tx4, marginTop: 2 }}>{images.length} images</p>
               </div>
               <div style={{ display: "flex", gap: 8 }}>
@@ -223,17 +221,33 @@ function RewardFormSheet({ reward, onClose, onSaved, showToast }: { reward: Rewa
     const file = e.target.files?.[0];
     if (!file) return;
     setProcessingImage(true);
+    setUploadProgress(10);
     try {
       const blob = await compressToWebP(file);
-      const storageRef = ref(storage, `rewards/${Date.now()}.webp`);
-      const task = uploadBytesResumable(storageRef, blob);
-      setUploadProgress(0); setProcessingImage(false);
-      task.on("state_changed",
-        s => setUploadProgress((s.bytesTransferred / s.totalBytes) * 100),
-        err => { setError(err.message); setUploadProgress(null); },
-        async () => { const url = await getDownloadURL(task.snapshot.ref); setForm(p => ({ ...p, imageUrl: url })); setUploadProgress(null); }
-      );
-    } catch (e: any) { setError(e.message); setProcessingImage(false); }
+      const fileName = `${Date.now()}.webp`;
+
+      setUploadProgress(40);
+      const formData = new FormData();
+      formData.append("action", "upload");
+      formData.append("root", "rewards");
+      formData.append("file", blob, fileName);
+      formData.append("fileName", fileName);
+
+      const res = await fetch("/api/assets", {
+        method: "POST",
+        credentials: "include",
+        body: formData,
+      });
+
+      setUploadProgress(80);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.message ?? "Failed to upload image.");
+
+      if (data?.asset?.url) setForm(p => ({ ...p, imageUrl: data.asset.url }));
+      setUploadProgress(100);
+      setTimeout(() => setUploadProgress(null), 400);
+    } catch (e: any) { setError(e.message); setUploadProgress(null); }
+    finally { setProcessingImage(false); }
   };
 
   const handleSave = async () => {
@@ -242,17 +256,16 @@ function RewardFormSheet({ reward, onClose, onSaved, showToast }: { reward: Rewa
     if (uploadProgress !== null || processingImage) { setError("Wait for image upload to finish."); return; }
     setLoading(true); setError("");
     try {
-      const method = isNew ? "POST" : "PATCH";
-      const url    = isNew ? "/api/rewards" : `/api/rewards/${reward!.id}`;
       const payload = {
-        ...(isNew ? { rewardId: form.rewardId.trim() } : {}),
-        title: form.title.trim(), description: form.description.trim(),
+        rewardId: isNew ? form.rewardId.trim() : reward!.id,
+        title: form.title.trim(),
+        description: form.description.trim(),
         pointsrequired: form.pointsrequired !== "" ? Number(form.pointsrequired) : 0,
-        isActive: form.isActive, isRedeemable: form.isRedeemable, imageUrl: form.imageUrl.trim(),
+        isActive: form.isActive,
+        imageUrl: form.imageUrl.trim(),
         category: form.category || "Beverage",
       };
-      const r = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).message ?? "Failed to save.");
+      await FastApiAdminGateway.createReward(payload);
       showToast(isNew ? "Reward added!" : "Reward updated!", "success");
       onSaved(); onClose();
     } catch (e: any) { setError(e.message); }
@@ -393,17 +406,27 @@ export default function RewardsMobile({ initialRewards = [] }: { initialRewards?
 
   const showToast = useCallback((msg: string, type: "success" | "error" = "success") => setToast({ msg, type }), []);
 
+  const loadRewards = useCallback(async () => {
+    try {
+      const fetched = await FastApiAdminGateway.getRewards();
+      setRewards(fetched.map((r: any) => ({
+        id: r.id || r.code,
+        title: r.title,
+        description: r.description || "",
+        pointsrequired: r.pointsrequired ?? r.points_required ?? 0,
+        isActive: r.isActive ?? r.is_active ?? true,
+        imageUrl: r.imageUrl || r.image_url || "",
+        category: r.category || "Beverage",
+      } as any)));
+    } catch (err) {
+      console.warn("[RewardsMobile getRewards]", err);
+    }
+  }, []);
+
   useEffect(() => {
     if (loading || !user) return;
-
-    const q = query(collection(db, "rewards_catalog").withConverter(rewardConverter), orderBy("title"));
-    const unsub = onSnapshot(
-      q,
-      snap => setRewards(snap.docs.map(d => d.data() as Reward)),
-      err => console.warn("RewardsMobile listener:", err),
-    );
-    return () => unsub();
-  }, [loading, user]);
+    loadRewards();
+  }, [loading, user, loadRewards]);
 
   const filtered = useMemo(() => rewards.filter(r => {
     const q  = search.toLowerCase();
@@ -419,10 +442,10 @@ export default function RewardsMobile({ initialRewards = [] }: { initialRewards?
     if (!deleteR) return;
     setDeleteLoading(true);
     try {
-      const res = await fetch(`/api/rewards/${deleteR.id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message);
+      await FastApiAdminGateway.deleteReward(deleteR.id);
       showToast(`"${deleteR.title}" deleted.`, "success");
       setDeleteR(null); setSelectedR(null);
+      loadRewards();
     } catch (e: any) { showToast(e.message, "error"); }
     finally { setDeleteLoading(false); }
   };

@@ -818,11 +818,16 @@ function CreateModal({ stores = [], onClose, toast, onCreated }: { stores: { id:
     setLoading(true);
     setError("");
     try {
-      const payload = accountType === "member"
-        ? { name: name.trim(), email: email.trim(), password, tier, phoneNumber: phoneNumber.trim(), role: "member" }
-        : { name: name.trim(), email: email.trim(), password, role, assignedStoreId: role === "SUPER_ADMIN" ? "" : assignedStoreId, isActive };
-
-      await createAccountAction(payload, accountType);
+      if (accountType === "staff") {
+        await FastApiAdminGateway.createAdminUser({
+          email: email.trim(),
+          name: name.trim(),
+          role,
+        });
+      } else {
+        const payload = { name: name.trim(), email: email.trim(), password, tier, phoneNumber: phoneNumber.trim(), role: "member" };
+        await createAccountAction(payload, accountType);
+      }
       toast(`${accountType === "member" ? "Member" : "Staff"} account created successfully.`, "success");
       onCreated?.();
       onClose();
@@ -1212,12 +1217,11 @@ export default function MembersDesktop({ initialUsers = [], initialStaff = [] }:
   useEffect(() => {
     if (!canManageStaff) return;
     setStaffSync("connecting");
-    fetch("/api/admin-users")
-      .then(r => r.json())
-      .then(data => {
-        setStaff(data.staff ?? []);
-        setStores(data.stores ?? []);
-        setStats(p => ({ ...p, activeStaff: (data.staff ?? []).filter((s: any) => s.isActive).length }));
+    Promise.all([FastApiAdminGateway.getAdminUsers(), FastApiAdminGateway.getStores()])
+      .then(([staffList, storeList]) => {
+        setStaff(staffList);
+        setStores(storeList.map((s: any) => ({ id: s.id || s.code, name: s.name })));
+        setStats(p => ({ ...p, activeStaff: staffList.filter((s: any) => s.isActive).length }));
         setStaffSync("live");
       })
       .catch(() => setStaffSync("error"));
